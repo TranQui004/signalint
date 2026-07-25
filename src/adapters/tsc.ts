@@ -1,6 +1,6 @@
-import { stat } from "node:fs/promises";
+import { mkdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 import { spawn } from "node:child_process";
 
 import {
@@ -58,7 +58,7 @@ export function parseTscOutput(
   return issues;
 }
 
-/** Runs the pinned TypeScript CLI for supplied files or a single directory containing tsconfig.json. */
+/** Runs the pinned TypeScript CLI as a whole-project incremental check resolved from supplied paths. */
 export async function runTsc(
   paths: readonly string[],
   options: TscRunOptions = {},
@@ -120,20 +120,63 @@ function normalizeTscDiagnostic(
 }
 
 async function createTscArgs(paths: readonly string[], cwd: string): Promise<string[]> {
-  if (paths.length === 1) {
-    const target = resolve(cwd, paths[0] ?? ".");
-    const targetStat = await stat(target);
-    if (targetStat.isDirectory()) {
-      return ["--pretty", "false", "--noEmit", "--project", resolve(target, "tsconfig.json")];
-    }
-  }
+  const projectFile = await resolveProjectFile(paths[0] ?? ".", cwd);
+  const buildInfoFile = resolve(cwd, ".signalint", "cache", "tsc.tsbuildinfo");
+  await mkdir(dirname(buildInfoFile), { recursive: true });
+  return [
+    "--pretty",
+    "false",
+    "--noEmit",
+    "--project",
+    projectFile,
+    "--incremental",
+    "--tsBuildInfoFile",
+    buildInfoFile,
+  ];
+}
 
-  return ["--pretty", "false", "--noEmit", "--skipLibCheck", ...paths];
+async function resolveProjectFile(path: string, cwd: string): Promise<string> {
+  const target = resolve(cwd, path);
+  const targetStat = await stat(target);
+  if (targetStat.isDirectory()) {
+    return resolve(target, "tsconfig.json");
+  }
+  if (/^tsconfig(?:\.[^/\\]+)?\.json$/.test(basename(target))) {
+    return target;
+  }
+  return findClosestProjectFile(dirname(target), cwd);
+}
+
+async function findClosestProjectFile(directory: string, boundary: string): Promise<string> {
+  let current = directory;
+  const resolvedBoundary = resolve(boundary);
+  while (true) {
+    const candidate = resolve(current, "tsconfig.json");
+    try {
+      if ((await stat(candidate)).isFile()) {
+        return candidate;
+      }
+    } catch (error: unknown) {
+      if (!isMissingFileError(error)) {
+        throw error;
+      }
+    }
+
+    const parent = dirname(current);
+    if (current === parent || current === resolvedBoundary) {
+      return resolve(resolvedBoundary, "tsconfig.json");
+    }
+    current = parent;
+  }
 }
 
 function normalizeFile(file: string, cwd: string): string {
   const absoluteFile = isAbsolute(file) ? file : resolve(cwd, file);
   return relative(cwd, absoluteFile).replaceAll("\\", "/");
+}
+
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 async function runTscProcess(

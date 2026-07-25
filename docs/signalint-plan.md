@@ -157,8 +157,21 @@ Track every deviation from the original schema here, in order, so anyone reading
 
 - Key: `sha256(file content) + engine name + engine config hash`
 - Store: SQLite table `cache(key TEXT PRIMARY KEY, result JSON, timestamp INTEGER)`
-- On `check_files`: compute hash per file; if hash matches cache entry, reuse cached issues for that file; only re-run engine on changed files.
 - Cache invalidation: engine config hash changes (e.g., `.oxlintrc` edited) → invalidate all entries for that engine.
+
+### 9.1 Per-Engine Invocation Strategy (amended Phase 2)
+
+**The original "only re-run engine on changed files" rule does not hold uniformly across engines — it depends on whether the engine's diagnostics are file-local or whole-program.** Trigger for this amendment: real `tsc`/TypeScript 7 output produces `TS5112` when file paths are passed on the command line alongside a `tsconfig.json`, because type information is fundamentally cross-file (a change in file A can produce new diagnostics in file B even though B's own content hash is unchanged). Do not work around this with `--ignoreConfig` — that silently drops `tsconfig.json` settings (paths, strict, target, lib, jsx) and produces diagnostics that don't match the project's real build, which undermines the entire trust premise of this tool.
+
+Split invocation strategy by engine category instead:
+
+- **File-local engines (oxlint, and Biome where used for lint/format rules):** keep the original model — hash each file, only invoke the subprocess for files with a cache miss, one call per changed file (or a single batched call listing only the changed files, if the engine supports batch input).
+- **Whole-program engines (tsc):** always invoke with `--project` (never per-file flags), and rely on TypeScript's own `--incremental` mode with a persisted `.tsbuildinfo` file (stored at `.signalint/cache/tsc.tsbuildinfo`) for the compiler's internal speed. Signalint's own file-hash cache is used only to decide **whether to invoke tsc at all** for a given `check_files` call (skip the subprocess entirely if no file relevant to the TS program graph changed since the last check) — not to decide which files tsc analyzes internally. Once invoked, tsc always sees the whole project, as it must to be correct.
+
+This means the Phase 2 acceptance criteria (Section 13) apply differently per engine:
+
+- For oxlint: assert the subprocess is invoked once per changed file (or once total with only changed files as input, depending on final adapter design) — the original assertion.
+- For tsc: assert the subprocess is invoked **at most once per `check_files` call**, and **not invoked at all** when no file relevant to the TS program changed since the last check. Do not assert "one call per changed file" for tsc — that requirement was based on an incorrect assumption about how type-checking works and should be removed for this engine.
 
 ## 10. Clustering Algorithm (v1, heuristic — no ML needed)
 
@@ -221,8 +234,8 @@ Each phase must pass its acceptance criteria before proceeding. **Phases 0-6 are
 - Acceptance: unit tests confirm both adapters correctly parse known sample outputs into valid Normalized Issue arrays; `check_project` tool (raw, unclustered) works end-to-end on a real sample repo.
 
 ### Phase 2 — Caching Layer (1 day)
-- Tasks: implement `cache/sqliteCache.ts`; wire into adapters so `check_files` only re-runs engines on changed files.
-- Acceptance: benchmark test proves a re-check of 2 unchanged files + 1 changed file out of a 50-file fixture repo completes in <300ms and only invokes the engine subprocess for the changed file (verify via call-count assertion, not just timing).
+- Tasks: implement `cache/sqliteCache.ts`; wire into adapters per the per-engine invocation strategy in Section 9.1 (file-local engines like oxlint are re-run only on changed files; tsc is invoked whole-project via `--project` + its own `--incremental`/`.tsbuildinfo`, skipped entirely when nothing TS-relevant changed).
+- Acceptance: benchmark test proves a re-check of 2 unchanged files + 1 changed file out of a 50-file fixture repo completes in <300ms. Verify via call-count assertion (not timing alone), with per-engine expectations: oxlint invoked only for the changed file; tsc invoked at most once for the whole call, and not invoked at all when no TS-relevant file changed since the prior check.
 
 ### Phase 3 — Clustering & Prioritization (1.5 days)
 - Tasks: implement `cluster/clusterEngine.ts` per Section 10; wire into `check_project`/`check_files` response building.

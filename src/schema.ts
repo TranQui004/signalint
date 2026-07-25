@@ -27,12 +27,23 @@ export interface Cluster {
   sampleIssueIds: string[];
 }
 
+export interface LoopWarning {
+  signature: string;
+  occurrences: number;
+  hint: string;
+}
+
+export interface LoopStatus {
+  looping: boolean;
+  signatures: LoopWarning[];
+}
+
 export interface CheckResponse {
   status: "clean" | "issues_found";
   totalIssues: number;
   clusters: Cluster[];
   truncated: boolean;
-  loopWarning: null;
+  loopWarning: LoopWarning | null;
 }
 
 /** Converts an engine message to the schema's single-line, approximately 120-character form. */
@@ -102,7 +113,17 @@ export function isCheckResponse(value: unknown): value is CheckResponse {
     Array.isArray(value.clusters) &&
     value.clusters.every(isCluster) &&
     typeof value.truncated === "boolean" &&
-    value.loopWarning === null
+    (value.loopWarning === null || isLoopWarning(value.loopWarning))
+  );
+}
+
+/** Returns whether an unknown value exactly satisfies the Phase 4 loop-status shape. */
+export function isLoopStatus(value: unknown): value is LoopStatus {
+  return (
+    isRecord(value) &&
+    typeof value.looping === "boolean" &&
+    Array.isArray(value.signatures) &&
+    value.signatures.every(isLoopWarning)
   );
 }
 
@@ -121,6 +142,15 @@ function isCluster(value: unknown): value is Cluster {
     typeof value.suggestedAction === "string" &&
     Array.isArray(value.sampleIssueIds) &&
     value.sampleIssueIds.every((issueId) => typeof issueId === "string")
+  );
+}
+
+function isLoopWarning(value: unknown): value is LoopWarning {
+  return (
+    isRecord(value) &&
+    typeof value.signature === "string" &&
+    Number.isInteger(value.occurrences) &&
+    typeof value.hint === "string"
   );
 }
 

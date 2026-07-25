@@ -1,0 +1,148 @@
+import { readFile, rm } from "node:fs/promises";
+import { resolve } from "node:path";
+
+import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
+import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { afterEach, describe, expect, it } from "vitest";
+
+import { createServer } from "../src/index.js";
+import {
+  createIssueSignature,
+  normalizeSignatureMessage,
+  SessionMemory,
+} from "../src/memory/sessionMemory.js";
+import {
+  isCheckResponse,
+  isLoopStatus,
+  type CheckResponse,
+  type LoopStatus,
+  type NormalizedIssue,
+} from "../src/schema.js";
+
+const logPath = resolve(".signalint/test/session-memory.jsonl");
+const clients: Client[] = [];
+const servers: Server[] = [];
+
+afterEach(async () => {
+  await Promise.all(clients.map((client) => client.close()));
+  await Promise.all(servers.map((server) => server.close()));
+  clients.length = 0;
+  servers.length = 0;
+  await rm(logPath, { force: true });
+});
+
+describe("Session Memory", () => {
+  it("normalizes changing identifiers and numeric locations into one signature", () => {
+    const first = makeIssue(
+      "A",
+      "no-unused-vars",
+      "Variable 'firstName' is unused at line 42",
+    );
+    const second = makeIssue(
+      "B",
+      "no-unused-vars",
+      "Variable 'otherName' is unused at line 99",
+    );
+
+    expect(normalizeSignatureMessage(first.message)).toBe(
+      "variable <identifier> is unused at line <number>",
+    );
+    expect(createIssueSignature(first)).toBe(createIssueSignature(second));
+  });
+
+  it("flags the second A-B oscillation through the real MCP handlers", async () => {
+    await rm(logPath, { force: true });
+    const issueA = makeIssue("A", "rule-a", "Variable 'alpha' failed at line 10");
+    const issueB = makeIssue("B", "rule-b", "Property 'beta' failed at line 20");
+    const sequence = [[issueA], [issueB], [issueA], [issueB], [issueA]];
+    let sequenceIndex = 0;
+    let timestamp = 1000;
+    const sessionMemory = new SessionMemory({
+      logPath,
+      now: () => {
+        timestamp += 1;
+        return timestamp;
+      },
+    });
+    const server = createServer({
+      fileIssueProvider: () => Promise.resolve(sequence[sequenceIndex++] ?? []),
+      sessionMemory,
+    });
+    servers.push(server);
+    const client = await connectClient(server);
+
+    const responses: CheckResponse[] = [];
+    for (let index = 0; index < sequence.length; index += 1) {
+      responses.push(await callCheckFiles(client));
+    }
+    const status = await callLoopStatus(client);
+    const logLines = (await readFile(logPath, "utf8")).trim().split(/\r?\n/);
+
+    expect(responses[2]?.loopWarning).toBeNull();
+    expect(responses[4]?.loopWarning).toMatchObject({
+      signature: createIssueSignature(issueA),
+      occurrences: 2,
+    });
+    expect(status.looping).toBe(true);
+    expect(status.signatures).toHaveLength(1);
+    expect(status.signatures[0]?.signature).toBe(createIssueSignature(issueA));
+    expect(logLines).toHaveLength(5);
+    console.info(JSON.stringify({ firstOscillation: responses[2], secondOscillation: responses[4], status }));
+  });
+});
+
+async function connectClient(server: Server): Promise<Client> {
+  const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+  await server.connect(serverTransport);
+  const client = new Client({ name: "signalint-phase-4-test", version: "1.0.0" });
+  await client.connect(clientTransport);
+  clients.push(client);
+  return client;
+}
+
+async function callCheckFiles(client: Client): Promise<CheckResponse> {
+  const result = await client.callTool({
+    name: "check_files",
+    arguments: { files: ["src/example.ts"] },
+  });
+  const parsed = parseTextContent(result.content);
+  if (!isCheckResponse(parsed)) {
+    throw new Error("check_files did not return a Check Response.");
+  }
+  return parsed;
+}
+
+async function callLoopStatus(client: Client): Promise<LoopStatus> {
+  const result = await client.callTool({ name: "get_loop_status", arguments: {} });
+  const parsed = parseTextContent(result.content);
+  if (!isLoopStatus(parsed)) {
+    throw new Error("get_loop_status did not return a Loop Status.");
+  }
+  return parsed;
+}
+
+function parseTextContent(content: unknown): unknown {
+  if (!Array.isArray(content) || !isRecord(content[0]) || typeof content[0].text !== "string") {
+    throw new Error("MCP tool did not return text content.");
+  }
+  return JSON.parse(content[0].text) as unknown;
+}
+
+function makeIssue(issueId: string, rule: string, message: string): NormalizedIssue {
+  return {
+    issueId,
+    file: "src/example.ts",
+    line: 1,
+    col: 1,
+    engine: "oxlint",
+    rule,
+    severity: "error",
+    message,
+    fixable: false,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}

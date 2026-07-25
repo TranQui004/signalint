@@ -13,7 +13,14 @@ import { runOxlint } from "./adapters/oxlint.js";
 import { runTsc } from "./adapters/tsc.js";
 import { checkFiles } from "./checkFiles.js";
 import { clusterIssues } from "./cluster/clusterEngine.js";
+import { SessionMemory } from "./memory/sessionMemory.js";
 import type { CheckResponse, NormalizedIssue } from "./schema.js";
+
+export interface SignalintServerOptions {
+  fileIssueProvider?: (files: readonly string[]) => Promise<NormalizedIssue[]>;
+  projectIssueProvider?: (paths: readonly string[]) => Promise<NormalizedIssue[]>;
+  sessionMemory?: SessionMemory;
+}
 
 const tools = [
   {
@@ -53,10 +60,18 @@ const tools = [
       additionalProperties: false,
     },
   },
+  {
+    name: "get_loop_status",
+    description: "Returns diagnostic signatures that are looping in this server session.",
+    inputSchema: {
+      type: "object" as const,
+      additionalProperties: false,
+    },
+  },
 ];
 
-/** Creates the Signalint MCP server and assumes engine paths resolve from this package. */
-export function createServer(): Server {
+/** Creates the Signalint MCP server with process-lifetime loop memory and optional test providers. */
+export function createServer(options: SignalintServerOptions = {}): Server {
   const server = new Server(
     {
       name: "signalint",
@@ -69,7 +84,10 @@ export function createServer(): Server {
     },
   );
 
-  registerToolHandlers(server);
+  const sessionMemory = options.sessionMemory ?? new SessionMemory();
+  const projectIssueProvider = options.projectIssueProvider ?? collectProjectIssues;
+  const fileIssueProvider = options.fileIssueProvider ?? checkFiles;
+  registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider);
   return server;
 }
 
@@ -85,16 +103,28 @@ export async function checkProject(
   paths: readonly string[],
   cwd: string = process.cwd(),
 ): Promise<CheckResponse> {
+  return clusterIssues(await collectProjectIssues(paths, cwd)).response;
+}
+
+/** Runs both adapters and returns sorted raw issues for clustering and session memory. */
+export async function collectProjectIssues(
+  paths: readonly string[],
+  cwd: string = process.cwd(),
+): Promise<NormalizedIssue[]> {
   const [oxlintIssues, tscIssues] = await Promise.all([
     runOxlint(paths, { cwd }),
     runTsc(paths, { cwd }),
   ]);
-  const issues = [...oxlintIssues, ...tscIssues].sort(compareIssues);
-  return clusterIssues(issues).response;
+  return [...oxlintIssues, ...tscIssues].sort(compareIssues);
 }
 
-/** Registers the Phase 0 and Phase 1 MCP tool handlers on a configured server. */
-function registerToolHandlers(server: Server): void {
+/** Registers all available MCP tool handlers on a configured server and session memory. */
+function registerToolHandlers(
+  server: Server,
+  sessionMemory: SessionMemory,
+  projectIssueProvider: (paths: readonly string[]) => Promise<NormalizedIssue[]>,
+  fileIssueProvider: (files: readonly string[]) => Promise<NormalizedIssue[]>,
+): void {
   server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
     if (request.params.name === "ping") {
@@ -102,17 +132,25 @@ function registerToolHandlers(server: Server): void {
     }
     if (request.params.name === "check_project") {
       const paths = readStringArray(request.params.arguments, "paths", ["."]);
-      const response = await checkProject(paths);
+      const issues = await projectIssueProvider(paths);
+      const clustered = clusterIssues(issues);
+      const response = await sessionMemory.recordCheck(clustered.issues, clustered.response);
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
       };
     }
     if (request.params.name === "check_files") {
       const files = readStringArray(request.params.arguments, "files");
-      const issues = await checkFiles(files);
-      const response = clusterIssues(issues).response;
+      const issues = await fileIssueProvider(files);
+      const clustered = clusterIssues(issues);
+      const response = await sessionMemory.recordCheck(clustered.issues, clustered.response);
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
+      };
+    }
+    if (request.params.name === "get_loop_status") {
+      return {
+        content: [{ type: "text", text: JSON.stringify(sessionMemory.getStatus(), null, 2) }],
       };
     }
     return {

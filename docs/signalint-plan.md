@@ -132,7 +132,7 @@ A developer using an AI coding agent (Claude Code, Cursor, etc.) on a JS/TS repo
 {
   "status": "clean | issues_found",
   "totalIssues": 37,
-  "clusters": ["...array of Cluster, sorted by priority desc, max 10 by default..."],
+  "clusters": ["...array of Cluster, sorted by priority ascending — priority 1 (highest urgency) first, max 10 by default..."],
   "truncated": true,
   "loopWarning": null
 }
@@ -143,6 +143,7 @@ A developer using an AI coding agent (Claude Code, Cursor, etc.) on a JS/TS repo
 Track every deviation from the original schema here, in order, so anyone reading this plan later understands why the schema doesn't match Section 7's first draft.
 
 - **2026-07 (Phase 1):** `clusterId` changed from required-string to optional-string; `fixable` rule clarified to require structured fix data, not just presence of help text. Trigger: real Oxlint 1.75.0 output didn't match the original assumptions (no `fixable` field at all, and `clusterId` obviously can't exist before Phase 3 runs).
+- **2026-07 (Phase 3, pre-implementation):** fixed a genuine contradiction between Section 10 ("priority 1 = highest") and Section 7.3 ("sorted by priority desc"), which would have sorted the least urgent cluster first. Resolved by keeping "1 = highest" and specifying ascending sort explicitly in both sections. Caught by the coding agent before implementation, not after.
 
 ## 8. MCP Tools Specification
 
@@ -178,7 +179,7 @@ This means the Phase 2 acceptance criteria (Section 13) apply differently per en
 1. Group raw issues by `rule` first.
 2. Within a rule group, if issue count > 3 and files > 2, treat as one cluster (likely a systemic/mechanical issue).
 3. Rule groups with 1-3 issues remain as individual clusters (likely need individual attention).
-4. Priority scoring: `severity=error` + `fixable=false` → priority 1 (highest); mechanical/fixable clusters → priority 3-5 (lower urgency, can batch-fix).
+4. Priority scoring: **lower number = higher urgency** (like P1/P2 in bug tracking, not a 1-5 star rating). `severity=error` + `fixable=false` → priority 1 (highest, surfaced first); mechanical/fixable clusters → priority 3-5 (lower urgency, can batch-fix). Response ordering is always ascending by this number — see Section 7.3.
 5. `rootCauseSummary` generated via simple template, not LLM call, to keep v1 fast and dependency-free: `"{issueCount} {rule} issues across {fileCount} files"`.
 
 ## 11. Loop Detection (Session Memory) — narrow scope

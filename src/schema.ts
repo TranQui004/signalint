@@ -16,6 +16,25 @@ export interface NormalizedIssue {
   clusterId?: string;
 }
 
+export interface Cluster {
+  clusterId: string;
+  rootCauseSummary: string;
+  ruleIds: string[];
+  issueCount: number;
+  fileCount: number;
+  priority: number;
+  suggestedAction: string;
+  sampleIssueIds: string[];
+}
+
+export interface CheckResponse {
+  status: "clean" | "issues_found";
+  totalIssues: number;
+  clusters: Cluster[];
+  truncated: boolean;
+  loopWarning: null;
+}
+
 /** Converts an engine message to the schema's single-line, approximately 120-character form. */
 export function normalizeIssueMessage(message: string): string {
   const oneLine = message.replace(/\s+/g, " ").trim();
@@ -69,6 +88,39 @@ export function isNormalizedIssue(value: unknown): value is NormalizedIssue {
     value.message.length <= 120 &&
     typeof value.fixable === "boolean" &&
     (value.clusterId === undefined || typeof value.clusterId === "string")
+  );
+}
+
+/** Returns whether an unknown value exactly satisfies the Phase 3 Check Response shape. */
+export function isCheckResponse(value: unknown): value is CheckResponse {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    (value.status === "clean" || value.status === "issues_found") &&
+    Number.isInteger(value.totalIssues) &&
+    Array.isArray(value.clusters) &&
+    value.clusters.every(isCluster) &&
+    typeof value.truncated === "boolean" &&
+    value.loopWarning === null
+  );
+}
+
+function isCluster(value: unknown): value is Cluster {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.clusterId === "string" &&
+    typeof value.rootCauseSummary === "string" &&
+    Array.isArray(value.ruleIds) &&
+    value.ruleIds.every((rule) => typeof rule === "string") &&
+    Number.isInteger(value.issueCount) &&
+    Number.isInteger(value.fileCount) &&
+    Number.isInteger(value.priority) &&
+    typeof value.suggestedAction === "string" &&
+    Array.isArray(value.sampleIssueIds) &&
+    value.sampleIssueIds.every((issueId) => typeof issueId === "string")
   );
 }
 

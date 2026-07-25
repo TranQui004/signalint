@@ -12,7 +12,8 @@ import {
 import { runOxlint } from "./adapters/oxlint.js";
 import { runTsc } from "./adapters/tsc.js";
 import { checkFiles } from "./checkFiles.js";
-import type { NormalizedIssue } from "./schema.js";
+import { clusterIssues } from "./cluster/clusterEngine.js";
+import type { CheckResponse, NormalizedIssue } from "./schema.js";
 
 const tools = [
   {
@@ -25,7 +26,7 @@ const tools = [
   },
   {
     name: "check_project",
-    description: "Runs raw, unclustered Oxlint and TypeScript diagnostics for project paths.",
+    description: "Runs and clusters Oxlint and TypeScript diagnostics for project paths.",
     inputSchema: {
       type: "object" as const,
       properties: {
@@ -79,16 +80,17 @@ export async function startServer(): Promise<void> {
   await server.connect(transport);
 }
 
-/** Runs both Phase 1 adapters and returns raw issues without cluster fields. */
+/** Runs both adapters and returns the compact clustered project response. */
 export async function checkProject(
   paths: readonly string[],
   cwd: string = process.cwd(),
-): Promise<NormalizedIssue[]> {
+): Promise<CheckResponse> {
   const [oxlintIssues, tscIssues] = await Promise.all([
     runOxlint(paths, { cwd }),
     runTsc(paths, { cwd }),
   ]);
-  return [...oxlintIssues, ...tscIssues].sort(compareIssues);
+  const issues = [...oxlintIssues, ...tscIssues].sort(compareIssues);
+  return clusterIssues(issues).response;
 }
 
 /** Registers the Phase 0 and Phase 1 MCP tool handlers on a configured server. */
@@ -100,16 +102,17 @@ function registerToolHandlers(server: Server): void {
     }
     if (request.params.name === "check_project") {
       const paths = readStringArray(request.params.arguments, "paths", ["."]);
-      const issues = await checkProject(paths);
+      const response = await checkProject(paths);
       return {
-        content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
       };
     }
     if (request.params.name === "check_files") {
       const files = readStringArray(request.params.arguments, "files");
       const issues = await checkFiles(files);
+      const response = clusterIssues(issues).response;
       return {
-        content: [{ type: "text", text: JSON.stringify(issues, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
       };
     }
     return {

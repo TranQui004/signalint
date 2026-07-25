@@ -4,7 +4,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { isNormalizedIssue, type NormalizedIssue } from "../src/schema.js";
+import { isCheckResponse, type CheckResponse } from "../src/schema.js";
 
 const clients: Client[] = [];
 
@@ -30,23 +30,24 @@ describe("check_project MCP integration", () => {
       name: "check_project",
       arguments: { paths: ["test/fixtures/sample-project"] },
     });
-    const issues = readIssues(result.content);
+    const response = readResponse(result.content);
 
-    expect(issues).toHaveLength(2);
-    expect(issues.map((issue) => issue.engine)).toEqual(["oxlint", "tsc"]);
-    expect(issues.every(isNormalizedIssue)).toBe(true);
-    expect(issues.every((issue) => issue.clusterId === undefined)).toBe(true);
+    expect(response.status).toBe("issues_found");
+    expect(response.totalIssues).toBe(2);
+    expect(response.clusters).toHaveLength(2);
+    expect(response.clusters.map((cluster) => cluster.priority)).toEqual([1, 2]);
+    expect(response.clusters.every((cluster) => cluster.clusterId !== "")).toBe(true);
   });
 });
 
-function readIssues(content: unknown): NormalizedIssue[] {
+function readResponse(content: unknown): CheckResponse {
   if (!Array.isArray(content) || !isRecord(content[0]) || typeof content[0].text !== "string") {
     throw new Error("check_project did not return text content.");
   }
 
   const parsed: unknown = JSON.parse(content[0].text);
-  if (!Array.isArray(parsed) || !parsed.every(isNormalizedIssue)) {
-    throw new Error("check_project did not return Normalized Issue objects.");
+  if (!isCheckResponse(parsed)) {
+    throw new Error("check_project did not return a Check Response.");
   }
   return parsed;
 }

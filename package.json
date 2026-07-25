@@ -3,24 +3,62 @@
   "version": "0.1.0",
   "description": "Agent-optimized code feedback MCP server for JavaScript and TypeScript projects.",
   "type": "module",
-  "private": true,
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TranQui004/signalint.git"
+  },
+  "homepage": "https://github.com/TranQui004/signalint#readme",
+  "bugs": {
+    "url": "https://github.com/TranQui004/signalint/issues"
+  },
+  "keywords": [
+    "mcp",
+    "lint",
+    "typescript",
+    "oxlint",
+    "biome"
+  ],
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    }
+  },
+  "bin": {
+    "signalint-mcp": "./dist/src/index.js",
+    "signalint": "./dist/src/cli.js"
+  },
+  "files": [
+    "dist/src",
+    "examples",
+    "signalint.config.json",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
-    "node": ">=20"
+    "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "lint": "oxlint src test --ignore-pattern test/fixtures",
     "start": "node dist/src/index.js",
-    "test": "pnpm run build && vitest run"
+    "test": "pnpm run build && vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepack": "tsc -p tsconfig.json"
   },
   "dependencies": {
+    "@biomejs/biome": "2.5.5",
     "@modelcontextprotocol/sdk": "1.29.0",
-    "better-sqlite3": "13.0.1",
-    "oxlint": "1.75.0"
+    "better-sqlite3": "12.6.2",
+    "oxlint": "1.75.0",
+    "typescript": "7.0.2"
   },
   "devDependencies": {
     "@types/better-sqlite3": "7.6.13",
     "@types/node": "26.1.1",
-    "typescript": "7.0.2",
     "vitest": "4.1.10"
   },
   "packageManager": "pnpm@11.9.0"

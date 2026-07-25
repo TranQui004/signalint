@@ -1,0 +1,12 @@
+{
+  "engines": {
+    "oxlint": true,
+    "tsc": true,
+    "biome": false
+  },
+  "ignore": [
+    "node_modules/**",
+    "dist/**",
+    ".signalint/**"
+  ]
+}

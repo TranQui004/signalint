@@ -1,0 +1,8 @@
+{
+  "engines": {
+    "oxlint": false,
+    "tsc": false,
+    "biome": true
+  },
+  "ignore": ["src/ignored.ts"]
+}

@@ -3,15 +3,17 @@ import { readFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { runOxlint } from "./adapters/oxlint.js";
+import { runBiome } from "./adapters/biome.js";
 import { runTsc } from "./adapters/tsc.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
+import type { EngineSelection } from "./config.js";
 import {
   createIssueId,
   type IssueEngine,
   type NormalizedIssue,
 } from "./schema.js";
 
-export type CacheEngine = Extract<IssueEngine, "oxlint" | "tsc">;
+export type CacheEngine = IssueEngine;
 
 export interface EngineRunOptions {
   cwd?: string;
@@ -29,12 +31,14 @@ export type WholeProgramRunner = (
 export interface EngineRunners {
   oxlint: EngineRunner;
   tsc: WholeProgramRunner;
+  biome: EngineRunner;
 }
 
 export interface CheckFilesOptions {
   cwd?: string;
   cache?: SqliteCache;
-  runners?: EngineRunners;
+  runners?: Partial<EngineRunners>;
+  engines?: EngineSelection;
 }
 
 interface FileSnapshot {
@@ -49,11 +53,19 @@ interface MissedFile extends FileSnapshot {
 const ENGINE_CONFIG_FILES: Record<CacheEngine, readonly string[]> = {
   oxlint: [".oxlintrc", ".oxlintrc.json", "oxlint.json"],
   tsc: ["tsconfig.json"],
+  biome: ["biome.json", "biome.jsonc"],
 };
 
 const DEFAULT_RUNNERS: EngineRunners = {
   oxlint: runOxlint,
   tsc: (options) => runTsc(["."], options),
+  biome: runBiome,
+};
+
+const DEFAULT_ENGINES: EngineSelection = {
+  oxlint: true,
+  tsc: true,
+  biome: false,
 };
 
 /** Checks files through both engines, reusing SQLite entries for unchanged content and config. */
@@ -67,16 +79,30 @@ export async function checkFiles(
 
   try {
     const snapshots = await Promise.all(files.map((file) => readSnapshot(file, cwd)));
-    const runners = options.runners ?? DEFAULT_RUNNERS;
+    const runners = { ...DEFAULT_RUNNERS, ...options.runners };
+    const engines = options.engines ?? DEFAULT_ENGINES;
     const results = await Promise.all([
-      checkFileLocalEngine(
-        "oxlint",
-        snapshots.filter((snapshot) => isOxlintRelevant(snapshot.file)),
-        cwd,
-        cache,
-        runners.oxlint,
-      ),
-      checkWholeProgramTsc(snapshots, cwd, cache, runners.tsc),
+      engines.oxlint
+        ? checkFileLocalEngine(
+            "oxlint",
+            snapshots.filter((snapshot) => isOxlintRelevant(snapshot.file)),
+            cwd,
+            cache,
+            runners.oxlint,
+          )
+        : Promise.resolve([]),
+      engines.tsc
+        ? checkWholeProgramTsc(snapshots, cwd, cache, runners.tsc)
+        : Promise.resolve([]),
+      engines.biome
+        ? checkFileLocalEngine(
+            "biome",
+            snapshots.filter((snapshot) => isBiomeRelevant(snapshot.file)),
+            cwd,
+            cache,
+            runners.biome,
+          )
+        : Promise.resolve([]),
     ]);
     return results.flat().sort(compareIssues);
   } finally {
@@ -219,6 +245,10 @@ function isTypeScriptRelevant(file: string): boolean {
 
 function isOxlintRelevant(file: string): boolean {
   return /\.[cm]?[jt]sx?$/.test(file);
+}
+
+function isBiomeRelevant(file: string): boolean {
+  return /\.(?:[cm]?[jt]sx?|jsonc?|css|g(?:raph)?ql)$/.test(file);
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

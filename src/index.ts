@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -9,10 +11,16 @@ import {
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { runBiome } from "./adapters/biome.js";
 import { runOxlint } from "./adapters/oxlint.js";
 import { runTsc } from "./adapters/tsc.js";
 import { checkFiles } from "./checkFiles.js";
 import { clusterIssues } from "./cluster/clusterEngine.js";
+import {
+  filterIgnoredPaths,
+  isIgnoredPath,
+  loadSignalintConfig,
+} from "./config.js";
 import { SessionMemory } from "./memory/sessionMemory.js";
 import type { CheckResponse, NormalizedIssue } from "./schema.js";
 
@@ -86,7 +94,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
 
   const sessionMemory = options.sessionMemory ?? new SessionMemory();
   const projectIssueProvider = options.projectIssueProvider ?? collectProjectIssues;
-  const fileIssueProvider = options.fileIssueProvider ?? checkFiles;
+  const fileIssueProvider = options.fileIssueProvider ?? checkConfiguredFiles;
   registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider);
   return server;
 }
@@ -98,7 +106,7 @@ export async function startServer(): Promise<void> {
   await server.connect(transport);
 }
 
-/** Runs both adapters and returns the compact clustered project response. */
+/** Runs configured adapters and returns the compact clustered project response. */
 export async function checkProject(
   paths: readonly string[],
   cwd: string = process.cwd(),
@@ -106,16 +114,40 @@ export async function checkProject(
   return clusterIssues(await collectProjectIssues(paths, cwd)).response;
 }
 
-/** Runs both adapters and returns sorted raw issues for clustering and session memory. */
+/** Runs enabled project adapters and excludes diagnostics matching configured ignore globs. */
 export async function collectProjectIssues(
   paths: readonly string[],
   cwd: string = process.cwd(),
 ): Promise<NormalizedIssue[]> {
-  const [oxlintIssues, tscIssues] = await Promise.all([
-    runOxlint(paths, { cwd }),
-    runTsc(paths, { cwd }),
+  const config = await loadSignalintConfig(cwd);
+  const includedPaths = filterIgnoredPaths(paths, config.ignore);
+  if (includedPaths.length === 0) {
+    return [];
+  }
+
+  const results = await Promise.all([
+    config.engines.oxlint ? runOxlint(includedPaths, { cwd }) : Promise.resolve([]),
+    config.engines.tsc ? runTsc(includedPaths, { cwd }) : Promise.resolve([]),
+    config.engines.biome ? runBiome(includedPaths, { cwd }) : Promise.resolve([]),
   ]);
-  return [...oxlintIssues, ...tscIssues].sort(compareIssues);
+  return results
+    .flat()
+    .filter((issue) => !isIgnoredPath(issue.file, config.ignore))
+    .sort(compareIssues);
+}
+
+/** Runs enabled incremental adapters and excludes requested or returned ignored paths. */
+export async function checkConfiguredFiles(
+  files: readonly string[],
+  cwd: string = process.cwd(),
+): Promise<NormalizedIssue[]> {
+  const config = await loadSignalintConfig(cwd);
+  const includedFiles = filterIgnoredPaths(files, config.ignore);
+  if (includedFiles.length === 0) {
+    return [];
+  }
+  const issues = await checkFiles(includedFiles, { cwd, engines: config.engines });
+  return issues.filter((issue) => !isIgnoredPath(issue.file, config.ignore));
 }
 
 /** Registers all available MCP tool handlers on a configured server and session memory. */

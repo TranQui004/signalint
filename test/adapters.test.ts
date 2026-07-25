@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { parseBiomeOutput } from "../src/adapters/biome.js";
 import { parseOxlintOutput } from "../src/adapters/oxlint.js";
 import { parseTscOutput } from "../src/adapters/tsc.js";
 import { isNormalizedIssue } from "../src/schema.js";
@@ -27,6 +28,22 @@ const TSC_OUTPUT = [
   "src/broken.ts(3,14): error TS2322: Type 'string' is not assignable to type",
   "  'number'.",
 ].join("\n");
+
+const BIOME_OUTPUT = JSON.stringify({
+  diagnostics: [
+    {
+      severity: "warning",
+      message: "This variable unusedValue is unused.",
+      category: "lint/correctness/noUnusedVariables",
+      location: {
+        path: "src/broken.ts",
+        start: { line: 1, column: 7 },
+        end: { line: 1, column: 18 },
+      },
+      advices: [],
+    },
+  ],
+});
 
 describe("Oxlint adapter", () => {
   it("parses known JSON output into the exact Normalized Issue schema", () => {
@@ -75,6 +92,26 @@ describe("tsc adapter", () => {
       rule: "TS2322",
       severity: "error",
       message: "Type 'string' is not assignable to type 'number'.",
+      fixable: false,
+    });
+    expect(issues[0]).not.toHaveProperty("clusterId");
+    expect(issues.every(isNormalizedIssue)).toBe(true);
+  });
+});
+
+describe("Biome adapter", () => {
+  it("parses known JSON reporter output into the exact Normalized Issue schema", () => {
+    const issues = parseBiomeOutput(BIOME_OUTPUT);
+
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      file: "src/broken.ts",
+      line: 1,
+      col: 7,
+      engine: "biome",
+      rule: "lint/correctness/noUnusedVariables",
+      severity: "warning",
+      message: "This variable unusedValue is unused.",
       fixable: false,
     });
     expect(issues[0]).not.toHaveProperty("clusterId");

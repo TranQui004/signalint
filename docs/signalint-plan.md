@@ -102,9 +102,14 @@ A developer using an AI coding agent (Claude Code, Cursor, etc.) on a JS/TS repo
   "severity": "error | warning",
   "message": "short one-line message, max ~120 chars",
   "fixable": true,
-  "clusterId": "string, assigned by Cluster Engine"
+  "clusterId": "string, optional — absent until Cluster Engine (Phase 3) assigns it"
 }
 ```
+
+**Field rules (amended during Phase 1, see Section 7.4 for the change log):**
+
+- `fixable`: set to `true` **only** when the engine provides a structured fix (a concrete replacement range/text), never merely because the engine attached help/hint text. Default to `false` when in doubt — this field feeds `suggestedAction` in Section 7.2, and overclaiming fixability there misleads the agent consuming it.
+- `clusterId`: **optional** (`clusterId?: string`), not a required field with an empty-string placeholder. Absence means "not yet clustered" (true for all Phase 1/2 output, before the Cluster Engine exists). Do not use `""` as a sentinel — treat presence/absence as the signal, not string content, to avoid ambiguity with a genuinely empty-but-valid value elsewhere in the codebase.
 
 ### 7.2 Cluster (what the agent sees by default)
 
@@ -132,6 +137,12 @@ A developer using an AI coding agent (Claude Code, Cursor, etc.) on a JS/TS repo
   "loopWarning": null
 }
 ```
+
+### 7.4 Schema Amendment Log
+
+Track every deviation from the original schema here, in order, so anyone reading this plan later understands why the schema doesn't match Section 7's first draft.
+
+- **2026-07 (Phase 1):** `clusterId` changed from required-string to optional-string; `fixable` rule clarified to require structured fix data, not just presence of help text. Trigger: real Oxlint 1.75.0 output didn't match the original assumptions (no `fixable` field at all, and `clusterId` obviously can't exist before Phase 3 runs).
 
 ## 8. MCP Tools Specification
 

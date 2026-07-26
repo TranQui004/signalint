@@ -13,11 +13,24 @@ export interface SessionMemoryOptions {
   now?: () => number;
 }
 
+export interface SessionCacheStats {
+  hits: number;
+  misses: number;
+}
+
+interface SessionLogMetrics {
+  rawPayloadBytes: number;
+  clusteredPayloadBytes: number;
+  cacheHits: number;
+  cacheMisses: number;
+}
+
 interface SessionLogEntry {
   timestamp: number;
   activeSignatures: string[];
   reappearedSignatures: string[];
   loopWarnings: LoopWarning[];
+  metrics: SessionLogMetrics;
 }
 
 export class SessionMemory {
@@ -32,27 +45,29 @@ export class SessionMemory {
     this.now = options.now ?? Date.now;
   }
 
-  /** Records one check and returns its response with the current loop warning attached. */
+  /** Records one check, its payload/cache metrics, and the current loop warning. */
   public async recordCheck(
     issues: readonly NormalizedIssue[],
     response: CheckResponse,
+    cache: SessionCacheStats = { hits: 0, misses: 0 },
   ): Promise<CheckResponse> {
     const timestamp = this.now();
     const currentSignatures = new Set(issues.map(createIssueSignature));
     const reappearedSignatures = this.recordAppearances(currentSignatures, timestamp);
     this.activeSignatures = currentSignatures;
     const status = this.getStatus();
+    const responseWithWarning: CheckResponse = {
+      ...response,
+      loopWarning: status.signatures[0] ?? null,
+    };
     await this.appendLog({
       timestamp,
       activeSignatures: [...currentSignatures].sort(),
       reappearedSignatures,
       loopWarnings: status.signatures,
+      metrics: createLogMetrics(issues, responseWithWarning, cache),
     });
-
-    return {
-      ...response,
-      loopWarning: status.signatures[0] ?? null,
-    };
+    return responseWithWarning;
   }
 
   /** Returns all signatures that disappeared and reappeared at least twice this session. */
@@ -92,6 +107,26 @@ export class SessionMemory {
     await mkdir(dirname(this.logPath), { recursive: true });
     await appendFile(this.logPath, `${JSON.stringify(entry)}\n`, "utf8");
   }
+}
+
+function createLogMetrics(
+  issues: readonly NormalizedIssue[],
+  response: CheckResponse,
+  cache: SessionCacheStats,
+): SessionLogMetrics {
+  return {
+    rawPayloadBytes: issues.length === 0
+      ? 0
+      : Buffer.byteLength(
+          JSON.stringify(issues, (key, value: unknown) =>
+            key === "clusterId" ? undefined : value,
+          ),
+          "utf8",
+        ),
+    clusteredPayloadBytes: Buffer.byteLength(JSON.stringify(response), "utf8"),
+    cacheHits: cache.hits,
+    cacheMisses: cache.misses,
+  };
 }
 
 /** Creates the narrow rule-plus-message signature used only for diagnostic loop detection. */

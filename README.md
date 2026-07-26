@@ -106,6 +106,19 @@ Run the same project check without an MCP client:
 npx --no-install signalint check .
 ```
 
+After MCP checks have accumulated in `.signalint/session.jsonl`, print the Phase 6
+measurement summary:
+
+```sh
+npx --no-install signalint stats
+```
+
+The report includes average normalized-raw-to-clustered JSON payload reduction,
+aggregate cache hit rate, and the number of distinct issue signatures that triggered
+loop warnings. Clean checks with zero raw payload are excluded from the reduction
+average, and checks made before metrics logging was added remain counted but do not
+contribute a payload or cache sample.
+
 The CLI exits with code 1 when issues are found. To exercise an actual MCP
 `check_project` call against the installed package, run:
 

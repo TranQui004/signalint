@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createCacheKey, SqliteCache } from "../src/cache/sqliteCache.js";
 import {
   checkFiles,
+  checkFilesWithStats,
   computeEngineConfigHash,
   type CacheEngine,
 } from "../src/checkFiles.js";
@@ -127,9 +128,14 @@ describe("Phase 2 acceptance benchmark", () => {
     oxlintRunner.mockClear();
     tscRunner.mockClear();
 
-    await checkFiles(checkedFiles, { cwd: fixtureRoot, cache, runners });
+    const unchangedResult = await checkFilesWithStats(checkedFiles, {
+      cwd: fixtureRoot,
+      cache,
+      runners,
+    });
     expect(oxlintRunner).not.toHaveBeenCalled();
     expect(tscRunner).not.toHaveBeenCalled();
+    expect(unchangedResult.cache).toEqual({ hits: 6, misses: 0 });
     oxlintRunner.mockClear();
     tscRunner.mockClear();
 
@@ -139,8 +145,13 @@ describe("Phase 2 acceptance benchmark", () => {
     try {
       await writeFile(changedPath, `${original}\nexport const cacheMiss = true;\n`, "utf8");
       const startedAt = performance.now();
-      await checkFiles(checkedFiles, { cwd: fixtureRoot, cache, runners });
+      const changedResult = await checkFilesWithStats(checkedFiles, {
+        cwd: fixtureRoot,
+        cache,
+        runners,
+      });
       elapsedMs = performance.now() - startedAt;
+      expect(changedResult.cache).toEqual({ hits: 4, misses: 2 });
     } finally {
       await writeFile(changedPath, original, "utf8");
     }

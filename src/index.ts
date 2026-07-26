@@ -14,7 +14,11 @@ import {
 import { runBiome } from "./adapters/biome.js";
 import { runOxlint } from "./adapters/oxlint.js";
 import { runTsc } from "./adapters/tsc.js";
-import { checkFiles } from "./checkFiles.js";
+import {
+  checkFilesWithStats,
+  type CacheStats,
+  type CheckFilesResult,
+} from "./checkFiles.js";
 import { clusterIssues } from "./cluster/clusterEngine.js";
 import {
   filterIgnoredPaths,
@@ -29,6 +33,13 @@ export interface SignalintServerOptions {
   projectIssueProvider?: (paths: readonly string[]) => Promise<NormalizedIssue[]>;
   sessionMemory?: SessionMemory;
 }
+
+interface IssueProviderResult {
+  issues: NormalizedIssue[];
+  cache: CacheStats;
+}
+
+type IssueProvider = (paths: readonly string[]) => Promise<IssueProviderResult>;
 
 const tools = [
   {
@@ -93,8 +104,12 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   );
 
   const sessionMemory = options.sessionMemory ?? new SessionMemory();
-  const projectIssueProvider = options.projectIssueProvider ?? collectProjectIssues;
-  const fileIssueProvider = options.fileIssueProvider ?? checkConfiguredFiles;
+  const projectIssueProvider = wrapIssueProvider(
+    options.projectIssueProvider ?? collectProjectIssues,
+  );
+  const fileIssueProvider = options.fileIssueProvider === undefined
+    ? (files: readonly string[]) => checkConfiguredFilesWithStats(files)
+    : wrapIssueProvider(options.fileIssueProvider);
   registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider);
   return server;
 }
@@ -141,21 +156,35 @@ export async function checkConfiguredFiles(
   files: readonly string[],
   cwd: string = process.cwd(),
 ): Promise<NormalizedIssue[]> {
+  return (await checkConfiguredFilesWithStats(files, cwd)).issues;
+}
+
+/** Runs enabled incremental adapters and returns issues plus cache metrics for session logging. */
+export async function checkConfiguredFilesWithStats(
+  files: readonly string[],
+  cwd: string = process.cwd(),
+): Promise<CheckFilesResult> {
   const config = await loadSignalintConfig(cwd);
   const includedFiles = filterIgnoredPaths(files, config.ignore);
   if (includedFiles.length === 0) {
-    return [];
+    return { issues: [], cache: { hits: 0, misses: 0 } };
   }
-  const issues = await checkFiles(includedFiles, { cwd, engines: config.engines });
-  return issues.filter((issue) => !isIgnoredPath(issue.file, config.ignore));
+  const result = await checkFilesWithStats(includedFiles, {
+    cwd,
+    engines: config.engines,
+  });
+  return {
+    issues: result.issues.filter((issue) => !isIgnoredPath(issue.file, config.ignore)),
+    cache: result.cache,
+  };
 }
 
 /** Registers all available MCP tool handlers on a configured server and session memory. */
 function registerToolHandlers(
   server: Server,
   sessionMemory: SessionMemory,
-  projectIssueProvider: (paths: readonly string[]) => Promise<NormalizedIssue[]>,
-  fileIssueProvider: (files: readonly string[]) => Promise<NormalizedIssue[]>,
+  projectIssueProvider: IssueProvider,
+  fileIssueProvider: IssueProvider,
 ): void {
   server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
@@ -164,18 +193,26 @@ function registerToolHandlers(
     }
     if (request.params.name === "check_project") {
       const paths = readStringArray(request.params.arguments, "paths", ["."]);
-      const issues = await projectIssueProvider(paths);
-      const clustered = clusterIssues(issues);
-      const response = await sessionMemory.recordCheck(clustered.issues, clustered.response);
+      const result = await projectIssueProvider(paths);
+      const clustered = clusterIssues(result.issues);
+      const response = await sessionMemory.recordCheck(
+        clustered.issues,
+        clustered.response,
+        result.cache,
+      );
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
       };
     }
     if (request.params.name === "check_files") {
       const files = readStringArray(request.params.arguments, "files");
-      const issues = await fileIssueProvider(files);
-      const clustered = clusterIssues(issues);
-      const response = await sessionMemory.recordCheck(clustered.issues, clustered.response);
+      const result = await fileIssueProvider(files);
+      const clustered = clusterIssues(result.issues);
+      const response = await sessionMemory.recordCheck(
+        clustered.issues,
+        clustered.response,
+        result.cache,
+      );
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
       };
@@ -189,6 +226,15 @@ function registerToolHandlers(
       content: [{ type: "text", text: `Unknown tool: ${request.params.name}` }],
       isError: true,
     };
+  });
+}
+
+function wrapIssueProvider(
+  provider: (paths: readonly string[]) => Promise<NormalizedIssue[]>,
+): IssueProvider {
+  return async (paths) => ({
+    issues: await provider(paths),
+    cache: { hits: 0, misses: 0 },
   });
 }
 

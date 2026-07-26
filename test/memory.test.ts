@@ -88,6 +88,16 @@ describe("Session Memory", () => {
     expect(status.signatures).toHaveLength(1);
     expect(status.signatures[0]?.signature).toBe(createIssueSignature(issueA));
     expect(logLines).toHaveLength(5);
+    const finalLogEntry: unknown = JSON.parse(logLines[4] ?? "null");
+    if (!isRecord(finalLogEntry) || !isRecord(finalLogEntry.metrics)) {
+      throw new Error("Session log did not include measurement metrics.");
+    }
+    expect(finalLogEntry.metrics).toMatchObject({
+      cacheHits: 0,
+      cacheMisses: 0,
+    });
+    expect(typeof finalLogEntry.metrics.rawPayloadBytes).toBe("number");
+    expect(typeof finalLogEntry.metrics.clusteredPayloadBytes).toBe("number");
     console.info(JSON.stringify({ firstOscillation: responses[2], secondOscillation: responses[4], status }));
   });
 });

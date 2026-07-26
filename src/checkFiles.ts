@@ -41,6 +41,16 @@ export interface CheckFilesOptions {
   engines?: EngineSelection;
 }
 
+export interface CacheStats {
+  hits: number;
+  misses: number;
+}
+
+export interface CheckFilesResult {
+  issues: NormalizedIssue[];
+  cache: CacheStats;
+}
+
 interface FileSnapshot {
   content: string;
   file: string;
@@ -48,6 +58,11 @@ interface FileSnapshot {
 
 interface MissedFile extends FileSnapshot {
   key: string;
+}
+
+interface EngineCheckResult {
+  issues: NormalizedIssue[];
+  cache: CacheStats;
 }
 
 const ENGINE_CONFIG_FILES: Record<CacheEngine, readonly string[]> = {
@@ -68,11 +83,19 @@ const DEFAULT_ENGINES: EngineSelection = {
   biome: false,
 };
 
-/** Checks files through both engines, reusing SQLite entries for unchanged content and config. */
+/** Checks files through enabled engines and returns normalized issues without instrumentation. */
 export async function checkFiles(
   files: readonly string[],
   options: CheckFilesOptions = {},
 ): Promise<NormalizedIssue[]> {
+  return (await checkFilesWithStats(files, options)).issues;
+}
+
+/** Checks files through enabled engines and reports cache lookups for session metrics. */
+export async function checkFilesWithStats(
+  files: readonly string[],
+  options: CheckFilesOptions = {},
+): Promise<CheckFilesResult> {
   const cwd = options.cwd ?? process.cwd();
   const cache = options.cache ?? new SqliteCache(resolve(cwd, ".signalint", "cache.sqlite"));
   const ownsCache = options.cache === undefined;
@@ -90,10 +113,10 @@ export async function checkFiles(
             cache,
             runners.oxlint,
           )
-        : Promise.resolve([]),
+        : Promise.resolve(emptyEngineResult()),
       engines.tsc
         ? checkWholeProgramTsc(snapshots, cwd, cache, runners.tsc)
-        : Promise.resolve([]),
+        : Promise.resolve(emptyEngineResult()),
       engines.biome
         ? checkFileLocalEngine(
             "biome",
@@ -102,9 +125,12 @@ export async function checkFiles(
             cache,
             runners.biome,
           )
-        : Promise.resolve([]),
+        : Promise.resolve(emptyEngineResult()),
     ]);
-    return results.flat().sort(compareIssues);
+    return {
+      issues: results.flatMap((result) => result.issues).sort(compareIssues),
+      cache: sumCacheStats(results.map((result) => result.cache)),
+    };
   } finally {
     if (ownsCache) {
       cache.close();
@@ -133,7 +159,7 @@ async function checkFileLocalEngine(
   cwd: string,
   cache: SqliteCache,
   runner: EngineRunner,
-): Promise<NormalizedIssue[]> {
+): Promise<EngineCheckResult> {
   const configHash = await computeEngineConfigHash(engine, cwd);
   cache.invalidateEngine(engine, configHash);
 
@@ -150,7 +176,10 @@ async function checkFileLocalEngine(
   }
 
   if (misses.length === 0) {
-    return hits;
+    return {
+      issues: hits,
+      cache: { hits: snapshots.length, misses: 0 },
+    };
   }
 
   const freshIssues = await runner(
@@ -161,7 +190,10 @@ async function checkFileLocalEngine(
     const fileIssues = freshIssues.filter((issue) => issue.file === miss.file);
     cache.set(miss.key, fileIssues);
   }
-  return [...hits, ...freshIssues];
+  return {
+    issues: [...hits, ...freshIssues],
+    cache: { hits: snapshots.length - misses.length, misses: misses.length },
+  };
 }
 
 async function checkWholeProgramTsc(
@@ -169,7 +201,7 @@ async function checkWholeProgramTsc(
   cwd: string,
   cache: SqliteCache,
   runner: WholeProgramRunner,
-): Promise<NormalizedIssue[]> {
+): Promise<EngineCheckResult> {
   const configHash = await computeEngineConfigHash("tsc", cwd);
   cache.invalidateEngine("tsc", configHash);
   const latestResult = cache.getEngineResult("tsc", configHash);
@@ -180,7 +212,10 @@ async function checkWholeProgramTsc(
   });
 
   if (latestResult !== undefined && misses.length === 0) {
-    return latestResult;
+    return {
+      issues: latestResult,
+      cache: { hits: relevantSnapshots.length, misses: 0 },
+    };
   }
 
   const freshIssues = await runner({ cwd });
@@ -189,7 +224,27 @@ async function checkWholeProgramTsc(
     cache.set(key, []);
   }
   cache.setEngineResult("tsc", configHash, freshIssues);
-  return freshIssues;
+  return {
+    issues: freshIssues,
+    cache: {
+      hits: relevantSnapshots.length - misses.length,
+      misses: misses.length,
+    },
+  };
+}
+
+function emptyEngineResult(): EngineCheckResult {
+  return { issues: [], cache: { hits: 0, misses: 0 } };
+}
+
+function sumCacheStats(stats: readonly CacheStats[]): CacheStats {
+  return stats.reduce(
+    (total, current) => ({
+      hits: total.hits + current.hits,
+      misses: total.misses + current.misses,
+    }),
+    { hits: 0, misses: 0 },
+  );
 }
 
 async function readSnapshot(file: string, cwd: string): Promise<FileSnapshot> {

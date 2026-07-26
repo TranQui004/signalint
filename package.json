@@ -36,6 +36,7 @@
     "examples",
     "signalint.config.json",
     "README.md",
+    "SECURITY.md",
     "LICENSE"
   ],
   "engines": {

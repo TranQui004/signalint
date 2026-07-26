@@ -135,3 +135,8 @@ pnpm build
 
 `npm publish` is intentionally not part of Phase 5. Use `npm pack --dry-run` and a
 fresh tarball install until the public launch is explicitly approved.
+
+## Security
+
+See [SECURITY.md](SECURITY.md) for the current npm audit advisory, its evaluated
+runtime reachability, and the conditions that require reassessment.

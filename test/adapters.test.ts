@@ -29,7 +29,21 @@ const TSC_OUTPUT = [
   "  'number'.",
 ].join("\n");
 
+// Captured from @biomejs/biome 2.5.5: `biome check --reporter=json src/broken.ts`.
 const BIOME_OUTPUT = JSON.stringify({
+  summary: {
+    changed: 0,
+    unchanged: 1,
+    matches: 0,
+    duration: 5105100,
+    errors: 0,
+    warnings: 1,
+    infos: 0,
+    skipped: 0,
+    suggestedFixesSkipped: 0,
+    diagnosticsNotPrinted: 0,
+    scannerDuration: 2436000,
+  },
   diagnostics: [
     {
       severity: "warning",
@@ -43,6 +57,7 @@ const BIOME_OUTPUT = JSON.stringify({
       advices: [],
     },
   ],
+  command: "check",
 });
 
 describe("Oxlint adapter", () => {

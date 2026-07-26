@@ -449,3 +449,5 @@ A read-only local web page, served by the MCP server itself on an opt-in local p
 - **Loop warnings** — timeline of any loop warnings raised in the current session, with the issue signature and occurrence count.
 
 No write actions in v1 — this is a debugging/visibility companion for the human, not a control panel. Do not add authentication/remote access in v1; it binds to localhost only.
+
+**Security gate before starting this phase:** `SECURITY.md` (written during Phase 5) documents that the project's current npm audit exception (`GHSA-frvp-7c67-39w9`, a moderate advisory in `@hono/node-server`'s `serveStatic` path) only holds because Signalint runs stdio-only, with no HTTP listener and no static file serving. This dashboard is exactly the kind of change that invalidates that reasoning — it introduces a local HTTP server. Before implementing Phase 8, re-run the audit-path analysis from `SECURITY.md` against whatever HTTP mechanism the dashboard actually uses (the MCP SDK's `streamableHttp.js`, a separate lightweight server, etc.) and update `SECURITY.md` accordingly. Do not assume the earlier "stdio-only, not affected" conclusion still applies.

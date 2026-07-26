@@ -25,6 +25,7 @@ describe("signalint stats CLI", () => {
           clusteredPayloadBytes: 25,
           cacheHits: 3,
           cacheMisses: 1,
+          latencyMs: 40,
         },
       })}\n`,
       "utf8",
@@ -36,7 +37,10 @@ describe("signalint stats CLI", () => {
       expect.stringContaining("Average payload reduction: 75.0%"),
     );
     expect(stdout).toHaveBeenCalledWith(
-      expect.stringContaining("Cache hit rate: 75.0%"),
+      expect.stringContaining("Engine-file cache hit rate: 75.0%"),
+    );
+    expect(stdout).toHaveBeenCalledWith(
+      expect.stringContaining("Average check latency: 40.0ms"),
     );
     expect(stdout).toHaveBeenCalledWith(
       expect.stringContaining("Loop warnings triggered: 0"),

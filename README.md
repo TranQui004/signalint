@@ -114,10 +114,14 @@ npx --no-install signalint stats
 ```
 
 The report includes average normalized-raw-to-clustered JSON payload reduction,
-aggregate cache hit rate, and the number of distinct issue signatures that triggered
-loop warnings. Clean checks with zero raw payload are excluded from the reduction
-average, and checks made before metrics logging was added remain counted but do not
-contribute a payload or cache sample.
+engine-file cache hit rate, average and maximum check latency, and the number of
+distinct issue signatures that triggered loop warnings. An engine-file lookup counts
+each enabled engine separately, so one changed TypeScript file can miss once for
+Oxlint and once for tsc. Latency covers handler work from MCP tool entry through
+engine/cache work, clustering, and loop evaluation; it excludes the telemetry append
+and stdio transport. Clean checks with zero raw payload are excluded from the
+reduction average, and older checks with missing metrics remain counted without
+contributing to the unavailable aggregate.
 
 The CLI exits with code 1 when issues are found. To exercise an actual MCP
 `check_project` call against the installed package, run:

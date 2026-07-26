@@ -1,5 +1,6 @@
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 
 import type {
   CheckResponse,
@@ -23,6 +24,7 @@ interface SessionLogMetrics {
   clusteredPayloadBytes: number;
   cacheHits: number;
   cacheMisses: number;
+  latencyMs: number;
 }
 
 interface SessionLogEntry {
@@ -50,6 +52,7 @@ export class SessionMemory {
     issues: readonly NormalizedIssue[],
     response: CheckResponse,
     cache: SessionCacheStats = { hits: 0, misses: 0 },
+    startedAt: number = performance.now(),
   ): Promise<CheckResponse> {
     const timestamp = this.now();
     const currentSignatures = new Set(issues.map(createIssueSignature));
@@ -65,7 +68,12 @@ export class SessionMemory {
       activeSignatures: [...currentSignatures].sort(),
       reappearedSignatures,
       loopWarnings: status.signatures,
-      metrics: createLogMetrics(issues, responseWithWarning, cache),
+      metrics: createLogMetrics(
+        issues,
+        responseWithWarning,
+        cache,
+        Math.max(0, performance.now() - startedAt),
+      ),
     });
     return responseWithWarning;
   }
@@ -113,6 +121,7 @@ function createLogMetrics(
   issues: readonly NormalizedIssue[],
   response: CheckResponse,
   cache: SessionCacheStats,
+  latencyMs: number,
 ): SessionLogMetrics {
   return {
     rawPayloadBytes: issues.length === 0
@@ -126,6 +135,7 @@ function createLogMetrics(
     clusteredPayloadBytes: Buffer.byteLength(JSON.stringify(response), "utf8"),
     cacheHits: cache.hits,
     cacheMisses: cache.misses,
+    latencyMs,
   };
 }
 

@@ -17,6 +17,7 @@ const SESSION_LOG = [
       clusteredPayloadBytes: 200,
       cacheHits: 8,
       cacheMisses: 2,
+      latencyMs: 100,
     },
   },
   {
@@ -27,6 +28,7 @@ const SESSION_LOG = [
       clusteredPayloadBytes: 250,
       cacheHits: 2,
       cacheMisses: 3,
+      latencyMs: 300,
     },
   },
   {
@@ -46,13 +48,18 @@ describe("session statistics", () => {
       cacheHits: 10,
       cacheMisses: 5,
       cacheHitRatePercent: 100 * (2 / 3),
+      latencySamples: 2,
+      averageLatencyMs: 200,
+      maxLatencyMs: 300,
       loopWarningsTriggered: 2,
     });
     expect(formatSessionStats(stats)).toBe([
       "Signalint session stats",
       "Checks: 3",
       "Average payload reduction: 65.0% (2 measured checks)",
-      "Cache hit rate: 66.7% (10 hits / 15 lookups)",
+      "Engine-file cache hit rate: 66.7% (10 hits / 15 lookups)",
+      "Average check latency: 200.0ms (2 measured checks)",
+      "Max check latency: 300.0ms",
       "Loop warnings triggered: 2",
     ].join("\n"));
   });
@@ -61,7 +68,8 @@ describe("session statistics", () => {
     const stats = await readSessionStats(resolve(".signalint/test/missing-stats.jsonl"));
 
     expect(formatSessionStats(stats)).toContain("Average payload reduction: n/a");
-    expect(formatSessionStats(stats)).toContain("Cache hit rate: n/a");
+    expect(formatSessionStats(stats)).toContain("Engine-file cache hit rate: n/a");
+    expect(formatSessionStats(stats)).toContain("Average check latency: n/a");
   });
 
   it("reports the line number for malformed JSON", () => {

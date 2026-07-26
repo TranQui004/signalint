@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { resolve } from "node:path";
+import { performance } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -192,6 +193,7 @@ function registerToolHandlers(
       return { content: [{ type: "text", text: "pong" }] };
     }
     if (request.params.name === "check_project") {
+      const startedAt = performance.now();
       const paths = readStringArray(request.params.arguments, "paths", ["."]);
       const result = await projectIssueProvider(paths);
       const clustered = clusterIssues(result.issues);
@@ -199,12 +201,14 @@ function registerToolHandlers(
         clustered.issues,
         clustered.response,
         result.cache,
+        startedAt,
       );
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
       };
     }
     if (request.params.name === "check_files") {
+      const startedAt = performance.now();
       const files = readStringArray(request.params.arguments, "files");
       const result = await fileIssueProvider(files);
       const clustered = clusterIssues(result.issues);
@@ -212,6 +216,7 @@ function registerToolHandlers(
         clustered.issues,
         clustered.response,
         result.cache,
+        startedAt,
       );
       return {
         content: [{ type: "text", text: JSON.stringify(response, null, 2) }],

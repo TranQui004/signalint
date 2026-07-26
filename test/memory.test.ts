@@ -98,6 +98,7 @@ describe("Session Memory", () => {
     });
     expect(typeof finalLogEntry.metrics.rawPayloadBytes).toBe("number");
     expect(typeof finalLogEntry.metrics.clusteredPayloadBytes).toBe("number");
+    expect(typeof finalLogEntry.metrics.latencyMs).toBe("number");
     console.info(JSON.stringify({ firstOscillation: responses[2], secondOscillation: responses[4], status }));
   });
 });

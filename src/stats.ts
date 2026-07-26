@@ -8,6 +8,9 @@ export interface SessionStats {
   cacheHits: number;
   cacheMisses: number;
   cacheHitRatePercent: number | null;
+  latencySamples: number;
+  averageLatencyMs: number | null;
+  maxLatencyMs: number | null;
   loopWarningsTriggered: number;
 }
 
@@ -16,6 +19,7 @@ interface LogMetrics {
   clusteredPayloadBytes: number;
   cacheHits: number;
   cacheMisses: number;
+  latencyMs?: number;
 }
 
 /** Reads a Signalint JSONL session log and returns aggregate dogfooding metrics. */
@@ -36,6 +40,7 @@ export async function readSessionStats(
 export function parseSessionLog(serialized: string): SessionStats {
   const reductions: number[] = [];
   const warnedSignatures = new Set<string>();
+  const latencies: number[] = [];
   let checks = 0;
   let cacheHits = 0;
   let cacheMisses = 0;
@@ -53,6 +58,9 @@ export function parseSessionLog(serialized: string): SessionStats {
     }
     cacheHits += metrics.cacheHits;
     cacheMisses += metrics.cacheMisses;
+    if (metrics.latencyMs !== undefined) {
+      latencies.push(metrics.latencyMs);
+    }
     if (metrics.rawPayloadBytes > 0) {
       reductions.push(
         ((metrics.rawPayloadBytes - metrics.clusteredPayloadBytes) /
@@ -69,6 +77,9 @@ export function parseSessionLog(serialized: string): SessionStats {
     cacheHits,
     cacheMisses,
     cacheHitRatePercent: percentage(cacheHits, cacheHits + cacheMisses),
+    latencySamples: latencies.length,
+    averageLatencyMs: average(latencies),
+    maxLatencyMs: latencies.length === 0 ? null : Math.max(...latencies),
     loopWarningsTriggered: warnedSignatures.size,
   };
 }
@@ -82,7 +93,9 @@ export function formatSessionStats(stats: SessionStats): string {
     "Signalint session stats",
     `Checks: ${String(stats.checks)}`,
     `Average payload reduction: ${reduction} (${String(stats.payloadSamples)} measured checks)`,
-    `Cache hit rate: ${hitRate} (${String(stats.cacheHits)} hits / ${String(lookups)} lookups)`,
+    `Engine-file cache hit rate: ${hitRate} (${String(stats.cacheHits)} hits / ${String(lookups)} lookups)`,
+    `Average check latency: ${formatDuration(stats.averageLatencyMs)} (${String(stats.latencySamples)} measured checks)`,
+    `Max check latency: ${formatDuration(stats.maxLatencyMs)}`,
     `Loop warnings triggered: ${String(stats.loopWarningsTriggered)}`,
   ].join("\n");
 }
@@ -107,12 +120,16 @@ function readMetrics(value: unknown, lineNumber: number): LogMetrics | undefined
   if (!isRecord(value)) {
     throw new Error(`Session metrics on line ${String(lineNumber)} must contain an object.`);
   }
-  return {
+  const metrics: LogMetrics = {
     rawPayloadBytes: readNonNegativeInteger(value, "rawPayloadBytes", lineNumber),
     clusteredPayloadBytes: readNonNegativeInteger(value, "clusteredPayloadBytes", lineNumber),
     cacheHits: readNonNegativeInteger(value, "cacheHits", lineNumber),
     cacheMisses: readNonNegativeInteger(value, "cacheMisses", lineNumber),
   };
+  if (value.latencyMs !== undefined) {
+    metrics.latencyMs = readNonNegativeNumber(value, "latencyMs", lineNumber);
+  }
+  return metrics;
 }
 
 function addWarningSignatures(
@@ -146,6 +163,18 @@ function readNonNegativeInteger(
   return value;
 }
 
+function readNonNegativeNumber(
+  record: Record<string, unknown>,
+  key: "latencyMs",
+  lineNumber: number,
+): number {
+  const value = record[key];
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw new Error(`Session metric "${key}" on line ${String(lineNumber)} is invalid.`);
+  }
+  return value;
+}
+
 function average(values: readonly number[]): number | null {
   if (values.length === 0) {
     return null;
@@ -161,6 +190,10 @@ function formatPercent(value: number | null): string {
   return value === null ? "n/a" : `${value.toFixed(1)}%`;
 }
 
+function formatDuration(value: number | null): string {
+  return value === null ? "n/a" : `${value.toFixed(1)}ms`;
+}
+
 function emptySessionStats(): SessionStats {
   return {
     checks: 0,
@@ -169,6 +202,9 @@ function emptySessionStats(): SessionStats {
     cacheHits: 0,
     cacheMisses: 0,
     cacheHitRatePercent: null,
+    latencySamples: 0,
+    averageLatencyMs: null,
+    maxLatencyMs: null,
     loopWarningsTriggered: 0,
   };
 }

@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -35,16 +36,37 @@ interface SessionLogEntry {
   metrics: SessionLogMetrics;
 }
 
+interface SessionReplayEntry {
+  timestamp: number;
+  activeSignatures: string[];
+}
+
+interface SessionHistory {
+  entries: SessionReplayEntry[];
+  needsLineBoundary: boolean;
+}
+
+interface RestoredSessionState {
+  appearanceTimestamps: Map<string, number[]>;
+  activeSignatures: Set<string>;
+}
+
 export class SessionMemory {
-  private readonly appearanceTimestamps = new Map<string, number[]>();
-  private activeSignatures = new Set<string>();
+  private readonly appearanceTimestamps: Map<string, number[]>;
+  private activeSignatures: Set<string>;
   private readonly logPath: string;
   private readonly now: () => number;
+  private needsLineBoundary: boolean;
 
-  /** Creates process-lifetime diagnostic memory with an append-only local session log. */
+  /** Creates diagnostic memory restored from valid entries in its append-only session log. */
   public constructor(options: SessionMemoryOptions = {}) {
     this.logPath = options.logPath ?? resolve(process.cwd(), ".signalint", "session.jsonl");
     this.now = options.now ?? Date.now;
+    const history = readSessionHistory(this.logPath);
+    const restored = restoreSessionState(history.entries);
+    this.appearanceTimestamps = restored.appearanceTimestamps;
+    this.activeSignatures = restored.activeSignatures;
+    this.needsLineBoundary = history.needsLineBoundary;
   }
 
   /** Records one check, its payload/cache metrics, and the current loop warning. */
@@ -113,8 +135,70 @@ export class SessionMemory {
 
   private async appendLog(entry: SessionLogEntry): Promise<void> {
     await mkdir(dirname(this.logPath), { recursive: true });
-    await appendFile(this.logPath, `${JSON.stringify(entry)}\n`, "utf8");
+    const prefix = this.needsLineBoundary ? "\n" : "";
+    await appendFile(this.logPath, `${prefix}${JSON.stringify(entry)}\n`, "utf8");
+    this.needsLineBoundary = false;
   }
+}
+
+function readSessionHistory(logPath: string): SessionHistory {
+  let serialized: string;
+  try {
+    serialized = readFileSync(logPath, "utf8");
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      return { entries: [], needsLineBoundary: false };
+    }
+    throw error;
+  }
+  return {
+    entries: serialized
+      .split(/\r?\n/)
+      .map(parseSessionReplayEntry)
+      .filter((entry): entry is SessionReplayEntry => entry !== undefined),
+    needsLineBoundary: serialized !== "" && !serialized.endsWith("\n"),
+  };
+}
+
+function parseSessionReplayEntry(line: string): SessionReplayEntry | undefined {
+  if (line.trim() === "") {
+    return undefined;
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(line);
+  } catch {
+    return undefined;
+  }
+  if (
+    !isRecord(parsed) ||
+    !Number.isInteger(parsed.timestamp) ||
+    !Array.isArray(parsed.activeSignatures) ||
+    !parsed.activeSignatures.every((signature) => typeof signature === "string")
+  ) {
+    return undefined;
+  }
+  return {
+    timestamp: parsed.timestamp as number,
+    activeSignatures: [...new Set(parsed.activeSignatures)],
+  };
+}
+
+function restoreSessionState(entries: readonly SessionReplayEntry[]): RestoredSessionState {
+  const appearanceTimestamps = new Map<string, number[]>();
+  let previousSignatures = new Set<string>();
+  for (const entry of entries) {
+    const currentSignatures = new Set(entry.activeSignatures);
+    for (const signature of currentSignatures) {
+      if (!previousSignatures.has(signature)) {
+        const timestamps = appearanceTimestamps.get(signature) ?? [];
+        timestamps.push(entry.timestamp);
+        appearanceTimestamps.set(signature, timestamps);
+      }
+    }
+    previousSignatures = currentSignatures;
+  }
+  return { appearanceTimestamps, activeSignatures: previousSignatures };
 }
 
 function createLogMetrics(
@@ -165,4 +249,12 @@ function createLoopWarning(signature: string, occurrences: number): LoopWarning 
     occurrences,
     hint: `This issue was fixed and reappeared ${String(occurrences)} times — consider a different approach`,
   };
+}
+
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

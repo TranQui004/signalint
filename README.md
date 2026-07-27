@@ -3,6 +3,8 @@
 Signalint is a local MCP server for JavaScript and TypeScript diagnostics. It runs
 Oxlint, TypeScript, and optionally Biome; caches unchanged checks; clusters repeated
 issues; and warns when the same diagnostic disappears and repeatedly returns.
+Loop history is restored from valid `.signalint/session.jsonl` entries when the MCP
+server restarts; malformed or crash-truncated lines are skipped.
 
 ## Requirements
 

@@ -1,4 +1,4 @@
-import { readFile, rm } from "node:fs/promises";
+import { appendFile, readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -101,7 +101,63 @@ describe("Session Memory", () => {
     expect(typeof finalLogEntry.metrics.latencyMs).toBe("number");
     console.info(JSON.stringify({ firstOscillation: responses[2], secondOscillation: responses[4], status }));
   });
+
+  it("restores loop history and skips a truncated final JSONL entry", async () => {
+    await rm(logPath, { force: true });
+    const issueA = makeIssue("A", "rule-a", "Variable 'alpha' failed at line 10");
+    const issueB = makeIssue("B", "rule-b", "Property 'beta' failed at line 20");
+    let timestamp = 2000;
+    const firstSession = new SessionMemory({
+      logPath,
+      now: () => {
+        timestamp += 1;
+        return timestamp;
+      },
+    });
+    await recordIssues(firstSession, [issueA]);
+    await recordIssues(firstSession, [issueB]);
+    await recordIssues(firstSession, [issueA]);
+    expect(firstSession.getStatus().looping).toBe(false);
+
+    await appendFile(logPath, '{"timestamp":', "utf8");
+    const restoredSession = new SessionMemory({
+      logPath,
+      now: () => {
+        timestamp += 1;
+        return timestamp;
+      },
+    });
+    expect(restoredSession.getStatus().looping).toBe(false);
+    await recordIssues(restoredSession, [issueB]);
+    const secondOscillation = await recordIssues(restoredSession, [issueA]);
+
+    expect(secondOscillation.loopWarning).toMatchObject({
+      signature: createIssueSignature(issueA),
+      occurrences: 2,
+    });
+    expect(new SessionMemory({ logPath }).getStatus()).toMatchObject({
+      looping: true,
+      signatures: [{ signature: createIssueSignature(issueA), occurrences: 2 }],
+    });
+  });
 });
+
+async function recordIssues(
+  memory: SessionMemory,
+  issues: readonly NormalizedIssue[],
+): Promise<CheckResponse> {
+  return memory.recordCheck(
+    issues,
+    {
+      schemaVersion: "1.0",
+      status: issues.length === 0 ? "clean" : "issues_found",
+      totalIssues: issues.length,
+      clusters: [],
+      truncated: false,
+      loopWarning: null,
+    },
+  );
+}
 
 async function connectClient(server: Server): Promise<Client> {
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

@@ -214,13 +214,13 @@ As defense in depth (not a substitute for the filter above), the tsc adapter sho
 
 ## 11. Loop Detection (Session Memory) — narrow scope
 
-- Maintain in-memory map (per MCP session, keyed by process lifetime): `issueSignature → [timestamps of appearance]`
+- Maintain in-memory map (restored from the session log on process startup): `issueSignature → [timestamps of appearance]`
 - `issueSignature = rule + normalizedMessage` (strip line numbers/variable names)
 - If the same signature disappears then reappears ≥2 times within a session → flag `loopWarning` in the next `check_files` response: `{ signature, occurrences, hint: "This issue was fixed and reappeared N times — consider a different approach" }`
-- Persist session log to `.signalint/session.jsonl` for post-hoc debugging (not required for detection logic itself).
+- Persist session log to `.signalint/session.jsonl` for post-hoc debugging and restart recovery.
 - **Scope reminder:** this is deliberately narrow — it only tracks lint/type/test issue signatures, not general agent conversation loops. Do not expand this into a general-purpose agent-loop-detection feature; that is a different, already-served problem (Section 17).
 
-**Under consideration (external review, Phase 6 — needs feasibility check before implementing):** loop detection currently resets whenever the MCP server process restarts, which MCP clients do fairly often (config changes, extension reloads). Since `.signalint/session.jsonl` already persists check history, reloading it into the in-memory signature map on server startup could make loop detection survive restarts, materially strengthening G4 (a stated competitive differentiator, Section 17). **Before implementing:** confirm `session.jsonl` actually records raw `issueSignature` + timestamp entries with enough fidelity to reconstruct the map — if it currently only logs aggregate stats (payload reduction %, cache hit rate, latency, as surfaced by `signalint stats`), the log format needs to change first, which is a bigger lift than "just add a reload step." Verify the real current log schema before treating this as low-effort.
+**Restart persistence (implemented after external review, Phase 6):** `.signalint/session.jsonl` records each check's timestamp and full `activeSignatures` list in addition to aggregate stats, which is sufficient to reconstruct inactive-to-active appearances without changing the log schema. On startup, replay valid entries into the in-memory map and restore the last valid active-signature set. Skip malformed entries, including a crash-truncated final line, and preserve a line boundary before the next append so later valid history remains readable.
 
 ## 12. Repository Structure
 
@@ -339,7 +339,7 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 | Oxlint/tsc output format changes between versions | Pin versions in `package.json`, add adapter tests against fixture snapshots |
 | Clustering heuristic too naive, groups unrelated issues | Start simple (Section 10), treat as tunable; log clustering decisions for later review |
 | MCP ecosystem already saturated with lint servers, hard to get attention | Differentiate explicitly on caching + diagnostic-clustering in all marketing copy; lead with measured numbers, not claims |
-| Session memory lost on MCP server restart | Acceptable for v1 (in-memory only); document as known limitation |
+| Malformed session history prevents loop-memory recovery | Validate each JSONL entry independently and skip malformed or crash-truncated lines |
 | Scope creep from website/GUI delaying the actual product | Hard gate: Phase 7/8 cannot start before Phase 6 is complete (enforced in Section 13) |
 | Monorepo/multi-tsconfig projects fail with TS5058 (Section 3, NG7) | Documented as explicit v1 non-goal; README must state the root-tsconfig-with-project-references workaround clearly |
 | node_modules diagnostics pollute results without skipLibCheck (Section 9.2) | Unconditional path-based filter added, engine-agnostic; not user-configurable off |

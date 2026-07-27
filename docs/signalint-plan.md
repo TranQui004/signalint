@@ -157,11 +157,12 @@ Track every deviation from the original schema here, in order, so anyone reading
 
 ## 9. Caching Strategy
 
-- Key: `sha256(file content) + engine name + engine config hash + signalint version` (see amendment below)
-- Store: SQLite table `cache(key TEXT PRIMARY KEY, result JSON, timestamp INTEGER)`
-- Cache invalidation: engine config hash changes (e.g., `.oxlintrc` edited) → invalidate all entries for that engine.
+- Key: `sha256(file content) + engine name + engine config hash + signalint version`
 
 **Amendment (found during Phase 6 dogfooding, 2026-07):** the original key design didn't account for Signalint's own code changing. If a user upgrades Signalint (e.g. to pick up a bug fix in an adapter) but a target file's content and engine config are unchanged, the old key would still resolve to a stale cached result computed by the pre-upgrade code — silently reintroducing fixed bugs. Add `signalint version` (the installed package's `package.json` version, or a hash of the adapter/cluster/normalization code if finer-grained invalidation is needed) as a cache key component so any Signalint upgrade automatically invalidates all prior cache entries.
+
+- Store: SQLite table `cache(key TEXT PRIMARY KEY, result JSON, timestamp INTEGER)`
+- Cache invalidation: engine config hash changes (e.g., `.oxlintrc` edited) → invalidate all entries for that engine.
 
 ### 9.1 Per-Engine Invocation Strategy (amended Phase 2)
 

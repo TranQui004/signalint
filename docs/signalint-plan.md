@@ -175,6 +175,14 @@ This means the Phase 2 acceptance criteria (Section 13) apply differently per en
 - For oxlint: assert the subprocess is invoked once per changed file (or once total with only changed files as input, depending on final adapter design) — the original assertion.
 - For tsc: assert the subprocess is invoked **at most once per `check_files` call**, and **not invoked at all** when no file relevant to the TS program changed since the last check. Do not assert "one call per changed file" for tsc — that requirement was based on an incorrect assumption about how type-checking works and should be removed for this engine.
 
+### 9.2 Default Exclusions (amended after Phase 6 dogfooding)
+
+**Trigger:** a real `check_project` run on a monorepo without `skipLibCheck` produced diagnostics from files inside `node_modules` (e.g. `.d.ts` files of installed packages), polluting the result with irrelevant vendor-code noise.
+
+**Rule:** any `NormalizedIssue` whose `file` path contains a `node_modules` path segment is filtered out unconditionally, before results are returned from any engine adapter. This is not configurable — no user-facing setting can re-enable it, since there is no legitimate use case for surfacing vendor-code diagnostics to an agent trying to fix the user's own code. This is enforced at the layer that assembles the final issue list, applied identically across all engines (oxlint, tsc, biome).
+
+As defense in depth (not a substitute for the filter above), the tsc adapter should also pass `skipLibCheck: true` when invoking `tsc --project` if the target project's own tsconfig doesn't already set it, to avoid needlessly type-checking library declaration files in the first place.
+
 ## 10. Clustering Algorithm (v1, heuristic — no ML needed)
 
 1. Group raw issues by `rule` first.
@@ -311,6 +319,7 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 | Session memory lost on MCP server restart | Acceptable for v1 (in-memory only); document as known limitation |
 | Scope creep from website/GUI delaying the actual product | Hard gate: Phase 7/8 cannot start before Phase 6 is complete (enforced in Section 13) |
 | Monorepo/multi-tsconfig projects fail with TS5058 (Section 3, NG7) | Documented as explicit v1 non-goal; README must state the root-tsconfig-with-project-references workaround clearly |
+| node_modules diagnostics pollute results without skipLibCheck (Section 9.2) | Unconditional path-based filter added, engine-agnostic; not user-configurable off |
 
 ## 16. Instructions for the Coding Agent (see also Section 18, AGENTS.md)
 

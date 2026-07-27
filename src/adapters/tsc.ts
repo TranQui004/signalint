@@ -30,7 +30,7 @@ interface PendingDiagnostic {
 }
 
 const DIAGNOSTIC_START =
-  /^(.*)\((\d+),(\d+)\):\s+(error|warning)\s+(TS\d+):\s*(.*)$/;
+  /^(.*)\((\d+),(\d+)\):\s+(error|warning)\s+((?:TS)?\d+):\s*(.*)$/;
 
 /** Parses non-pretty tsc output and assumes diagnostic filenames are relative to the working directory. */
 export function parseTscOutput(
@@ -94,7 +94,7 @@ function createPendingDiagnostic(match: RegExpExecArray): PendingDiagnostic {
     line: Number.parseInt(line, 10),
     col: Number.parseInt(col, 10),
     severity: severity === "warning" ? "warning" : "error",
-    rule,
+    rule: normalizeTscRule(rule),
     messageParts: [message],
   };
 }
@@ -119,11 +119,15 @@ function normalizeTscDiagnostic(
   };
 }
 
-async function createTscArgs(paths: readonly string[], cwd: string): Promise<string[]> {
+/** Builds whole-project tsc arguments and defaults skipLibCheck only when it is unset. */
+export async function createTscArgs(
+  paths: readonly string[],
+  cwd: string,
+): Promise<string[]> {
   const projectFile = await resolveProjectFile(paths[0] ?? ".", cwd);
   const buildInfoFile = resolve(cwd, ".signalint", "cache", "tsc.tsbuildinfo");
   await mkdir(dirname(buildInfoFile), { recursive: true });
-  return [
+  const args = [
     "--pretty",
     "false",
     "--noEmit",
@@ -133,6 +137,33 @@ async function createTscArgs(paths: readonly string[], cwd: string): Promise<str
     "--tsBuildInfoFile",
     buildInfoFile,
   ];
+  if ((await readEffectiveSkipLibCheck(projectFile, cwd)) === undefined) {
+    args.push("--skipLibCheck");
+  }
+  return args;
+}
+
+function normalizeTscRule(rule: string): string {
+  return rule.startsWith("TS") ? rule : `TS${rule}`;
+}
+
+async function readEffectiveSkipLibCheck(
+  projectFile: string,
+  cwd: string,
+): Promise<boolean | undefined> {
+  const result = await runTscProcess(["--showConfig", "--project", projectFile], cwd);
+  if (result.exitCode !== 0) {
+    throw new Error(`tsc --showConfig failed: ${[result.stdout, result.stderr].join("\n").trim()}`);
+  }
+  const parsed: unknown = JSON.parse(result.stdout);
+  if (!isRecord(parsed) || !isRecord(parsed.compilerOptions)) {
+    throw new Error("tsc --showConfig did not return compilerOptions.");
+  }
+  const value = parsed.compilerOptions.skipLibCheck;
+  if (value === undefined || typeof value === "boolean") {
+    return value;
+  }
+  throw new Error("tsc --showConfig returned a non-boolean skipLibCheck value.");
 }
 
 async function resolveProjectFile(path: string, cwd: string): Promise<string> {
@@ -177,6 +208,10 @@ function normalizeFile(file: string, cwd: string): string {
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function runTscProcess(

@@ -1,8 +1,14 @@
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { parseBiomeOutput } from "../src/adapters/biome.js";
 import { parseOxlintOutput } from "../src/adapters/oxlint.js";
-import { parseTscOutput } from "../src/adapters/tsc.js";
+import {
+  createTscArgs,
+  parseTscOutput,
+  runTsc,
+} from "../src/adapters/tsc.js";
 import { isNormalizedIssue } from "../src/schema.js";
 
 const OXLINT_OUTPUT = JSON.stringify({
@@ -28,6 +34,32 @@ const TSC_OUTPUT = [
   "src/broken.ts(3,14): error TS2322: Type 'string' is not assignable to type",
   "  'number'.",
 ].join("\n");
+
+const DECLARATION_TSC_OUTPUT =
+  "node_modules/broken-package/index.d.ts(6,1): error TS1036: " +
+  "Statements are not allowed in ambient contexts.";
+
+const PREFIXLESS_DECLARATION_TSC_OUTPUT =
+  "node_modules/broken-package/index.d.ts(8,1): error 2309: " +
+  "An export assignment cannot be used in a module with other exported elements.";
+
+const DECLARATION_OXLINT_OUTPUT = JSON.stringify({
+  diagnostics: [
+    {
+      message: "Statements are not allowed in ambient contexts.",
+      code: "TS(1036)",
+      severity: "error",
+      filename: "node_modules/broken-package/index.d.ts",
+      labels: [
+        {
+          span: { offset: 90, length: 17, line: 6, column: 1 },
+        },
+      ],
+    },
+  ],
+});
+
+const declarationFixture = resolve("test/fixtures/node-modules-project");
 
 // Captured from @biomejs/biome 2.5.5: `biome check --reporter=json src/broken.ts`.
 const BIOME_OUTPUT = JSON.stringify({
@@ -92,6 +124,16 @@ describe("Oxlint adapter", () => {
 
     expect(parseOxlintOutput(JSON.stringify(withFix))[0]?.fixable).toBe(true);
   });
+
+  it("preserves the TS prefix on declaration-file diagnostics", () => {
+    const issues = parseOxlintOutput(DECLARATION_OXLINT_OUTPUT);
+
+    expect(issues[0]).toMatchObject({
+      file: "node_modules/broken-package/index.d.ts",
+      engine: "oxlint",
+      rule: "TS1036",
+    });
+  });
 });
 
 describe("tsc adapter", () => {
@@ -111,6 +153,43 @@ describe("tsc adapter", () => {
     });
     expect(issues[0]).not.toHaveProperty("clusterId");
     expect(issues.every(isNormalizedIssue)).toBe(true);
+  });
+
+  it("preserves or restores the TS prefix for declaration-file diagnostics", () => {
+    const prefixed = parseTscOutput(DECLARATION_TSC_OUTPUT);
+    const prefixless = parseTscOutput(PREFIXLESS_DECLARATION_TSC_OUTPUT);
+
+    expect(prefixed[0]).toMatchObject({
+      file: "node_modules/broken-package/index.d.ts",
+      rule: "TS1036",
+    });
+    expect(prefixless[0]).toMatchObject({
+      file: "node_modules/broken-package/index.d.ts",
+      rule: "TS2309",
+    });
+    expect([...prefixed, ...prefixless].every(isNormalizedIssue)).toBe(true);
+  });
+
+  it("defaults skipLibCheck only when the effective project config leaves it unset", async () => {
+    const defaultArgs = await createTscArgs(["."], declarationFixture);
+    const explicitFalseArgs = await createTscArgs(
+      ["tsconfig.explicit-false.json"],
+      declarationFixture,
+    );
+    const explicitTrueArgs = await createTscArgs(
+      ["tsconfig.explicit-true.json"],
+      declarationFixture,
+    );
+
+    expect(defaultArgs).toContain("--skipLibCheck");
+    expect(explicitFalseArgs).not.toContain("--skipLibCheck");
+    expect(explicitTrueArgs).not.toContain("--skipLibCheck");
+  });
+
+  it("suppresses library declaration diagnostics in a real default-config run", async () => {
+    const issues = await runTsc(["."], { cwd: declarationFixture });
+
+    expect(issues).toEqual([]);
   });
 });
 

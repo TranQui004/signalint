@@ -72,6 +72,23 @@ describe("Cluster Engine", () => {
     expect(result.response.truncated).toBe(true);
     expect(result.issues.every((issue) => issue.clusterId !== undefined)).toBe(true);
   });
+
+  it("samples distinct issue IDs even when input issues repeat an ID", () => {
+    const issues = [
+      makeIssue("duplicate-id", "src/a.ts", "repeated-rule", "warning", false),
+      makeIssue("duplicate-id", "src/b.ts", "repeated-rule", "warning", false),
+      makeIssue("unique-id", "src/c.ts", "repeated-rule", "warning", false),
+      makeIssue("another-id", "src/d.ts", "repeated-rule", "warning", false),
+    ];
+
+    const result = clusterIssues(issues);
+    const sampleIssueIds = result.response.clusters[0]?.sampleIssueIds ?? [];
+
+    expect(result.response.clusters).toHaveLength(1);
+    expect(sampleIssueIds).toHaveLength(2);
+    expect(new Set(sampleIssueIds).size).toBe(sampleIssueIds.length);
+    expect(sampleIssueIds).toEqual(["duplicate-id", "unique-id"]);
+  });
 });
 
 async function readIssueFixture(): Promise<NormalizedIssue[]> {

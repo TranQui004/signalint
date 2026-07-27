@@ -26,6 +26,7 @@ import {
   isIgnoredPath,
   loadSignalintConfig,
 } from "./config.js";
+import { filterDefaultExcludedIssues } from "./defaultExclusions.js";
 import { SessionMemory } from "./memory/sessionMemory.js";
 import type { CheckResponse, NormalizedIssue } from "./schema.js";
 
@@ -146,8 +147,7 @@ export async function collectProjectIssues(
     config.engines.tsc ? runTsc(includedPaths, { cwd }) : Promise.resolve([]),
     config.engines.biome ? runBiome(includedPaths, { cwd }) : Promise.resolve([]),
   ]);
-  return results
-    .flat()
+  return filterDefaultExcludedIssues(results.flat())
     .filter((issue) => !isIgnoredPath(issue.file, config.ignore))
     .sort(compareIssues);
 }
@@ -175,7 +175,8 @@ export async function checkConfiguredFilesWithStats(
     engines: config.engines,
   });
   return {
-    issues: result.issues.filter((issue) => !isIgnoredPath(issue.file, config.ignore)),
+    issues: filterDefaultExcludedIssues(result.issues)
+      .filter((issue) => !isIgnoredPath(issue.file, config.ignore)),
     cache: result.cache,
   };
 }
@@ -196,7 +197,7 @@ function registerToolHandlers(
       const startedAt = performance.now();
       const paths = readStringArray(request.params.arguments, "paths", ["."]);
       const result = await projectIssueProvider(paths);
-      const clustered = clusterIssues(result.issues);
+      const clustered = clusterIssues(filterDefaultExcludedIssues(result.issues));
       const response = await sessionMemory.recordCheck(
         clustered.issues,
         clustered.response,
@@ -211,7 +212,7 @@ function registerToolHandlers(
       const startedAt = performance.now();
       const files = readStringArray(request.params.arguments, "files");
       const result = await fileIssueProvider(files);
-      const clustered = clusterIssues(result.issues);
+      const clustered = clusterIssues(filterDefaultExcludedIssues(result.issues));
       const response = await sessionMemory.recordCheck(
         clustered.issues,
         clustered.response,

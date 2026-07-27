@@ -107,8 +107,13 @@ function hasStructuredFix(fix: unknown): boolean {
 }
 
 function normalizeRule(code: string): string {
-  const wrappedRule = /^[^(]+\(([^)]+)\)$/.exec(code);
-  return wrappedRule?.[1] ?? code;
+  const wrappedRule = /^([^(]+)\(([^)]+)\)$/.exec(code);
+  const namespace = wrappedRule?.[1];
+  const rule = wrappedRule?.[2];
+  if (namespace?.toUpperCase() === "TS" && rule !== undefined && /^\d+$/.test(rule)) {
+    return `TS${rule}`;
+  }
+  return rule ?? code;
 }
 
 function normalizeSeverity(severity: string): IssueSeverity {

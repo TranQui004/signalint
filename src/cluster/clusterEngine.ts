@@ -98,8 +98,15 @@ function createCluster(pending: PendingCluster, clusterId: string): Cluster {
     fileCount,
     priority: pending.priority,
     suggestedAction: createSuggestedAction(pending, fileCount),
-    sampleIssueIds: pending.issues.slice(0, 2).map((issue) => issue.issueId),
+    sampleIssueIds: takeDistinctIssueIds(pending.issues, 2),
   };
+}
+
+function takeDistinctIssueIds(
+  issues: readonly NormalizedIssue[],
+  limit: number,
+): string[] {
+  return [...new Set(issues.map((issue) => issue.issueId))].slice(0, limit);
 }
 
 function scorePriority(

@@ -1,4 +1,8 @@
 node_modules/
+!test/fixtures/node-modules-project/node_modules/
+!test/fixtures/node-modules-project/node_modules/broken-package/
+!test/fixtures/node-modules-project/node_modules/broken-package/index.d.ts
+!test/fixtures/node-modules-project/node_modules/broken-package/package.json
 .pnpm-store/
 dist/
 coverage/

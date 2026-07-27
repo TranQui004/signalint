@@ -5,8 +5,13 @@ import { isAbsolute, relative, resolve } from "node:path";
 import { runOxlint } from "./adapters/oxlint.js";
 import { runBiome } from "./adapters/biome.js";
 import { runTsc } from "./adapters/tsc.js";
+import { createLinkedAbortController } from "./abort.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
-import type { EngineSelection } from "./config.js";
+import {
+  DEFAULT_CONFIG,
+  type EngineSelection,
+  type EngineTimeouts,
+} from "./config.js";
 import {
   createIssueId,
   type IssueEngine,
@@ -17,6 +22,8 @@ export type CacheEngine = IssueEngine;
 
 export interface EngineRunOptions {
   cwd?: string;
+  signal?: AbortSignal | undefined;
+  timeoutMs?: number;
 }
 
 export type EngineRunner = (
@@ -39,6 +46,8 @@ export interface CheckFilesOptions {
   cache?: SqliteCache;
   runners?: Partial<EngineRunners>;
   engines?: EngineSelection;
+  signal?: AbortSignal | undefined;
+  timeoutsMs?: EngineTimeouts;
 }
 
 export interface CacheStats {
@@ -99,11 +108,13 @@ export async function checkFilesWithStats(
   const cwd = options.cwd ?? process.cwd();
   const cache = options.cache ?? new SqliteCache(resolve(cwd, ".signalint", "cache.sqlite"));
   const ownsCache = options.cache === undefined;
+  const linkedAbort = createLinkedAbortController(options.signal);
 
   try {
     const snapshots = await Promise.all(files.map((file) => readSnapshot(file, cwd)));
     const runners = { ...DEFAULT_RUNNERS, ...options.runners };
     const engines = options.engines ?? DEFAULT_ENGINES;
+    const timeoutsMs = options.timeoutsMs ?? DEFAULT_CONFIG.timeoutsMs;
     const results = await Promise.all([
       engines.oxlint
         ? checkFileLocalEngine(
@@ -112,10 +123,19 @@ export async function checkFilesWithStats(
             cwd,
             cache,
             runners.oxlint,
+            timeoutsMs.oxlint,
+            linkedAbort.controller.signal,
           )
         : Promise.resolve(emptyEngineResult()),
       engines.tsc
-        ? checkWholeProgramTsc(snapshots, cwd, cache, runners.tsc)
+        ? checkWholeProgramTsc(
+            snapshots,
+            cwd,
+            cache,
+            runners.tsc,
+            timeoutsMs.tsc,
+            linkedAbort.controller.signal,
+          )
         : Promise.resolve(emptyEngineResult()),
       engines.biome
         ? checkFileLocalEngine(
@@ -124,6 +144,8 @@ export async function checkFilesWithStats(
             cwd,
             cache,
             runners.biome,
+            timeoutsMs.biome,
+            linkedAbort.controller.signal,
           )
         : Promise.resolve(emptyEngineResult()),
     ]);
@@ -131,7 +153,11 @@ export async function checkFilesWithStats(
       issues: results.flatMap((result) => result.issues).sort(compareIssues),
       cache: sumCacheStats(results.map((result) => result.cache)),
     };
+  } catch (error: unknown) {
+    linkedAbort.controller.abort();
+    throw error;
   } finally {
+    linkedAbort.dispose();
     if (ownsCache) {
       cache.close();
     }
@@ -159,6 +185,8 @@ async function checkFileLocalEngine(
   cwd: string,
   cache: SqliteCache,
   runner: EngineRunner,
+  timeoutMs: number,
+  signal: AbortSignal,
 ): Promise<EngineCheckResult> {
   const configHash = await computeEngineConfigHash(engine, cwd);
   cache.invalidateEngine(engine, configHash);
@@ -184,7 +212,7 @@ async function checkFileLocalEngine(
 
   const freshIssues = await runner(
     misses.map((miss) => miss.file),
-    { cwd },
+    { cwd, signal, timeoutMs },
   );
   for (const miss of misses) {
     const fileIssues = freshIssues.filter((issue) => issue.file === miss.file);
@@ -201,6 +229,8 @@ async function checkWholeProgramTsc(
   cwd: string,
   cache: SqliteCache,
   runner: WholeProgramRunner,
+  timeoutMs: number,
+  signal: AbortSignal,
 ): Promise<EngineCheckResult> {
   const configHash = await computeEngineConfigHash("tsc", cwd);
   cache.invalidateEngine("tsc", configHash);
@@ -218,7 +248,7 @@ async function checkWholeProgramTsc(
     };
   }
 
-  const freshIssues = await runner({ cwd });
+  const freshIssues = await runner({ cwd, signal, timeoutMs });
   for (const snapshot of relevantSnapshots) {
     const key = createCacheKey(snapshot.content, "tsc", configHash);
     cache.set(key, []);

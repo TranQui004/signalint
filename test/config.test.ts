@@ -19,6 +19,7 @@ describe("Signalint configuration", () => {
     expect(config).toEqual({
       engines: { oxlint: false, tsc: false, biome: true },
       ignore: ["src/ignored.ts"],
+      timeoutsMs: { oxlint: 10_000, tsc: 20_000, biome: 15_000 },
     });
   });
 
@@ -26,9 +27,21 @@ describe("Signalint configuration", () => {
     expect(parseSignalintConfig('{"engines":{"biome":true}}')).toEqual({
       engines: { oxlint: true, tsc: true, biome: true },
       ignore: ["node_modules/**", "dist/**", ".signalint/**"],
+      timeoutsMs: { oxlint: 30_000, tsc: 120_000, biome: 30_000 },
     });
     expect(() => parseSignalintConfig('{"engines":{"eslint":true}}')).toThrow(
       'Unknown "engines" field "eslint".',
+    );
+  });
+
+  it("loads per-engine millisecond timeouts and rejects invalid values", () => {
+    expect(parseSignalintConfig('{"timeoutsMs":{"tsc":2500}}').timeoutsMs).toEqual({
+      oxlint: 30_000,
+      tsc: 2_500,
+      biome: 30_000,
+    });
+    expect(() => parseSignalintConfig('{"timeoutsMs":{"oxlint":0}}')).toThrow(
+      'timeout "oxlint" must be a positive integer in milliseconds',
     );
   });
 

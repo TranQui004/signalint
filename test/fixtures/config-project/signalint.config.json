@@ -4,5 +4,10 @@
     "tsc": false,
     "biome": true
   },
-  "ignore": ["src/ignored.ts"]
+  "ignore": ["src/ignored.ts"],
+  "timeoutsMs": {
+    "oxlint": 10000,
+    "tsc": 20000,
+    "biome": 15000
+  }
 }

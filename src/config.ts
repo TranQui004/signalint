@@ -11,9 +11,16 @@ export interface EngineSelection {
   biome: boolean;
 }
 
+export interface EngineTimeouts {
+  oxlint: number;
+  tsc: number;
+  biome: number;
+}
+
 export interface SignalintConfig {
   engines: EngineSelection;
   ignore: string[];
+  timeoutsMs: EngineTimeouts;
 }
 
 export const DEFAULT_CONFIG: Readonly<SignalintConfig> = {
@@ -23,6 +30,11 @@ export const DEFAULT_CONFIG: Readonly<SignalintConfig> = {
     biome: false,
   },
   ignore: ["node_modules/**", "dist/**", ".signalint/**"],
+  timeoutsMs: {
+    oxlint: 30_000,
+    tsc: 120_000,
+    biome: 30_000,
+  },
 };
 
 /** Loads signalint.config.json from a project root and fills omitted settings with defaults. */
@@ -47,11 +59,12 @@ export function parseSignalintConfig(serialized: string): SignalintConfig {
   if (!isRecord(parsed)) {
     throw new Error("signalint.config.json must contain a JSON object.");
   }
-  assertKnownKeys(parsed, new Set(["engines", "ignore"]), "configuration");
+  assertKnownKeys(parsed, new Set(["engines", "ignore", "timeoutsMs"]), "configuration");
 
   return {
     engines: parseEngineSelection(parsed.engines),
     ignore: parseIgnoreGlobs(parsed.ignore),
+    timeoutsMs: parseEngineTimeouts(parsed.timeoutsMs),
   };
 }
 
@@ -95,6 +108,21 @@ function parseIgnoreGlobs(value: unknown): string[] {
   return [...value];
 }
 
+function parseEngineTimeouts(value: unknown): EngineTimeouts {
+  if (value === undefined) {
+    return { ...DEFAULT_CONFIG.timeoutsMs };
+  }
+  if (!isRecord(value)) {
+    throw new Error('signalint.config.json field "timeoutsMs" must be an object.');
+  }
+  assertKnownKeys(value, new Set(ENGINE_NAMES), '"timeoutsMs"');
+  return {
+    oxlint: readOptionalTimeout(value, "oxlint", DEFAULT_CONFIG.timeoutsMs.oxlint),
+    tsc: readOptionalTimeout(value, "tsc", DEFAULT_CONFIG.timeoutsMs.tsc),
+    biome: readOptionalTimeout(value, "biome", DEFAULT_CONFIG.timeoutsMs.biome),
+  };
+}
+
 function readOptionalBoolean(
   record: Record<string, unknown>,
   key: EngineName,
@@ -106,6 +134,21 @@ function readOptionalBoolean(
   }
   if (typeof value !== "boolean") {
     throw new Error(`signalint.config.json engine "${key}" must be a boolean.`);
+  }
+  return value;
+}
+
+function readOptionalTimeout(
+  record: Record<string, unknown>,
+  key: EngineName,
+  defaultValue: number,
+): number {
+  const value = record[key];
+  if (value === undefined) {
+    return defaultValue;
+  }
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    throw new Error(`signalint.config.json timeout "${key}" must be a positive integer in milliseconds.`);
   }
   return value;
 }
@@ -168,6 +211,7 @@ function cloneDefaultConfig(): SignalintConfig {
   return {
     engines: { ...DEFAULT_CONFIG.engines },
     ignore: [...DEFAULT_CONFIG.ignore],
+    timeoutsMs: { ...DEFAULT_CONFIG.timeoutsMs },
   };
 }
 

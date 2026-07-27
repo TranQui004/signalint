@@ -1,23 +1,20 @@
 import { mkdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
-import { spawn } from "node:child_process";
 
+import { DEFAULT_CONFIG } from "../config.js";
 import {
   createIssueId,
   normalizeIssueMessage,
   type IssueSeverity,
   type NormalizedIssue,
 } from "../schema.js";
+import { runEngineCommand, type CommandResult } from "../subprocess.js";
 
 interface TscRunOptions {
   cwd?: string;
-}
-
-interface CommandResult {
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
+  signal?: AbortSignal | undefined;
+  timeoutMs?: number;
 }
 
 interface PendingDiagnostic {
@@ -64,8 +61,8 @@ export async function runTsc(
   options: TscRunOptions = {},
 ): Promise<NormalizedIssue[]> {
   const cwd = options.cwd ?? process.cwd();
-  const args = await createTscArgs(paths, cwd);
-  const result = await runTscProcess(args, cwd);
+  const args = await createTscArgs(paths, cwd, options);
+  const result = await runTscProcess(args, cwd, options);
   const output = [result.stdout, result.stderr].filter((part) => part.trim() !== "").join("\n");
   const issues = parseTscOutput(output, cwd);
 
@@ -123,6 +120,7 @@ function normalizeTscDiagnostic(
 export async function createTscArgs(
   paths: readonly string[],
   cwd: string,
+  options: Omit<TscRunOptions, "cwd"> = {},
 ): Promise<string[]> {
   const projectFile = await resolveProjectFile(paths[0] ?? ".", cwd);
   const buildInfoFile = resolve(cwd, ".signalint", "cache", "tsc.tsbuildinfo");
@@ -137,7 +135,7 @@ export async function createTscArgs(
     "--tsBuildInfoFile",
     buildInfoFile,
   ];
-  if ((await readEffectiveSkipLibCheck(projectFile, cwd)) === undefined) {
+  if ((await readEffectiveSkipLibCheck(projectFile, cwd, options)) === undefined) {
     args.push("--skipLibCheck");
   }
   return args;
@@ -150,8 +148,9 @@ function normalizeTscRule(rule: string): string {
 async function readEffectiveSkipLibCheck(
   projectFile: string,
   cwd: string,
+  options: Omit<TscRunOptions, "cwd">,
 ): Promise<boolean | undefined> {
-  const result = await runTscProcess(["--showConfig", "--project", projectFile], cwd);
+  const result = await runTscProcess(["--showConfig", "--project", projectFile], cwd, options);
   if (result.exitCode !== 0) {
     throw new Error(`tsc --showConfig failed: ${[result.stdout, result.stderr].join("\n").trim()}`);
   }
@@ -217,34 +216,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function runTscProcess(
   args: readonly string[],
   cwd: string,
+  options: Omit<TscRunOptions, "cwd">,
 ): Promise<CommandResult> {
   const require = createRequire(import.meta.url);
   const packagePath = require.resolve("typescript/package.json");
   const cliPath = resolve(dirname(packagePath), "bin", "tsc");
-  return runCommand(process.execPath, [cliPath, ...args], cwd);
-}
-
-function runCommand(
-  command: string,
-  args: readonly string[],
-  cwd: string,
-): Promise<CommandResult> {
-  return new Promise((resolveResult, reject) => {
-    const child = spawn(command, args, { cwd, windowsHide: true });
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (exitCode) => {
-      resolveResult({ exitCode, stdout, stderr });
-    });
+  return runEngineCommand(process.execPath, [cliPath, ...args], {
+    cwd,
+    engine: "tsc",
+    signal: options.signal,
+    timeoutMs: options.timeoutMs ?? DEFAULT_CONFIG.timeoutsMs.tsc,
   });
 }

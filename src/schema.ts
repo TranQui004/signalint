@@ -39,11 +39,23 @@ export interface LoopStatus {
 }
 
 export interface CheckResponse {
+  schemaVersion: "1.0";
   status: "clean" | "issues_found";
   totalIssues: number;
   clusters: Cluster[];
   truncated: boolean;
   loopWarning: LoopWarning | null;
+}
+
+export interface TimeoutResponse {
+  status: "timeout";
+  engine: IssueEngine;
+  message: string;
+}
+
+export interface StaleReferenceResponse {
+  status: "stale";
+  message: "This cluster/issue no longer exists; run check_project again.";
 }
 
 /** Converts an engine message to the schema's single-line, approximately 120-character form. */
@@ -108,12 +120,32 @@ export function isCheckResponse(value: unknown): value is CheckResponse {
     return false;
   }
   return (
+    value.schemaVersion === "1.0" &&
     (value.status === "clean" || value.status === "issues_found") &&
     Number.isInteger(value.totalIssues) &&
     Array.isArray(value.clusters) &&
     value.clusters.every(isCluster) &&
     typeof value.truncated === "boolean" &&
     (value.loopWarning === null || isLoopWarning(value.loopWarning))
+  );
+}
+
+/** Returns whether an unknown value is the Section 8.1 engine-timeout response. */
+export function isTimeoutResponse(value: unknown): value is TimeoutResponse {
+  return (
+    isRecord(value) &&
+    value.status === "timeout" &&
+    isIssueEngine(value.engine) &&
+    typeof value.message === "string"
+  );
+}
+
+/** Returns whether an unknown value is the Section 8 stale-reference response. */
+export function isStaleReferenceResponse(value: unknown): value is StaleReferenceResponse {
+  return (
+    isRecord(value) &&
+    value.status === "stale" &&
+    value.message === "This cluster/issue no longer exists; run check_project again."
   );
 }
 

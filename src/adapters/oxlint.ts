@@ -1,22 +1,19 @@
-import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
+import { DEFAULT_CONFIG } from "../config.js";
 import {
   createIssueId,
   normalizeIssueMessage,
   type IssueSeverity,
   type NormalizedIssue,
 } from "../schema.js";
+import { runEngineCommand, type CommandResult } from "../subprocess.js";
 
 interface OxlintRunOptions {
   cwd?: string;
-}
-
-interface CommandResult {
-  exitCode: number | null;
-  stdout: string;
-  stderr: string;
+  signal?: AbortSignal | undefined;
+  timeoutMs?: number;
 }
 
 /** Parses Oxlint JSON output and assumes filenames are relative to the supplied working directory. */
@@ -38,7 +35,7 @@ export async function runOxlint(
   options: OxlintRunOptions = {},
 ): Promise<NormalizedIssue[]> {
   const cwd = options.cwd ?? process.cwd();
-  const result = await runOxlintProcess(paths, cwd);
+  const result = await runOxlintProcess(paths, cwd, options);
   const output = result.stdout.trim() === "" ? result.stderr : result.stdout;
   const issues = output.trim() === "" ? [] : parseOxlintOutput(output, cwd);
 
@@ -147,34 +144,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function runOxlintProcess(
   paths: readonly string[],
   cwd: string,
+  options: OxlintRunOptions,
 ): Promise<CommandResult> {
   const require = createRequire(import.meta.url);
   const packagePath = require.resolve("oxlint/package.json");
   const cliPath = resolve(dirname(packagePath), "bin", "oxlint");
-  return runCommand(process.execPath, [cliPath, "--format", "json", ...paths], cwd);
-}
-
-function runCommand(
-  command: string,
-  args: readonly string[],
-  cwd: string,
-): Promise<CommandResult> {
-  return new Promise((resolveResult, reject) => {
-    const child = spawn(command, args, { cwd, windowsHide: true });
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout.setEncoding("utf8");
-    child.stderr.setEncoding("utf8");
-    child.stdout.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (exitCode) => {
-      resolveResult({ exitCode, stdout, stderr });
-    });
+  return runEngineCommand(process.execPath, [cliPath, "--format", "json", ...paths], {
+    cwd,
+    engine: "oxlint",
+    signal: options.signal,
+    timeoutMs: options.timeoutMs ?? DEFAULT_CONFIG.timeoutsMs.oxlint,
   });
 }

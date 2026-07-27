@@ -131,6 +131,7 @@ A developer using an AI coding agent (Claude Code, Cursor, etc.) on a JS/TS repo
 
 ```json
 {
+  "schemaVersion": "1.0",
   "status": "clean | issues_found",
   "totalIssues": 37,
   "clusters": ["...array of Cluster, sorted by priority ascending — priority 1 (highest urgency) first, max 10 by default..."],
@@ -145,6 +146,7 @@ Track every deviation from the original schema here, in order, so anyone reading
 
 - **2026-07 (Phase 1):** `clusterId` changed from required-string to optional-string; `fixable` rule clarified to require structured fix data, not just presence of help text. Trigger: real Oxlint 1.75.0 output didn't match the original assumptions (no `fixable` field at all, and `clusterId` obviously can't exist before Phase 3 runs).
 - **2026-07 (Phase 3, pre-implementation):** fixed a genuine contradiction between Section 10 ("priority 1 = highest") and Section 7.3 ("sorted by priority desc"), which would have sorted the least urgent cluster first. Resolved by keeping "1 = highest" and specifying ascending sort explicitly in both sections. Caught by the coding agent before implementation, not after.
+- **2026-07 (Phase 6, external review):** added `schemaVersion: "1.0"` to the Check Response. Cheap to add now, expensive to retrofit once real consumers depend on an unversioned schema shape.
 
 ## 8. MCP Tools Specification
 
@@ -155,14 +157,28 @@ Track every deviation from the original schema here, in order, so anyone reading
 | `get_issue_detail` | `{ clusterId or issueId }` | Full Issue list with all fields | Agent drills into a cluster it decided to fix |
 | `get_loop_status` | `{}` | `{ looping: bool, signatures: [...] }` | Explicit loop check, also auto-included in check responses |
 
-## 9. Caching Strategy
+**Stale reference handling (amended after external review, Phase 6):** `get_issue_detail` may be called with a `clusterId`/`issueId` that no longer exists — the agent may have fixed the code, or a later `check_project`/`check_files` call may have re-clustered everything with new IDs. In this case, return `{ status: "stale", message: "This cluster/issue no longer exists; run check_project again." }` rather than an empty array or a generic error. An empty array is ambiguous (could be misread as "nothing left to fix" instead of "your reference expired"), which risks the agent silently skipping real remaining issues.
 
-- Key: `sha256(file content) + engine name + engine config hash + signalint version`
+### 8.1 Subprocess Timeouts (added after external review, Phase 6)
+
+**Gap identified:** no default timeout was ever specified for engine subprocess calls (oxlint/tsc/biome). A hung `tsc` process (e.g. from a module resolution cycle or a very large monorepo) would block the MCP call indefinitely with no clear signal to the calling agent.
+
+**Rule:** every engine subprocess invocation has a default timeout, configurable via `signalint.config.json`:
+- oxlint: 30s
+- tsc: 120s (whole-program checks are inherently slower; see Section 9.1)
+- biome: 30s
+
+On timeout: kill the subprocess (and any of its children) and return a clear response rather than letting the MCP client's own timeout fire ambiguously, e.g. `{ status: "timeout", engine: "tsc", message: "tsc did not complete within 120s" }`. If the MCP connection itself is dropped mid-check, ensure any in-flight subprocess is also killed — no orphaned/zombie engine processes should outlive the MCP server process.
+
+
+
+- Key: `sha256(file content) + engine name + engine config hash + signalint version` (see amendment below)
+- Store: SQLite table `cache(key TEXT PRIMARY KEY, result JSON, timestamp INTEGER)`
+- Cache invalidation: engine config hash changes (e.g., `.oxlintrc` edited) → invalidate all entries for that engine.
 
 **Amendment (found during Phase 6 dogfooding, 2026-07):** the original key design didn't account for Signalint's own code changing. If a user upgrades Signalint (e.g. to pick up a bug fix in an adapter) but a target file's content and engine config are unchanged, the old key would still resolve to a stale cached result computed by the pre-upgrade code — silently reintroducing fixed bugs. Add `signalint version` (the installed package's `package.json` version, or a hash of the adapter/cluster/normalization code if finer-grained invalidation is needed) as a cache key component so any Signalint upgrade automatically invalidates all prior cache entries.
 
-- Store: SQLite table `cache(key TEXT PRIMARY KEY, result JSON, timestamp INTEGER)`
-- Cache invalidation: engine config hash changes (e.g., `.oxlintrc` edited) → invalidate all entries for that engine.
+**Extension (external review, Phase 6, still backlog — not yet implemented):** the same staleness risk applies when an *engine* itself is upgraded (e.g. `npm update` bumps oxlint/tsc/biome) — file content, Signalint version, and engine config hash can all stay the same while the engine's actual behavior changes. Add `engine version` (from the installed binary/package's own version) as a separate cache key component alongside `signalint version`, not folded into the config hash. Bundle this with the `signalint version` work above as one combined cache-key redesign when backlog work resumes after Phase 6 — don't implement either piece separately mid-dogfooding.
 
 ### 9.1 Per-Engine Invocation Strategy (amended Phase 2)
 
@@ -172,6 +188,8 @@ Split invocation strategy by engine category instead:
 
 - **File-local engines (oxlint, and Biome where used for lint/format rules):** keep the original model — hash each file, only invoke the subprocess for files with a cache miss, one call per changed file (or a single batched call listing only the changed files, if the engine supports batch input).
 - **Whole-program engines (tsc):** always invoke with `--project` (never per-file flags), and rely on TypeScript's own `--incremental` mode with a persisted `.tsbuildinfo` file (stored at `.signalint/cache/tsc.tsbuildinfo`) for the compiler's internal speed. Signalint's own file-hash cache is used only to decide **whether to invoke tsc at all** for a given `check_files` call (skip the subprocess entirely if no file relevant to the TS program graph changed since the last check) — not to decide which files tsc analyzes internally. Once invoked, tsc always sees the whole project, as it must to be correct.
+
+**Clarification (external review, Phase 6):** "relevant file," as actually implemented and verified by the Phase 2 benchmark (`tsc whole-project calls=1`, `unchanged tsc calls=0`), means **the files explicitly passed as arguments to a given `check_files` call** — not a full TypeScript dependency graph. This is a deliberate, cheaper interpretation: `check_files` is designed to be called by an agent reporting the files it just edited, so relying on that argument list (rather than building a true `ts.createProgram`-based dependency graph) is sufficient for the common case and avoids Signalint reimplementing part of the compiler's own understanding (which would conflict with NG1). **Known limitation this implies:** if file A's types change in a way that affects file B, but a `check_files` call only lists B (not A), tsc will still run (since B changed) and will correctly report any resulting errors in B — the risk is only in the inverse case: a `check_files([B])` call where B itself is unchanged but A (which B depends on) changed and wasn't included, which would incorrectly skip tsc since B's own hash is unchanged and dependency-graph awareness isn't implemented in v1. Document this explicitly for users rather than silently living with it — full dependency-graph-based invalidation is a plausible v2 candidate if this proves painful in practice, not a v1 requirement.
 
 This means the Phase 2 acceptance criteria (Section 13) apply differently per engine:
 
@@ -201,6 +219,8 @@ As defense in depth (not a substitute for the filter above), the tsc adapter sho
 - If the same signature disappears then reappears ≥2 times within a session → flag `loopWarning` in the next `check_files` response: `{ signature, occurrences, hint: "This issue was fixed and reappeared N times — consider a different approach" }`
 - Persist session log to `.signalint/session.jsonl` for post-hoc debugging (not required for detection logic itself).
 - **Scope reminder:** this is deliberately narrow — it only tracks lint/type/test issue signatures, not general agent conversation loops. Do not expand this into a general-purpose agent-loop-detection feature; that is a different, already-served problem (Section 17).
+
+**Under consideration (external review, Phase 6 — needs feasibility check before implementing):** loop detection currently resets whenever the MCP server process restarts, which MCP clients do fairly often (config changes, extension reloads). Since `.signalint/session.jsonl` already persists check history, reloading it into the in-memory signature map on server startup could make loop detection survive restarts, materially strengthening G4 (a stated competitive differentiator, Section 17). **Before implementing:** confirm `session.jsonl` actually records raw `issueSignature` + timestamp entries with enough fidelity to reconstruct the map — if it currently only logs aggregate stats (payload reduction %, cache hit rate, latency, as surfaced by `signalint stats`), the log format needs to change first, which is a bigger lift than "just add a reload step." Verify the real current log schema before treating this as low-effort.
 
 ## 12. Repository Structure
 
@@ -323,6 +343,8 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 | Scope creep from website/GUI delaying the actual product | Hard gate: Phase 7/8 cannot start before Phase 6 is complete (enforced in Section 13) |
 | Monorepo/multi-tsconfig projects fail with TS5058 (Section 3, NG7) | Documented as explicit v1 non-goal; README must state the root-tsconfig-with-project-references workaround clearly |
 | node_modules diagnostics pollute results without skipLibCheck (Section 9.2) | Unconditional path-based filter added, engine-agnostic; not user-configurable off |
+| Clustering heuristic groups issues wrong with no feedback channel (external review, P2) | Backlog for v1.1: a lightweight `report_cluster_issue` tool or field; not worth the scope addition mid-v1 |
+| Launch relies on a single-moment Reddit/HN post, no durable discovery channel (external review, P2) | Backlog for post-launch: MCP server directory listings, cross-links from oxlint/biome community pages if permitted |
 
 ## 16. Instructions for the Coding Agent (see also Section 18, AGENTS.md)
 
@@ -470,5 +492,7 @@ A read-only local web page, served by the MCP server itself on an opt-in local p
 - **Loop warnings** — timeline of any loop warnings raised in the current session, with the issue signature and occurrence count.
 
 No write actions in v1 — this is a debugging/visibility companion for the human, not a control panel. Do not add authentication/remote access in v1; it binds to localhost only.
+
+**Explicit bind requirement (external review, Phase 6):** "binds to localhost only" must be enforced in code, not left to a framework default — bind the server explicitly to `127.0.0.1`, never `0.0.0.0` and never an unspecified/default host that some HTTP frameworks silently resolve to all interfaces. The dashboard will expose sensitive information (file paths, error messages that may contain source snippets), so an accidental all-interfaces bind would leak that over the local network. Document in the README that Docker/WSL/remote-dev-container users should independently verify the dashboard's port isn't being forwarded outside the host.
 
 **Security gate before starting this phase:** `SECURITY.md` (written during Phase 5) documents that the project's current npm audit exception (`GHSA-frvp-7c67-39w9`, a moderate advisory in `@hono/node-server`'s `serveStatic` path) only holds because Signalint runs stdio-only, with no HTTP listener and no static file serving. This dashboard is exactly the kind of change that invalidates that reasoning — it introduces a local HTTP server. Before implementing Phase 8, re-run the audit-path analysis from `SECURITY.md` against whatever HTTP mechanism the dashboard actually uses (the MCP SDK's `streamableHttp.js`, a separate lightweight server, etc.) and update `SECURITY.md` accordingly. Do not assume the earlier "stdio-only, not affected" conclusion still applies.

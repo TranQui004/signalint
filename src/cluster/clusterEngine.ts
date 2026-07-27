@@ -42,6 +42,7 @@ export function clusterIssues(
   return {
     issues,
     response: {
+      schemaVersion: "1.0",
       status: rawIssues.length === 0 ? "clean" : "issues_found",
       totalIssues: rawIssues.length,
       clusters: allClusters.slice(0, maxClusters),

@@ -8,5 +8,10 @@
     "node_modules/**",
     "dist/**",
     ".signalint/**"
-  ]
+  ],
+  "timeoutsMs": {
+    "oxlint": 30000,
+    "tsc": 120000,
+    "biome": 30000
+  }
 }

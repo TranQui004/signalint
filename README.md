@@ -26,7 +26,12 @@ Create `signalint.config.json` in that project root, or omit it to use the defau
     "tsc": true,
     "biome": false
   },
-  "ignore": ["node_modules/**", "dist/**", ".signalint/**"]
+  "ignore": ["node_modules/**", "dist/**", ".signalint/**"],
+  "timeoutsMs": {
+    "oxlint": 30000,
+    "tsc": 120000,
+    "biome": 30000
+  }
 }
 ```
 
@@ -89,6 +94,11 @@ incremental `check_files` run and their diagnostics are removed from the respons
 Engine-native configuration remains in `.oxlintrc*`, `tsconfig.json`, and
 `biome.json`/`biome.jsonc`. Changing one invalidates that engine's Signalint cache.
 
+`timeoutsMs` sets positive-integer subprocess deadlines in milliseconds. Defaults are
+30 seconds for Oxlint, 120 seconds for tsc, and 30 seconds for Biome. A timed-out
+engine and its child processes are terminated, and the MCP tool returns a structured
+`status: "timeout"` response.
+
 ## Known Limitations
 
 Signalint's tsc adapter requires a single `tsconfig.json` at the project root.
@@ -99,6 +109,8 @@ Monorepos need a root `tsconfig.json` using TypeScript Project References.
 - `ping` checks that the local server is connected and returns `pong`.
 - `check_project` accepts optional `{ "paths": ["."] }` and returns clustered diagnostics.
 - `check_files` accepts `{ "files": ["src/file.ts"] }` and uses incremental caching.
+- `get_issue_detail` accepts exactly one `clusterId` or `issueId` from the latest
+  successful check and returns its full issues, or a `status: "stale"` response.
 - `get_loop_status` returns issue signatures currently flagged as oscillating.
 
 Cache and session artifacts are written under `.signalint/` and should not be committed.

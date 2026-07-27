@@ -15,6 +15,7 @@ import {
 import { runBiome } from "./adapters/biome.js";
 import { runOxlint } from "./adapters/oxlint.js";
 import { runTsc } from "./adapters/tsc.js";
+import { createLinkedAbortController } from "./abort.js";
 import {
   checkFilesWithStats,
   type CacheStats,
@@ -28,11 +29,21 @@ import {
 } from "./config.js";
 import { filterDefaultExcludedIssues } from "./defaultExclusions.js";
 import { SessionMemory } from "./memory/sessionMemory.js";
-import type { CheckResponse, NormalizedIssue } from "./schema.js";
+import type {
+  CheckResponse,
+  NormalizedIssue,
+  StaleReferenceResponse,
+} from "./schema.js";
+import { EngineTimeoutError } from "./subprocess.js";
+
+type RawIssueProvider = (
+  paths: readonly string[],
+  signal?: AbortSignal,
+) => Promise<NormalizedIssue[]>;
 
 export interface SignalintServerOptions {
-  fileIssueProvider?: (files: readonly string[]) => Promise<NormalizedIssue[]>;
-  projectIssueProvider?: (paths: readonly string[]) => Promise<NormalizedIssue[]>;
+  fileIssueProvider?: RawIssueProvider;
+  projectIssueProvider?: RawIssueProvider;
   sessionMemory?: SessionMemory;
 }
 
@@ -41,7 +52,15 @@ interface IssueProviderResult {
   cache: CacheStats;
 }
 
-type IssueProvider = (paths: readonly string[]) => Promise<IssueProviderResult>;
+type IssueProvider = (
+  paths: readonly string[],
+  signal?: AbortSignal,
+) => Promise<IssueProviderResult>;
+
+const STALE_REFERENCE_RESPONSE: StaleReferenceResponse = {
+  status: "stale",
+  message: "This cluster/issue no longer exists; run check_project again.",
+};
 
 const tools = [
   {
@@ -82,6 +101,22 @@ const tools = [
     },
   },
   {
+    name: "get_issue_detail",
+    description: "Returns all current issues for one cluster or one current issue ID.",
+    inputSchema: {
+      type: "object" as const,
+      properties: {
+        clusterId: { type: "string" as const },
+        issueId: { type: "string" as const },
+      },
+      oneOf: [
+        { required: ["clusterId"] },
+        { required: ["issueId"] },
+      ],
+      additionalProperties: false,
+    },
+  },
+  {
     name: "get_loop_status",
     description: "Returns diagnostic signatures that are looping in this server session.",
     inputSchema: {
@@ -106,11 +141,12 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   );
 
   const sessionMemory = options.sessionMemory ?? new SessionMemory();
-  const projectIssueProvider = wrapIssueProvider(
-    options.projectIssueProvider ?? collectProjectIssues,
-  );
+  const projectIssueProvider = options.projectIssueProvider === undefined
+    ? wrapIssueProvider((paths, signal) => collectProjectIssues(paths, process.cwd(), signal))
+    : wrapIssueProvider(options.projectIssueProvider);
   const fileIssueProvider = options.fileIssueProvider === undefined
-    ? (files: readonly string[]) => checkConfiguredFilesWithStats(files)
+    ? (files: readonly string[], signal?: AbortSignal) =>
+        checkConfiguredFilesWithStats(files, process.cwd(), signal)
     : wrapIssueProvider(options.fileIssueProvider);
   registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider);
   return server;
@@ -135,6 +171,7 @@ export async function checkProject(
 export async function collectProjectIssues(
   paths: readonly string[],
   cwd: string = process.cwd(),
+  signal?: AbortSignal,
 ): Promise<NormalizedIssue[]> {
   const config = await loadSignalintConfig(cwd);
   const includedPaths = filterIgnoredPaths(paths, config.ignore);
@@ -142,28 +179,56 @@ export async function collectProjectIssues(
     return [];
   }
 
-  const results = await Promise.all([
-    config.engines.oxlint ? runOxlint(includedPaths, { cwd }) : Promise.resolve([]),
-    config.engines.tsc ? runTsc(includedPaths, { cwd }) : Promise.resolve([]),
-    config.engines.biome ? runBiome(includedPaths, { cwd }) : Promise.resolve([]),
-  ]);
-  return filterDefaultExcludedIssues(results.flat())
-    .filter((issue) => !isIgnoredPath(issue.file, config.ignore))
-    .sort(compareIssues);
+  const linkedAbort = createLinkedAbortController(signal);
+  try {
+    const results = await Promise.all([
+      config.engines.oxlint
+        ? runOxlint(includedPaths, {
+            cwd,
+            signal: linkedAbort.controller.signal,
+            timeoutMs: config.timeoutsMs.oxlint,
+          })
+        : Promise.resolve([]),
+      config.engines.tsc
+        ? runTsc(includedPaths, {
+            cwd,
+            signal: linkedAbort.controller.signal,
+            timeoutMs: config.timeoutsMs.tsc,
+          })
+        : Promise.resolve([]),
+      config.engines.biome
+        ? runBiome(includedPaths, {
+            cwd,
+            signal: linkedAbort.controller.signal,
+            timeoutMs: config.timeoutsMs.biome,
+          })
+        : Promise.resolve([]),
+    ]);
+    return filterDefaultExcludedIssues(results.flat())
+      .filter((issue) => !isIgnoredPath(issue.file, config.ignore))
+      .sort(compareIssues);
+  } catch (error: unknown) {
+    linkedAbort.controller.abort();
+    throw error;
+  } finally {
+    linkedAbort.dispose();
+  }
 }
 
 /** Runs enabled incremental adapters and excludes requested or returned ignored paths. */
 export async function checkConfiguredFiles(
   files: readonly string[],
   cwd: string = process.cwd(),
+  signal?: AbortSignal,
 ): Promise<NormalizedIssue[]> {
-  return (await checkConfiguredFilesWithStats(files, cwd)).issues;
+  return (await checkConfiguredFilesWithStats(files, cwd, signal)).issues;
 }
 
 /** Runs enabled incremental adapters and returns issues plus cache metrics for session logging. */
 export async function checkConfiguredFilesWithStats(
   files: readonly string[],
   cwd: string = process.cwd(),
+  signal?: AbortSignal,
 ): Promise<CheckFilesResult> {
   const config = await loadSignalintConfig(cwd);
   const includedFiles = filterIgnoredPaths(files, config.ignore);
@@ -173,6 +238,8 @@ export async function checkConfiguredFilesWithStats(
   const result = await checkFilesWithStats(includedFiles, {
     cwd,
     engines: config.engines,
+    signal,
+    timeoutsMs: config.timeoutsMs,
   });
   return {
     issues: filterDefaultExcludedIssues(result.issues)
@@ -188,40 +255,38 @@ function registerToolHandlers(
   projectIssueProvider: IssueProvider,
   fileIssueProvider: IssueProvider,
 ): void {
+  let latestIssues: NormalizedIssue[] = [];
   server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools }));
-  server.setRequestHandler(CallToolRequestSchema, async (request): Promise<CallToolResult> => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
     if (request.params.name === "ping") {
       return { content: [{ type: "text", text: "pong" }] };
     }
     if (request.params.name === "check_project") {
-      const startedAt = performance.now();
       const paths = readStringArray(request.params.arguments, "paths", ["."]);
-      const result = await projectIssueProvider(paths);
-      const clustered = clusterIssues(filterDefaultExcludedIssues(result.issues));
-      const response = await sessionMemory.recordCheck(
-        clustered.issues,
-        clustered.response,
-        result.cache,
-        startedAt,
+      return runCheck(
+        paths,
+        extra.signal,
+        projectIssueProvider,
+        sessionMemory,
+        (issues) => {
+          latestIssues = issues;
+        },
       );
-      return {
-        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
-      };
     }
     if (request.params.name === "check_files") {
-      const startedAt = performance.now();
       const files = readStringArray(request.params.arguments, "files");
-      const result = await fileIssueProvider(files);
-      const clustered = clusterIssues(filterDefaultExcludedIssues(result.issues));
-      const response = await sessionMemory.recordCheck(
-        clustered.issues,
-        clustered.response,
-        result.cache,
-        startedAt,
+      return runCheck(
+        files,
+        extra.signal,
+        fileIssueProvider,
+        sessionMemory,
+        (issues) => {
+          latestIssues = issues;
+        },
       );
-      return {
-        content: [{ type: "text", text: JSON.stringify(response, null, 2) }],
-      };
+    }
+    if (request.params.name === "get_issue_detail") {
+      return createTextResult(resolveIssueDetail(latestIssues, request.params.arguments));
     }
     if (request.params.name === "get_loop_status") {
       return {
@@ -236,12 +301,66 @@ function registerToolHandlers(
 }
 
 function wrapIssueProvider(
-  provider: (paths: readonly string[]) => Promise<NormalizedIssue[]>,
+  provider: RawIssueProvider,
 ): IssueProvider {
-  return async (paths) => ({
-    issues: await provider(paths),
+  return async (paths, signal) => ({
+    issues: await provider(paths, signal),
     cache: { hits: 0, misses: 0 },
   });
+}
+
+async function runCheck(
+  paths: readonly string[],
+  signal: AbortSignal,
+  provider: IssueProvider,
+  sessionMemory: SessionMemory,
+  saveIssues: (issues: NormalizedIssue[]) => void,
+): Promise<CallToolResult> {
+  const startedAt = performance.now();
+  try {
+    const result = await provider(paths, signal);
+    const clustered = clusterIssues(filterDefaultExcludedIssues(result.issues));
+    const response = await sessionMemory.recordCheck(
+      clustered.issues,
+      clustered.response,
+      result.cache,
+      startedAt,
+    );
+    saveIssues(clustered.issues);
+    return createTextResult(response);
+  } catch (error: unknown) {
+    if (error instanceof EngineTimeoutError) {
+      return createTextResult(error.response);
+    }
+    throw error;
+  }
+}
+
+function resolveIssueDetail(
+  issues: readonly NormalizedIssue[],
+  argumentsValue: Record<string, unknown> | undefined,
+): NormalizedIssue[] | StaleReferenceResponse {
+  const reference = readIssueReference(argumentsValue);
+  const matches = issues.filter((issue) => issue[reference.key] === reference.value);
+  return matches.length === 0 ? STALE_REFERENCE_RESPONSE : matches;
+}
+
+function readIssueReference(
+  argumentsValue: Record<string, unknown> | undefined,
+): { key: "clusterId" | "issueId"; value: string } {
+  const clusterId = argumentsValue?.clusterId;
+  const issueId = argumentsValue?.issueId;
+  if (typeof clusterId === "string" && issueId === undefined) {
+    return { key: "clusterId", value: clusterId };
+  }
+  if (typeof issueId === "string" && clusterId === undefined) {
+    return { key: "issueId", value: issueId };
+  }
+  throw new Error("get_issue_detail requires exactly one clusterId or issueId string.");
+}
+
+function createTextResult(value: unknown): CallToolResult {
+  return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
 }
 
 function readStringArray(

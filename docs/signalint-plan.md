@@ -50,6 +50,7 @@ Signalint is an MCP server that wraps existing fast, best-in-class engines (Oxli
 - NG4: No IDE extension in v1.
 - NG5: No security/SAST scanning (Semgrep-style) in v1 — pure lint/type/test feedback only.
 - NG6: No general-purpose AI-session loop detection or prompt/context compression — that space is already served by existing tools (Section 17). Signalint's loop detection is scoped narrowly to lint/type/test issue signatures only, not general conversation or context management.
+- NG7 (discovered during Phase 6 dogfooding, 2026-07): No monorepo/multi-tsconfig awareness in v1. The tsc adapter assumes a single `tsconfig.json` at the project root (Section 9.1) and fails with `TS5058` on npm-workspace-style monorepos with per-package tsconfig files and no root config. Workaround for users: add a root `tsconfig.json` using TypeScript Project References pointing at each package. Proper multi-project support (auto-detecting and iterating per-package tsconfigs) is a v2 candidate, not v1 scope — document this limitation clearly in the README (Phase 5/7) so users aren't surprised by it.
 
 ## 4. Target User & Primary Use Case
 
@@ -309,6 +310,7 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 | MCP ecosystem already saturated with lint servers, hard to get attention | Differentiate explicitly on caching + diagnostic-clustering in all marketing copy; lead with measured numbers, not claims |
 | Session memory lost on MCP server restart | Acceptable for v1 (in-memory only); document as known limitation |
 | Scope creep from website/GUI delaying the actual product | Hard gate: Phase 7/8 cannot start before Phase 6 is complete (enforced in Section 13) |
+| Monorepo/multi-tsconfig projects fail with TS5058 (Section 3, NG7) | Documented as explicit v1 non-goal; README must state the root-tsconfig-with-project-references workaround clearly |
 
 ## 16. Instructions for the Coding Agent (see also Section 18, AGENTS.md)
 

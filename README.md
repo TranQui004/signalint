@@ -89,6 +89,11 @@ incremental `check_files` run and their diagnostics are removed from the respons
 Engine-native configuration remains in `.oxlintrc*`, `tsconfig.json`, and
 `biome.json`/`biome.jsonc`. Changing one invalidates that engine's Signalint cache.
 
+## Known Limitations
+
+Signalint's tsc adapter requires a single `tsconfig.json` at the project root.
+Monorepos need a root `tsconfig.json` using TypeScript Project References.
+
 ## MCP tools
 
 - `ping` checks that the local server is connected and returns `pong`.

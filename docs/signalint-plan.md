@@ -157,9 +157,11 @@ Track every deviation from the original schema here, in order, so anyone reading
 
 ## 9. Caching Strategy
 
-- Key: `sha256(file content) + engine name + engine config hash`
+- Key: `sha256(file content) + engine name + engine config hash + signalint version` (see amendment below)
 - Store: SQLite table `cache(key TEXT PRIMARY KEY, result JSON, timestamp INTEGER)`
 - Cache invalidation: engine config hash changes (e.g., `.oxlintrc` edited) → invalidate all entries for that engine.
+
+**Amendment (found during Phase 6 dogfooding, 2026-07):** the original key design didn't account for Signalint's own code changing. If a user upgrades Signalint (e.g. to pick up a bug fix in an adapter) but a target file's content and engine config are unchanged, the old key would still resolve to a stale cached result computed by the pre-upgrade code — silently reintroducing fixed bugs. Add `signalint version` (the installed package's `package.json` version, or a hash of the adapter/cluster/normalization code if finer-grained invalidation is needed) as a cache key component so any Signalint upgrade automatically invalidates all prior cache entries.
 
 ### 9.1 Per-Engine Invocation Strategy (amended Phase 2)
 
@@ -385,6 +387,13 @@ starting each phase.
 - Phase 7 (website) and Phase 8 (dashboard) must not start until Phase 6 is marked
   complete by the human. If asked to start them early, remind the human of this gate
   and ask for explicit confirmation before proceeding.
+- Whenever a change you make affects the compiled MCP server (anything under
+  `src/` that gets built to `dist/`), end your report with an explicit reminder:
+  the human must run `npm run build` AND disconnect/reconnect (or restart) their
+  MCP client for the change to actually take effect — a stale running process or
+  un-rebuilt `dist/` will silently keep serving old behavior even after you've
+  committed and pushed a real fix. Do not assume this is obvious; state it plainly
+  every time, since this exact mistake has already cost real debugging time once.
 
 ## When to stop and ask the human (do not guess or proceed silently)
 

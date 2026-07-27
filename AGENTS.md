@@ -32,6 +32,13 @@ starting each phase.
 - Phase 7 (website) and Phase 8 (dashboard) must not start until Phase 6 is marked
   complete by the human. If asked to start them early, remind the human of this gate
   and ask for explicit confirmation before proceeding.
+- Whenever a change you make affects the compiled MCP server (anything under
+  `src/` that gets built to `dist/`), end your report with an explicit reminder:
+  the human must run `npm run build` AND disconnect/reconnect (or restart) their
+  MCP client for the change to actually take effect — a stale running process or
+  un-rebuilt `dist/` will silently keep serving old behavior even after you've
+  committed and pushed a real fix. Do not assume this is obvious; state it plainly
+  every time, since this exact mistake has already cost real debugging time once.
 
 ## When to stop and ask the human (do not guess or proceed silently)
 

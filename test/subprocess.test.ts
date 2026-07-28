@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { readFile, rm } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -21,15 +21,17 @@ interface TaskkillResult {
 }
 
 const fixturePath = resolve("test/fixtures/hanging-process.cjs");
-const timeoutPidPath = resolve(".signalint/test/timeout-pids.json");
-const disconnectPidPath = resolve(".signalint/test/disconnect-pids.json");
-const permissionPidPath = resolve(".signalint/test/taskkill-permission-pids.json");
+const pidDirectory = resolve(".signalint/test");
+const timeoutPidPath = resolve(pidDirectory, "timeout-pids.json");
+const disconnectPidPath = resolve(pidDirectory, "disconnect-pids.json");
+const permissionPidPath = resolve(pidDirectory, "taskkill-permission-pids.json");
 const pidPaths = [timeoutPidPath, disconnectPidPath, permissionPidPath];
 const clients: Client[] = [];
 const servers: Server[] = [];
 let taskkillPermissionDenied = false;
 
 beforeAll(async () => {
+  await mkdir(pidDirectory, { recursive: true });
   if (process.platform !== "win32") {
     return;
   }

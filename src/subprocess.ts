@@ -133,10 +133,19 @@ async function terminateProcessTree(child: ChildProcess): Promise<void> {
     await terminateWindowsProcessTree(pid, child);
     return;
   }
+  terminatePosixProcessGroup(pid, child);
+}
+
+function terminatePosixProcessGroup(pid: number, child: ChildProcess): void {
   try {
     process.kill(-pid, "SIGKILL");
-  } catch {
+  } catch (error: unknown) {
+    if (isErrnoException(error) && error.code === "ESRCH") {
+      return;
+    }
     child.kill("SIGKILL");
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`process-group kill failed for PID ${String(pid)}: ${message}`);
   }
 }
 
@@ -182,6 +191,10 @@ function terminateWindowsProcessTree(pid: number, child: ChildProcess): Promise<
 function reportTerminationFailure(engine: IssueEngine, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   process.stderr.write(`[signalint] Failed to terminate ${engine} process tree: ${message}\n`);
+}
+
+function isErrnoException(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error;
 }
 
 function assertTimeout(timeoutMs: number): void {

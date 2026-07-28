@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/index.js";
 import { EngineTimeoutError, runEngineCommand } from "../src/subprocess.js";
@@ -15,12 +15,42 @@ interface PidRecord {
   child: number;
 }
 
+interface TaskkillResult {
+  exitCode: number | null;
+  stderr: string;
+}
+
 const fixturePath = resolve("test/fixtures/hanging-process.cjs");
 const timeoutPidPath = resolve(".signalint/test/timeout-pids.json");
 const disconnectPidPath = resolve(".signalint/test/disconnect-pids.json");
-const pidPaths = [timeoutPidPath, disconnectPidPath];
+const permissionPidPath = resolve(".signalint/test/taskkill-permission-pids.json");
+const pidPaths = [timeoutPidPath, disconnectPidPath, permissionPidPath];
 const clients: Client[] = [];
 const servers: Server[] = [];
+let taskkillPermissionDenied = false;
+
+beforeAll(async () => {
+  if (process.platform !== "win32") {
+    return;
+  }
+  await rm(permissionPidPath, { force: true });
+  const fixture = spawn(process.execPath, [fixturePath, permissionPidPath], {
+    stdio: "ignore",
+    windowsHide: true,
+  });
+  fixture.unref();
+  await waitUntil(async () => await fileExists(permissionPidPath));
+  const pids = await readPidRecord(permissionPidPath);
+  const result = await runTaskkill(pids.parent);
+  taskkillPermissionDenied = isAccessDenied(result);
+  if (taskkillPermissionDenied) {
+    forceKillDirectly(pids.parent);
+    forceKillDirectly(pids.child);
+  } else if (result.exitCode !== 0) {
+    throw new Error(`taskkill permission preflight failed: ${result.stderr.trim()}`);
+  }
+  await rm(permissionPidPath, { force: true });
+});
 
 afterEach(async () => {
   await Promise.all(clients.map((client) => client.close()));
@@ -33,7 +63,11 @@ afterEach(async () => {
 });
 
 describe("Engine subprocess lifecycle", () => {
-  it("returns a structured timeout and kills the engine process tree", async () => {
+  it("returns a structured timeout and kills the engine process tree", async ({ skip }) => {
+    if (taskkillPermissionDenied) {
+      skip("taskkill permission denied in this environment");
+      return;
+    }
     await rm(timeoutPidPath, { force: true });
 
     await expect(
@@ -50,7 +84,11 @@ describe("Engine subprocess lifecycle", () => {
     expect(isProcessRunning(pids.child)).toBe(false);
   });
 
-  it("kills the engine process tree when the MCP connection closes", async () => {
+  it("kills the engine process tree when the MCP connection closes", async ({ skip }) => {
+    if (taskkillPermissionDenied) {
+      skip("taskkill permission denied in this environment");
+      return;
+    }
     await rm(disconnectPidPath, { force: true });
     const server = createServer({
       projectIssueProvider: async (_paths, signal) => {
@@ -129,14 +167,46 @@ function forceKill(pid: number): Promise<void> {
     }
     return Promise.resolve();
   }
-  return new Promise((resolveKill) => {
+  return runTaskkill(pid).then((result) => {
+    if (result.exitCode !== 0) {
+      forceKillDirectly(pid);
+    }
+  });
+}
+
+function runTaskkill(pid: number): Promise<TaskkillResult> {
+  return new Promise((resolveResult) => {
+    let stderr = "";
     const killer = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], {
-      stdio: "ignore",
+      stdio: ["ignore", "ignore", "pipe"],
       windowsHide: true,
     });
-    killer.on("error", () => resolveKill());
-    killer.on("close", () => resolveKill());
+    killer.stderr.setEncoding("utf8");
+    killer.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    killer.on("error", (error) => {
+      resolveResult({ exitCode: null, stderr: error.message });
+    });
+    killer.on("close", (exitCode) => {
+      resolveResult({ exitCode, stderr });
+    });
   });
+}
+
+function isAccessDenied(result: TaskkillResult): boolean {
+  return (
+    result.exitCode !== 0 &&
+    /(?:access\s+is\s+denied|access\s+denied|permission\s+denied)/i.test(result.stderr)
+  );
+}
+
+function forceKillDirectly(pid: number): void {
+  try {
+    process.kill(pid, "SIGKILL");
+  } catch {
+    // The process already exited.
+  }
 }
 
 function isProcessRunning(pid: number): boolean {

@@ -169,6 +169,8 @@ pnpm test
 pnpm build
 ```
 
+If a global npm shim cannot find `npm-cli.js`, build directly with `node node_modules/typescript/bin/tsc -p tsconfig.json`.
+
 `npm publish` is intentionally not part of Phase 5. Use `npm pack --dry-run` and a
 fresh tarball install until the public launch is explicitly approved.
 

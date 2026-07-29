@@ -60,6 +60,7 @@ const DECLARATION_OXLINT_OUTPUT = JSON.stringify({
 });
 
 const declarationFixture = resolve("test/fixtures/node-modules-project");
+const solutionStyleFixture = resolve("test/fixtures/solution-style-project");
 
 // Captured from @biomejs/biome 2.5.5: `biome check --reporter=json src/broken.ts`.
 const BIOME_OUTPUT = JSON.stringify({
@@ -182,8 +183,33 @@ describe("tsc adapter", () => {
     );
 
     expect(defaultArgs).toContain("--skipLibCheck");
+    expect(defaultArgs).toContain("--project");
+    expect(defaultArgs).not.toContain("--build");
     expect(explicitFalseArgs).not.toContain("--skipLibCheck");
     expect(explicitTrueArgs).not.toContain("--skipLibCheck");
+  });
+
+  it("builds a solution-style root and reports diagnostics from referenced projects", async () => {
+    const args = await createTscArgs(["."], solutionStyleFixture);
+    const issues = await runTsc(["."], { cwd: solutionStyleFixture });
+
+    expect(args[0]).toBe("--build");
+    expect(args).not.toContain("--project");
+    expect(args).not.toContain("--tsBuildInfoFile");
+    expect(args).not.toContain("--skipLibCheck");
+    expect(issues).toEqual([
+      expect.objectContaining({
+        file: "frontend/src/broken.ts",
+        line: 1,
+        col: 14,
+        engine: "tsc",
+        rule: "TS2322",
+        severity: "error",
+        message: "Type 'string' is not assignable to type 'number'.",
+        fixable: false,
+      }),
+    ]);
+    expect(issues.every(isNormalizedIssue)).toBe(true);
   });
 
   it("suppresses library declaration diagnostics in a real default-config run", async () => {

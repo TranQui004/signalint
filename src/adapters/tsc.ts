@@ -26,6 +26,11 @@ interface PendingDiagnostic {
   messageParts: string[];
 }
 
+interface EffectiveProjectConfig {
+  hasReferences: boolean;
+  skipLibCheck: boolean | undefined;
+}
+
 const DIAGNOSTIC_START =
   /^(.*)\((\d+),(\d+)\):\s+(error|warning)\s+((?:TS)?\d+):\s*(.*)$/;
 
@@ -116,13 +121,29 @@ function normalizeTscDiagnostic(
   };
 }
 
-/** Builds whole-project tsc arguments and defaults skipLibCheck only when it is unset. */
+/** Builds whole-project tsc arguments, using build mode only for project-reference roots. */
 export async function createTscArgs(
   paths: readonly string[],
   cwd: string,
   options: Omit<TscRunOptions, "cwd"> = {},
 ): Promise<string[]> {
   const projectFile = await resolveProjectFile(paths[0] ?? ".", cwd);
+  const config = await readEffectiveProjectConfig(projectFile, cwd, options);
+  if (config.hasReferences) {
+    return createBuildModeArgs(projectFile);
+  }
+  return await createProjectModeArgs(projectFile, cwd, config.skipLibCheck);
+}
+
+function createBuildModeArgs(projectFile: string): string[] {
+  return ["--build", projectFile, "--pretty", "false", "--noEmit", "--incremental"];
+}
+
+async function createProjectModeArgs(
+  projectFile: string,
+  cwd: string,
+  skipLibCheck: boolean | undefined,
+): Promise<string[]> {
   const buildInfoFile = resolve(cwd, ".signalint", "cache", "tsc.tsbuildinfo");
   await mkdir(dirname(buildInfoFile), { recursive: true });
   const args = [
@@ -135,7 +156,7 @@ export async function createTscArgs(
     "--tsBuildInfoFile",
     buildInfoFile,
   ];
-  if ((await readEffectiveSkipLibCheck(projectFile, cwd, options)) === undefined) {
+  if (skipLibCheck === undefined) {
     args.push("--skipLibCheck");
   }
   return args;
@@ -145,11 +166,11 @@ function normalizeTscRule(rule: string): string {
   return rule.startsWith("TS") ? rule : `TS${rule}`;
 }
 
-async function readEffectiveSkipLibCheck(
+async function readEffectiveProjectConfig(
   projectFile: string,
   cwd: string,
   options: Omit<TscRunOptions, "cwd">,
-): Promise<boolean | undefined> {
+): Promise<EffectiveProjectConfig> {
   const result = await runTscProcess(["--showConfig", "--project", projectFile], cwd, options);
   if (result.exitCode !== 0) {
     throw new Error(`tsc --showConfig failed: ${[result.stdout, result.stderr].join("\n").trim()}`);
@@ -158,11 +179,17 @@ async function readEffectiveSkipLibCheck(
   if (!isRecord(parsed) || !isRecord(parsed.compilerOptions)) {
     throw new Error("tsc --showConfig did not return compilerOptions.");
   }
-  const value = parsed.compilerOptions.skipLibCheck;
-  if (value === undefined || typeof value === "boolean") {
-    return value;
+  const skipLibCheck = parsed.compilerOptions.skipLibCheck;
+  if (skipLibCheck !== undefined && typeof skipLibCheck !== "boolean") {
+    throw new Error("tsc --showConfig returned a non-boolean skipLibCheck value.");
   }
-  throw new Error("tsc --showConfig returned a non-boolean skipLibCheck value.");
+  if (parsed.references !== undefined && !Array.isArray(parsed.references)) {
+    throw new Error("tsc --showConfig returned a non-array references value.");
+  }
+  return {
+    hasReferences: Object.hasOwn(parsed, "references"),
+    skipLibCheck,
+  };
 }
 
 async function resolveProjectFile(path: string, cwd: string): Promise<string> {

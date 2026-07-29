@@ -81,6 +81,20 @@ settings, enable `signalint`, and call `ping` followed by `check_project`.
 See the [Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol)
 for configuration locations and status controls.
 
+## Windows troubleshooting
+
+Windows `.cmd` shims created by `npm link` can expose a junction path to Node. If
+`signalint-mcp` ends with an initialize/EOF error or `signalint stats` exits with
+code 0 but prints nothing, bypass the shim with the compiled entrypoint paths:
+
+```powershell
+node C:\absolute\path\to\Signalint\dist\src\index.js
+node C:\absolute\path\to\Signalint\dist\src\cli.js stats
+```
+
+Current builds canonicalize linked paths before deciding whether to start, but direct
+Node invocation remains the reliable fallback for older builds or unusual npm setups.
+
 ## Configuration
 
 `engines.oxlint`, `engines.tsc`, and `engines.biome` are booleans. Defaults are

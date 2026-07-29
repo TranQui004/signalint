@@ -1,8 +1,6 @@
 #!/usr/bin/env node
 
-import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
-import { fileURLToPath } from "node:url";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -28,6 +26,7 @@ import {
   loadSignalintConfig,
 } from "./config.js";
 import { filterDefaultExcludedIssues } from "./defaultExclusions.js";
+import { isMainModule } from "./mainModule.js";
 import { SessionMemory } from "./memory/sessionMemory.js";
 import type {
   CheckResponse,
@@ -387,10 +386,6 @@ function compareIssues(left: NormalizedIssue, right: NormalizedIssue): number {
   );
 }
 
-const isMainModule =
-  process.argv[1] !== undefined &&
-  fileURLToPath(import.meta.url) === resolve(process.argv[1]);
-
-if (isMainModule) {
+if (isMainModule(import.meta.url)) {
   await startServer();
 }

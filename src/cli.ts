@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 
 import { resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 
 import { checkProject } from "./index.js";
+import { isMainModule } from "./mainModule.js";
 import { formatSessionStats, readSessionStats } from "./stats.js";
 
 /** Runs the thin CLI for arguments excluding Node/script entries and a supplied project root. */
@@ -38,10 +38,6 @@ export async function runCli(
   return response.status === "clean" ? 0 : 1;
 }
 
-const isMainModule =
-  process.argv[1] !== undefined &&
-  fileURLToPath(import.meta.url) === resolve(process.argv[1]);
-
-if (isMainModule) {
+if (isMainModule(import.meta.url)) {
   process.exitCode = await runCli(process.argv.slice(2));
 }

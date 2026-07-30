@@ -6,17 +6,34 @@ issues; and warns when the same diagnostic disappears and repeatedly returns.
 Loop history is restored from valid `.signalint/session.jsonl` entries when the MCP
 server restarts; malformed or crash-truncated lines are skipped.
 
+> [!IMPORTANT]
+> `signalint-mcp` is not yet published to npm. Registry installation is not
+> available today; use the packed-tarball installation below until the first npm
+> release.
+
 ## Requirements
 
 - Node.js 20.19 or later in the Node 20 line, or Node.js 22.12 or later
 - A JavaScript or TypeScript project; TypeScript checks require a `tsconfig.json`
+- pnpm 11.9.0 when building a pre-release tarball from this repository
 
 ## Install
 
-From the project that Signalint should check:
+Clone the public repository, install its locked dependencies, and build a local
+package tarball:
 
 ```sh
-npm install --save-dev signalint-mcp
+git clone https://github.com/TranQui004/signalint.git
+cd signalint
+pnpm install --frozen-lockfile
+npm pack
+```
+
+Install that tarball in the project Signalint should check:
+
+```sh
+cd /path/to/your-project
+npm install --save-dev /absolute/path/to/signalint/signalint-mcp-0.1.0.tgz
 ```
 
 Create `signalint.config.json` in that project root, or omit it to use the defaults:
@@ -141,8 +158,18 @@ engine and its child processes are terminated, and the MCP tool returns a struct
 
 ## Known Limitations
 
-Signalint's tsc adapter requires a single `tsconfig.json` at the project root.
-Monorepos need a root `tsconfig.json` using TypeScript Project References.
+- Signalint supports JavaScript and TypeScript projects only.
+- The built-in engines are Oxlint, TypeScript, and Biome; v1 does not support
+  arbitrary custom engines.
+- Signalint reports whether an issue has a structured fix, but v1 does not apply
+  fixes.
+- Signalint is not a SAST or security scanner.
+- There is no IDE extension yet; integrations use MCP or the command-line client.
+- Loop detection is deliberately limited to lint, type, and test issue signatures;
+  it does not detect general agent-conversation loops.
+- The tsc adapter requires one `tsconfig.json` at the project root. Monorepos must
+  provide a solution-style root config using TypeScript Project References;
+  Signalint does not auto-discover independent package configs.
 
 ## MCP tools
 
@@ -187,20 +214,13 @@ The CLI exits with code 1 when issues are found. To exercise an actual MCP
 node node_modules/signalint-mcp/examples/check-project.mjs .
 ```
 
-For a pre-release packed build, replace the registry install with the tarball while
-leaving all other steps unchanged:
-
-```sh
-npm pack
-cd /path/to/clean-sample-project
-npm install --save-dev /absolute/path/to/signalint-mcp-0.1.0.tgz
-node node_modules/signalint-mcp/examples/check-project.mjs .
-```
-
 ## Development
 
+pnpm 11.9.0 is the canonical package manager for source development. The repository
+commits `pnpm-lock.yaml`, declares pnpm in `package.json`, and uses pnpm in CI.
+
 ```sh
-pnpm install
+pnpm install --frozen-lockfile
 pnpm lint
 pnpm typecheck
 pnpm test
@@ -216,3 +236,7 @@ fresh tarball install until the public launch is explicitly approved.
 
 See [SECURITY.md](SECURITY.md) for the current npm audit advisory, its evaluated
 runtime reachability, and the conditions that require reassessment.
+
+## License
+
+Signalint is available under the [MIT License](LICENSE).

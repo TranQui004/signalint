@@ -4,6 +4,8 @@ node_modules/
 !test/fixtures/node-modules-project/node_modules/broken-package/index.d.ts
 !test/fixtures/node-modules-project/node_modules/broken-package/package.json
 .pnpm-store/
+package-lock.json
+yarn.lock
 dist/
 coverage/
 .signalint/

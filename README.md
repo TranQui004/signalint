@@ -81,6 +81,30 @@ settings, enable `signalint`, and call `ping` followed by `check_project`.
 See the [Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol)
 for configuration locations and status controls.
 
+## Setting up with Antigravity
+
+Antigravity uses its own MCP configuration file, typically
+`%USERPROFILE%\.gemini\antigravity\mcp_config.json` on Windows. During local
+dogfooding, Antigravity did not resolve npm-link-generated `.cmd` shims reliably,
+so point it directly at the compiled server entrypoint:
+
+```json
+{
+  "mcpServers": {
+    "signalint": {
+      "command": "node",
+      "args": ["<absolute-path-to-signalint>/dist/src/index.js"],
+      "cwd": "<absolute-path-to-your-project>"
+    }
+  }
+}
+```
+
+Run `npm run build` in the Signalint checkout before using that path, then restart
+or reconnect Antigravity. After `signalint-mcp` is published to npm, this setup can
+use the same `npx --no-install signalint-mcp` pattern documented for Claude Code
+and Cursor; direct Node invocation is the current local-checkout instruction.
+
 ## Windows troubleshooting
 
 Windows `.cmd` shims created by `npm link` can expose a junction path to Node. If

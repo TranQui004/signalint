@@ -11,16 +11,25 @@ permissions:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
+    name: Test (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
-        os:
-          - windows-latest
-          - ubuntu-latest
-          - macos-latest
+        include:
+          - os: windows-latest
+            node: '22.x'
+            label: windows-latest
+          - os: ubuntu-latest
+            node: '22.x'
+            label: ubuntu-latest
+          - os: macos-latest
+            node: '22.x'
+            label: macos-latest
+          - os: ubuntu-latest
+            node: '20.19.0'
+            label: ubuntu-node-20.19
 
     steps:
       - name: Check out repository
@@ -34,7 +43,7 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: '22.x'
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install dependencies

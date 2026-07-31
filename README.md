@@ -170,6 +170,11 @@ engine and its child processes are terminated, and the MCP tool returns a struct
 - The tsc adapter requires one `tsconfig.json` at the project root. Monorepos must
   provide a solution-style root config using TypeScript Project References;
   Signalint does not auto-discover independent package configs.
+- `check_files` treats only the files explicitly passed to that call as relevant to
+  TypeScript cache invalidation. If file A changes but is omitted while unchanged file
+  B is checked, and B depends on A, Signalint can reuse a stale tsc result. Include
+  every changed dependency file or run `check_project`; dependency-graph-based
+  invalidation is not implemented in v1.
 
 ## MCP tools
 
@@ -203,7 +208,8 @@ distinct issue signatures that triggered loop warnings. An engine-file lookup co
 each enabled engine separately, so one changed TypeScript file can miss once for
 Oxlint and once for tsc. Latency covers handler work from MCP tool entry through
 engine/cache work, clustering, and loop evaluation; it excludes the telemetry append
-and stdio transport. Clean checks with zero raw payload are excluded from the
+and stdio transport. Statistics include the active session log and its rotated `.1`
+backup, with their retained overlap counted once. Clean checks with zero raw payload are excluded from the
 reduction average, and older checks with missing metrics remain counted without
 contributing to the unavailable aggregate.
 

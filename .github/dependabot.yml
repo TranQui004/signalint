@@ -1,0 +1,10 @@
+version: 2
+
+# Package updates are intentionally omitted while GitHub Dependabot supports
+# pnpm only through v10; Signalint keeps pnpm 11.9.0 as canonical.
+# https://docs.github.com/en/code-security/reference/supply-chain-security/supported-ecosystems-and-repositories
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

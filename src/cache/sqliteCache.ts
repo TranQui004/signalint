@@ -1,6 +1,8 @@
 import { createHash } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { mkdirSync, readFileSync } from "node:fs";
+import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import Database from "better-sqlite3";
 
@@ -18,16 +20,50 @@ interface EngineStateRow {
   result: string;
 }
 
-const openCaches = new Set<SqliteCache>();
+export interface CacheVersionInfo {
+  engineVersion: string;
+  signalintVersion: string;
+}
 
-/** Creates the Section 9 cache key from file content, engine name, and engine config hash. */
+interface PackageMetadata {
+  name?: string;
+  version: string;
+}
+
+const ENGINE_PACKAGES: Record<IssueEngine, string> = {
+  oxlint: "oxlint",
+  tsc: "typescript",
+  biome: "@biomejs/biome",
+};
+
+const openCaches = new Set<SqliteCache>();
+const require = createRequire(import.meta.url);
+const resolvedVersionInfo = new Map<IssueEngine, CacheVersionInfo>();
+let installedSignalintVersion: string | undefined;
+
+/** Creates the Section 9 cache key including installed Signalint and engine versions. */
 export function createCacheKey(
   fileContent: string,
   engine: IssueEngine,
   configHash: string,
+  versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
 ): string {
   const fileHash = createHash("sha256").update(fileContent).digest("hex");
-  return `${fileHash}:${engine}:${configHash}`;
+  return createVersionedKey(fileHash, engine, configHash, versions);
+}
+
+/** Resolves installed package versions used to invalidate cache entries after upgrades. */
+export function resolveCacheVersionInfo(engine: IssueEngine): CacheVersionInfo {
+  const cached = resolvedVersionInfo.get(engine);
+  if (cached !== undefined) {
+    return cached;
+  }
+  const versions = {
+    signalintVersion: resolveSignalintVersion(),
+    engineVersion: readPackageVersion(require.resolve(`${ENGINE_PACKAGES[engine]}/package.json`)),
+  };
+  resolvedVersionInfo.set(engine, versions);
+  return versions;
 }
 
 export class SqliteCache {
@@ -85,16 +121,20 @@ export class SqliteCache {
       .run(key, JSON.stringify(issues), Date.now());
   }
 
-  /** Deletes entries for an engine whose embedded config hash is not the current hash. */
-  public invalidateEngine(engine: IssueEngine, currentConfigHash: string): number {
+  /** Deletes entries whose config, Signalint, or engine version is no longer current. */
+  public invalidateEngine(
+    engine: IssueEngine,
+    currentConfigHash: string,
+    versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
+  ): number {
     const enginePattern = `%:${engine}:%`;
-    const currentPattern = `%:${engine}:${currentConfigHash}`;
+    const currentPattern = `%:${createVersionedSuffix(engine, currentConfigHash, versions)}`;
     const result = this.database
       .prepare("DELETE FROM cache WHERE key LIKE ? AND key NOT LIKE ?")
       .run(enginePattern, currentPattern);
     this.database
       .prepare("DELETE FROM engine_state WHERE engine = ? AND config_hash != ?")
-      .run(engine, currentConfigHash);
+      .run(engine, createEngineStateHash(currentConfigHash, versions));
     return result.changes;
   }
 
@@ -102,10 +142,11 @@ export class SqliteCache {
   public getEngineResult(
     engine: IssueEngine,
     configHash: string,
+    versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
   ): NormalizedIssue[] | undefined {
     const row: unknown = this.database
       .prepare("SELECT result FROM engine_state WHERE engine = ? AND config_hash = ?")
-      .get(engine, configHash);
+      .get(engine, createEngineStateHash(configHash, versions));
     if (row === undefined) {
       return undefined;
     }
@@ -120,6 +161,7 @@ export class SqliteCache {
     engine: IssueEngine,
     configHash: string,
     issues: readonly NormalizedIssue[],
+    versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
   ): void {
     this.database
       .prepare(`
@@ -130,7 +172,12 @@ export class SqliteCache {
           result = excluded.result,
           timestamp = excluded.timestamp
       `)
-      .run(engine, configHash, JSON.stringify(issues), Date.now());
+      .run(
+        engine,
+        createEngineStateHash(configHash, versions),
+        JSON.stringify(issues),
+        Date.now(),
+      );
   }
 
   /** Closes the underlying SQLite connection and assumes no later cache calls occur. */
@@ -175,4 +222,86 @@ function parseIssues(serialized: string, source: string): NormalizedIssue[] {
     throw new Error(`SQLite cache contained an invalid ${source} Normalized Issue array.`);
   }
   return parsed;
+}
+
+function createVersionedKey(
+  fileHash: string,
+  engine: IssueEngine,
+  configHash: string,
+  versions: CacheVersionInfo,
+): string {
+  return `${fileHash}:${createVersionedSuffix(engine, configHash, versions)}`;
+}
+
+function createVersionedSuffix(
+  engine: IssueEngine,
+  configHash: string,
+  versions: CacheVersionInfo,
+): string {
+  return `${engine}:${configHash}:${versions.signalintVersion}:${versions.engineVersion}`;
+}
+
+function createEngineStateHash(
+  configHash: string,
+  versions: CacheVersionInfo,
+): string {
+  return createHash("sha256")
+    .update(configHash)
+    .update("\0")
+    .update(versions.signalintVersion)
+    .update("\0")
+    .update(versions.engineVersion)
+    .digest("hex");
+}
+
+function resolveSignalintVersion(): string {
+  if (installedSignalintVersion !== undefined) {
+    return installedSignalintVersion;
+  }
+  let directory = dirname(fileURLToPath(import.meta.url));
+  while (true) {
+    const packagePath = resolve(directory, "package.json");
+    try {
+      const metadata = readPackageMetadata(packagePath);
+      if (metadata.name === "signalint-mcp") {
+        installedSignalintVersion = metadata.version;
+        return installedSignalintVersion;
+      }
+    } catch (error: unknown) {
+      if (!isMissingFileError(error)) {
+        throw error;
+      }
+    }
+    const parent = dirname(directory);
+    if (parent === directory) {
+      throw new Error("Could not resolve the installed signalint-mcp package version.");
+    }
+    directory = parent;
+  }
+}
+
+function readPackageVersion(packagePath: string): string {
+  return readPackageMetadata(packagePath).version;
+}
+
+function readPackageMetadata(packagePath: string): PackageMetadata {
+  const parsed: unknown = JSON.parse(readFileSync(packagePath, "utf8"));
+  if (
+    !isRecord(parsed) ||
+    typeof parsed.version !== "string" ||
+    (parsed.name !== undefined && typeof parsed.name !== "string")
+  ) {
+    throw new Error(`Package metadata at ${packagePath} did not contain a valid version.`);
+  }
+  return parsed.name === undefined
+    ? { version: parsed.version }
+    : { name: parsed.name, version: parsed.version };
+}
+
+function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

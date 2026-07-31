@@ -12,8 +12,10 @@ import {
   type EngineSelection,
   type EngineTimeouts,
 } from "./config.js";
+import { settleEngineTasks } from "./engineFanout.js";
 import {
   createIssueId,
+  type EngineStatuses,
   type IssueEngine,
   type NormalizedIssue,
 } from "./schema.js";
@@ -59,6 +61,7 @@ export interface CacheStats {
 export interface CheckFilesResult {
   issues: NormalizedIssue[];
   cache: CacheStats;
+  engines: EngineStatuses;
 }
 
 interface FileSnapshot {
@@ -117,43 +120,50 @@ export async function checkFilesWithStats(
     const runners = { ...DEFAULT_RUNNERS, ...options.runners };
     const engines = options.engines ?? DEFAULT_ENGINES;
     const timeoutsMs = options.timeoutsMs ?? DEFAULT_CONFIG.timeoutsMs;
-    const results = await Promise.all([
-      engines.oxlint
-        ? checkFileLocalEngine(
-            "oxlint",
-            snapshots.filter((snapshot) => isOxlintRelevant(snapshot.file)),
-            cwd,
-            cache,
-            runners.oxlint,
-            timeoutsMs.oxlint,
-            linkedAbort.controller.signal,
-          )
-        : Promise.resolve(emptyEngineResult()),
-      engines.tsc
-        ? checkWholeProgramTsc(
-            snapshots,
-            cwd,
-            cache,
-            runners.tsc,
-            timeoutsMs.tsc,
-            linkedAbort.controller.signal,
-          )
-        : Promise.resolve(emptyEngineResult()),
-      engines.biome
-        ? checkFileLocalEngine(
-            "biome",
-            snapshots.filter((snapshot) => isBiomeRelevant(snapshot.file)),
-            cwd,
-            cache,
-            runners.biome,
-            timeoutsMs.biome,
-            linkedAbort.controller.signal,
-          )
-        : Promise.resolve(emptyEngineResult()),
+    const fanout = await settleEngineTasks<EngineCheckResult>([
+      {
+        engine: "oxlint",
+        enabled: engines.oxlint,
+        run: () => checkFileLocalEngine(
+          "oxlint",
+          snapshots.filter((snapshot) => isOxlintRelevant(snapshot.file)),
+          cwd,
+          cache,
+          runners.oxlint,
+          timeoutsMs.oxlint,
+          linkedAbort.controller.signal,
+        ),
+      },
+      {
+        engine: "tsc",
+        enabled: engines.tsc,
+        run: () => checkWholeProgramTsc(
+          snapshots,
+          cwd,
+          cache,
+          runners.tsc,
+          timeoutsMs.tsc,
+          linkedAbort.controller.signal,
+        ),
+      },
+      {
+        engine: "biome",
+        enabled: engines.biome,
+        run: () => checkFileLocalEngine(
+          "biome",
+          snapshots.filter((snapshot) => isBiomeRelevant(snapshot.file)),
+          cwd,
+          cache,
+          runners.biome,
+          timeoutsMs.biome,
+          linkedAbort.controller.signal,
+        ),
+      },
     ]);
     return {
-      issues: results.flatMap((result) => result.issues).sort(compareIssues),
-      cache: sumCacheStats(results.map((result) => result.cache)),
+      issues: fanout.results.flatMap((result) => result.issues).sort(compareIssues),
+      cache: sumCacheStats(fanout.results.map((result) => result.cache)),
+      engines: fanout.engines,
     };
   } catch (error: unknown) {
     linkedAbort.controller.abort();
@@ -263,10 +273,6 @@ async function checkWholeProgramTsc(
       misses: misses.length,
     },
   };
-}
-
-function emptyEngineResult(): EngineCheckResult {
-  return { issues: [], cache: { hits: 0, misses: 0 } };
 }
 
 function sumCacheStats(stats: readonly CacheStats[]): CacheStats {

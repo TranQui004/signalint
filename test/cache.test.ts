@@ -1,4 +1,5 @@
 import { performance } from "node:perf_hooks";
+import { createHash } from "node:crypto";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -54,6 +55,31 @@ describe("SQLite cache", () => {
     expect(cache.get(currentOxlintKey)).toEqual([]);
     expect(cache.get(tscKey)).toEqual([]);
     expect(cache.getEngineResult("oxlint", "config-b")).toBeUndefined();
+  });
+
+  it("invalidates legacy and pre-upgrade entries when package versions change", () => {
+    const cache = createMemoryCache();
+    const oldVersions = { signalintVersion: "0.1.0", engineVersion: "1.0.0" };
+    const currentVersions = { signalintVersion: "0.2.0", engineVersion: "2.0.0" };
+    const fileHash = createHash("sha256").update("content").digest("hex");
+    const legacyKey = `${fileHash}:oxlint:config-a`;
+    const oldVersionKey = createCacheKey("content", "oxlint", "config-a", oldVersions);
+    const currentKey = createCacheKey("content", "oxlint", "config-a", currentVersions);
+    cache.set(legacyKey, [makeIssue("src/legacy.ts", "oxlint")]);
+    cache.set(oldVersionKey, [makeIssue("src/old.ts", "oxlint")]);
+    cache.set(currentKey, [makeIssue("src/current.ts", "oxlint")]);
+    cache.setEngineResult(
+      "oxlint",
+      "config-a",
+      [makeIssue("src/whole-program.ts", "oxlint")],
+      oldVersions,
+    );
+
+    expect(cache.invalidateEngine("oxlint", "config-a", currentVersions)).toBe(2);
+    expect(cache.get(legacyKey)).toBeUndefined();
+    expect(cache.get(oldVersionKey)).toBeUndefined();
+    expect(cache.get(currentKey)).toHaveLength(1);
+    expect(cache.getEngineResult("oxlint", "config-a", oldVersions)).toBeUndefined();
   });
 
   it("changes the engine config hash when a recognized config is edited", async () => {

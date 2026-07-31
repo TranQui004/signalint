@@ -9,6 +9,10 @@ import type {
   LoopWarning,
   NormalizedIssue,
 } from "../schema.js";
+import {
+  parseSessionJsonLines,
+  type ParsedSessionLogEntry,
+} from "../sessionLog.js";
 
 export interface SessionMemoryOptions {
   logPath?: string;
@@ -43,6 +47,7 @@ interface SessionReplayEntry {
 
 interface SessionHistory {
   entries: SessionReplayEntry[];
+  malformedLinesSkipped: number;
   needsLineBoundary: boolean;
 }
 
@@ -63,6 +68,11 @@ export class SessionMemory {
     this.logPath = options.logPath ?? resolve(process.cwd(), ".signalint", "session.jsonl");
     this.now = options.now ?? Date.now;
     const history = readSessionHistory(this.logPath);
+    if (history.malformedLinesSkipped > 0) {
+      process.stderr.write(
+        `[signalint] Skipped ${String(history.malformedLinesSkipped)} malformed session log line(s).\n`,
+      );
+    }
     const restored = restoreSessionState(history.entries);
     this.appearanceTimestamps = restored.appearanceTimestamps;
     this.activeSignatures = restored.activeSignatures;
@@ -147,40 +157,30 @@ function readSessionHistory(logPath: string): SessionHistory {
     serialized = readFileSync(logPath, "utf8");
   } catch (error: unknown) {
     if (isMissingFileError(error)) {
-      return { entries: [], needsLineBoundary: false };
+      return { entries: [], malformedLinesSkipped: 0, needsLineBoundary: false };
     }
     throw error;
   }
+  const parsedLog = parseSessionJsonLines(serialized);
   return {
-    entries: serialized
-      .split(/\r?\n/)
+    entries: parsedLog.entries
       .map(parseSessionReplayEntry)
       .filter((entry): entry is SessionReplayEntry => entry !== undefined),
+    malformedLinesSkipped: parsedLog.malformedLinesSkipped,
     needsLineBoundary: serialized !== "" && !serialized.endsWith("\n"),
   };
 }
 
-function parseSessionReplayEntry(line: string): SessionReplayEntry | undefined {
-  if (line.trim() === "") {
-    return undefined;
-  }
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(line);
-  } catch {
-    return undefined;
-  }
+function parseSessionReplayEntry(parsed: ParsedSessionLogEntry): SessionReplayEntry | undefined {
   if (
-    !isRecord(parsed) ||
-    !Number.isInteger(parsed.timestamp) ||
-    !Array.isArray(parsed.activeSignatures) ||
-    !parsed.activeSignatures.every((signature) => typeof signature === "string")
+    parsed.timestamp === undefined ||
+    parsed.activeSignatures === undefined
   ) {
     return undefined;
   }
   return {
-    timestamp: parsed.timestamp as number,
-    activeSignatures: [...new Set(parsed.activeSignatures)],
+    timestamp: parsed.timestamp,
+    activeSignatures: parsed.activeSignatures,
   };
 }
 
@@ -253,8 +253,4 @@ function createLoopWarning(signature: string, occurrences: number): LoopWarning 
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

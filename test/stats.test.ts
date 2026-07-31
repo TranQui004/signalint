@@ -52,6 +52,7 @@ describe("session statistics", () => {
       averageLatencyMs: 200,
       maxLatencyMs: 300,
       loopWarningsTriggered: 2,
+      malformedLinesSkipped: 0,
     });
     expect(formatSessionStats(stats)).toBe([
       "Signalint session stats",
@@ -61,6 +62,7 @@ describe("session statistics", () => {
       "Average check latency: 200.0ms (2 measured checks)",
       "Max check latency: 300.0ms",
       "Loop warnings triggered: 2",
+      "Malformed session lines skipped: 0",
     ].join("\n"));
   });
 
@@ -72,10 +74,12 @@ describe("session statistics", () => {
     expect(formatSessionStats(stats)).toContain("Average check latency: n/a");
   });
 
-  it("reports the line number for malformed JSON", () => {
-    expect(() => parseSessionLog('{}\nnot-json')).toThrow(
-      "Invalid session JSON on line 2.",
-    );
+  it("skips malformed JSON and reports the count", () => {
+    const stats = parseSessionLog('{"timestamp":1}\nnot-json\n{"timestamp":2}');
+
+    expect(stats.checks).toBe(2);
+    expect(stats.malformedLinesSkipped).toBe(1);
+    expect(formatSessionStats(stats)).toContain("Malformed session lines skipped: 1");
   });
 });
 

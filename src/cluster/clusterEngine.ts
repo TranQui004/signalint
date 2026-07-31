@@ -1,8 +1,10 @@
 import type {
   CheckResponse,
   Cluster,
+  EngineStatuses,
   NormalizedIssue,
 } from "../schema.js";
+import { createSuccessfulEngineStatuses } from "../schema.js";
 
 export interface ClusterResult {
   issues: NormalizedIssue[];
@@ -20,6 +22,7 @@ interface PendingCluster {
 export function clusterIssues(
   rawIssues: readonly NormalizedIssue[],
   maxClusters: number = 10,
+  engines: EngineStatuses = createSuccessfulEngineStatuses(),
 ): ClusterResult {
   if (!Number.isInteger(maxClusters) || maxClusters < 1) {
     throw new Error("maxClusters must be a positive integer.");
@@ -42,8 +45,9 @@ export function clusterIssues(
   return {
     issues,
     response: {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       status: rawIssues.length === 0 ? "clean" : "issues_found",
+      engines,
       totalIssues: rawIssues.length,
       clusters: allClusters.slice(0, maxClusters),
       truncated: allClusters.length > maxClusters,
@@ -93,7 +97,7 @@ function createCluster(pending: PendingCluster, clusterId: string): Cluster {
   const fileCount = countFiles(pending.issues);
   return {
     clusterId,
-    rootCauseSummary: `${String(issueCount)} ${pending.rule} issues across ${String(fileCount)} files`,
+    rootCauseSummary: createRootCauseSummary(issueCount, pending.rule, fileCount),
     ruleIds: [pending.rule],
     issueCount,
     fileCount,
@@ -101,6 +105,16 @@ function createCluster(pending: PendingCluster, clusterId: string): Cluster {
     suggestedAction: createSuggestedAction(pending, fileCount),
     sampleIssueIds: takeDistinctIssueIds(pending.issues, 2),
   };
+}
+
+function createRootCauseSummary(
+  issueCount: number,
+  rule: string,
+  fileCount: number,
+): string {
+  const issueNoun = issueCount === 1 ? "issue" : "issues";
+  const fileNoun = fileCount === 1 ? "file" : "files";
+  return `${String(issueCount)} ${rule} ${issueNoun} across ${String(fileCount)} ${fileNoun}`;
 }
 
 function takeDistinctIssueIds(

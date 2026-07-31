@@ -18,7 +18,7 @@ describe("Cluster Engine", () => {
     const result = clusterIssues(rawIssues);
 
     expect(result.response.clusters).toHaveLength(4);
-    expect(result.response.schemaVersion).toBe("1.0");
+    expect(result.response.schemaVersion).toBe("1.1");
     expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([1, 2, 5, 5]);
     expect(result.issues.every((issue) => issue.clusterId !== undefined)).toBe(true);
     expect(result.response.clusters.every((cluster) => cluster.issueCount === 10)).toBe(true);
@@ -37,6 +37,11 @@ describe("Cluster Engine", () => {
     expect(result.response.clusters).toHaveLength(3);
     expect(new Set(result.issues.map((issue) => issue.clusterId)).size).toBe(3);
     expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([1, 2, 4]);
+    expect(result.response.clusters.map((cluster) => cluster.rootCauseSummary)).toEqual([
+      "1 single-rule issue across 1 file",
+      "1 single-rule issue across 1 file",
+      "1 single-rule issue across 1 file",
+    ]);
   });
 
   it("meets the 40-issue compactness acceptance criterion", async () => {

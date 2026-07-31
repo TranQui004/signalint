@@ -53,6 +53,13 @@ export interface TimeoutResponse {
   message: string;
 }
 
+export interface EngineOutputLimitResponse {
+  status: "error";
+  code: "engine_output_exceeded";
+  engine: IssueEngine;
+  message: string;
+}
+
 export interface StaleReferenceResponse {
   status: "stale";
   message: "This cluster/issue no longer exists; run check_project again.";
@@ -135,6 +142,19 @@ export function isTimeoutResponse(value: unknown): value is TimeoutResponse {
   return (
     isRecord(value) &&
     value.status === "timeout" &&
+    isIssueEngine(value.engine) &&
+    typeof value.message === "string"
+  );
+}
+
+/** Returns whether an unknown value is the structured engine-output-limit response. */
+export function isEngineOutputLimitResponse(
+  value: unknown,
+): value is EngineOutputLimitResponse {
+  return (
+    isRecord(value) &&
+    value.status === "error" &&
+    value.code === "engine_output_exceeded" &&
     isIssueEngine(value.engine) &&
     typeof value.message === "string"
   );

@@ -9,7 +9,12 @@ import {
   type IssueSeverity,
   type NormalizedIssue,
 } from "../schema.js";
-import { runEngineCommand, type CommandResult } from "../subprocess.js";
+import {
+  attributeEngineError,
+  runEngineCommand,
+  type CommandResult,
+} from "../subprocess.js";
+import { containProjectPath, resolveProjectPath } from "../projectPaths.js";
 
 interface TscRunOptions {
   cwd?: string;
@@ -65,17 +70,23 @@ export async function runTsc(
   paths: readonly string[],
   options: TscRunOptions = {},
 ): Promise<NormalizedIssue[]> {
-  const cwd = options.cwd ?? process.cwd();
-  const args = await createTscArgs(paths, cwd, options);
-  const result = await runTscProcess(args, cwd, options);
-  const output = [result.stdout, result.stderr].filter((part) => part.trim() !== "").join("\n");
-  const issues = parseTscOutput(output, cwd);
+  try {
+    const cwd = options.cwd ?? process.cwd();
+    const args = await createTscArgs(paths, cwd, options);
+    const result = await runTscProcess(args, cwd, options);
+    const output = [result.stdout, result.stderr]
+      .filter((part) => part.trim() !== "")
+      .join("\n");
+    const issues = parseTscOutput(output, cwd);
 
-  if (result.exitCode !== 0 && issues.length === 0) {
-    throw new Error(`tsc failed with exit code ${String(result.exitCode)}: ${output.trim()}`);
+    if (result.exitCode !== 0 && issues.length === 0) {
+      throw new Error(`tsc failed with exit code ${String(result.exitCode)}: ${output.trim()}`);
+    }
+
+    return issues;
+  } catch (error: unknown) {
+    throw attributeEngineError("tsc", error);
   }
-
-  return issues;
 }
 
 function createPendingDiagnostic(match: RegExpExecArray): PendingDiagnostic {
@@ -193,15 +204,16 @@ async function readEffectiveProjectConfig(
 }
 
 async function resolveProjectFile(path: string, cwd: string): Promise<string> {
-  const target = resolve(cwd, path);
+  const projectRoot = (await resolveProjectPath(".", cwd)).absolutePath;
+  const target = (await resolveProjectPath(path, cwd)).absolutePath;
   const targetStat = await stat(target);
   if (targetStat.isDirectory()) {
-    return resolve(target, "tsconfig.json");
+    return (await containProjectPath(resolve(target, "tsconfig.json"), projectRoot)).absolutePath;
   }
   if (/^tsconfig(?:\.[^/\\]+)?\.json$/.test(basename(target))) {
     return target;
   }
-  return findClosestProjectFile(dirname(target), cwd);
+  return findClosestProjectFile(dirname(target), projectRoot);
 }
 
 async function findClosestProjectFile(directory: string, boundary: string): Promise<string> {
@@ -211,7 +223,7 @@ async function findClosestProjectFile(directory: string, boundary: string): Prom
     const candidate = resolve(current, "tsconfig.json");
     try {
       if ((await stat(candidate)).isFile()) {
-        return candidate;
+        return (await containProjectPath(candidate, boundary)).absolutePath;
       }
     } catch (error: unknown) {
       if (!isMissingFileError(error)) {
@@ -221,7 +233,9 @@ async function findClosestProjectFile(directory: string, boundary: string): Prom
 
     const parent = dirname(current);
     if (current === parent || current === resolvedBoundary) {
-      return resolve(resolvedBoundary, "tsconfig.json");
+      return (
+        await containProjectPath(resolve(resolvedBoundary, "tsconfig.json"), resolvedBoundary)
+      ).absolutePath;
     }
     current = parent;
   }

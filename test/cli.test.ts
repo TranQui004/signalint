@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { runCli } from "../src/cli.js";
+import { runCli, runCliSafely } from "../src/cli.js";
 
 const fixtureRoot = resolve(".signalint/test/stats-cli");
 
@@ -44,6 +44,17 @@ describe("signalint stats CLI", () => {
     );
     expect(stdout).toHaveBeenCalledWith(
       expect.stringContaining("Loop warnings triggered: 0"),
+    );
+  });
+
+  it("prints a concise stderr message for rejected check paths", async () => {
+    await mkdir(fixtureRoot, { recursive: true });
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    await expect(runCliSafely(["check", "../outside"], fixtureRoot)).resolves.toBe(1);
+
+    expect(stderr).toHaveBeenCalledWith(
+      "[signalint] CLI failed: Requested path resolves outside the project root.\n",
     );
   });
 });

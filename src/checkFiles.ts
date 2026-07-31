@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 
 import { runOxlint } from "./adapters/oxlint.js";
 import { runBiome } from "./adapters/biome.js";
@@ -17,6 +17,7 @@ import {
   type IssueEngine,
   type NormalizedIssue,
 } from "./schema.js";
+import { resolveProjectPaths, type ResolvedProjectPath } from "./projectPaths.js";
 
 export type CacheEngine = IssueEngine;
 
@@ -111,7 +112,8 @@ export async function checkFilesWithStats(
   const linkedAbort = createLinkedAbortController(options.signal);
 
   try {
-    const snapshots = await Promise.all(files.map((file) => readSnapshot(file, cwd)));
+    const resolvedFiles = await resolveProjectPaths(files, cwd);
+    const snapshots = await Promise.all(resolvedFiles.map(readSnapshot));
     const runners = { ...DEFAULT_RUNNERS, ...options.runners };
     const engines = options.engines ?? DEFAULT_ENGINES;
     const timeoutsMs = options.timeoutsMs ?? DEFAULT_CONFIG.timeoutsMs;
@@ -277,11 +279,10 @@ function sumCacheStats(stats: readonly CacheStats[]): CacheStats {
   );
 }
 
-async function readSnapshot(file: string, cwd: string): Promise<FileSnapshot> {
-  const absoluteFile = isAbsolute(file) ? file : resolve(cwd, file);
+async function readSnapshot(path: ResolvedProjectPath): Promise<FileSnapshot> {
   return {
-    content: await readFile(absoluteFile, "utf8"),
-    file: relative(cwd, absoluteFile).replaceAll("\\", "/"),
+    content: await readFile(path.absolutePath, "utf8"),
+    file: path.relativePath,
   };
 }
 

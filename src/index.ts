@@ -9,6 +9,7 @@ import {
   ListToolsRequestSchema,
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
+import { ZodError } from "zod";
 
 import { runBiome } from "./adapters/biome.js";
 import { runOxlint } from "./adapters/oxlint.js";
@@ -26,14 +27,36 @@ import {
   loadSignalintConfig,
 } from "./config.js";
 import { filterDefaultExcludedIssues } from "./defaultExclusions.js";
+import {
+  closeRuntimeResources,
+  registerProcessLifecycle,
+  writeFatalError,
+} from "./lifecycle.js";
 import { isMainModule } from "./mainModule.js";
 import { SessionMemory } from "./memory/sessionMemory.js";
+import {
+  MAX_TOOL_PATHS,
+  ProjectPathError,
+  resolveProjectPaths,
+} from "./projectPaths.js";
 import type {
   CheckResponse,
   NormalizedIssue,
   StaleReferenceResponse,
 } from "./schema.js";
-import { EngineTimeoutError } from "./subprocess.js";
+import {
+  EngineOutputLimitError,
+  EngineTimeoutError,
+  readErrorEngine,
+} from "./subprocess.js";
+import {
+  parseCheckFilesArguments,
+  parseCheckProjectArguments,
+  parseIssueReference,
+  parseLoopStatusArguments,
+  parsePingArguments,
+  type IssueReference,
+} from "./toolArguments.js";
 
 type RawIssueProvider = (
   paths: readonly string[],
@@ -41,6 +64,7 @@ type RawIssueProvider = (
 ) => Promise<NormalizedIssue[]>;
 
 export interface SignalintServerOptions {
+  cwd?: string;
   fileIssueProvider?: RawIssueProvider;
   projectIssueProvider?: RawIssueProvider;
   sessionMemory?: SessionMemory;
@@ -55,6 +79,14 @@ type IssueProvider = (
   paths: readonly string[],
   signal?: AbortSignal,
 ) => Promise<IssueProviderResult>;
+
+interface ToolHandlerContext {
+  cwd: string;
+  fileIssueProvider: IssueProvider;
+  latestIssues: NormalizedIssue[];
+  projectIssueProvider: IssueProvider;
+  sessionMemory: SessionMemory;
+}
 
 const STALE_REFERENCE_RESPONSE: StaleReferenceResponse = {
   status: "stale",
@@ -78,7 +110,8 @@ const tools = [
       properties: {
         paths: {
           type: "array" as const,
-          items: { type: "string" as const },
+          items: { type: "string" as const, minLength: 1 },
+          maxItems: MAX_TOOL_PATHS,
         },
       },
       additionalProperties: false,
@@ -92,7 +125,8 @@ const tools = [
       properties: {
         files: {
           type: "array" as const,
-          items: { type: "string" as const },
+          items: { type: "string" as const, minLength: 1 },
+          maxItems: MAX_TOOL_PATHS,
         },
       },
       required: ["files"],
@@ -139,15 +173,16 @@ export function createServer(options: SignalintServerOptions = {}): Server {
     },
   );
 
+  const cwd = options.cwd ?? process.cwd();
   const sessionMemory = options.sessionMemory ?? new SessionMemory();
   const projectIssueProvider = options.projectIssueProvider === undefined
-    ? wrapIssueProvider((paths, signal) => collectProjectIssues(paths, process.cwd(), signal))
+    ? wrapIssueProvider((paths, signal) => collectProjectIssues(paths, cwd, signal))
     : wrapIssueProvider(options.projectIssueProvider);
   const fileIssueProvider = options.fileIssueProvider === undefined
     ? (files: readonly string[], signal?: AbortSignal) =>
-        checkConfiguredFilesWithStats(files, process.cwd(), signal)
+        checkConfiguredFilesWithStats(files, cwd, signal)
     : wrapIssueProvider(options.fileIssueProvider);
-  registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider);
+  registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider, cwd);
   return server;
 }
 
@@ -155,7 +190,16 @@ export function createServer(options: SignalintServerOptions = {}): Server {
 export async function startServer(): Promise<void> {
   const server = createServer();
   const transport = new StdioServerTransport();
-  await server.connect(transport);
+  const unregisterLifecycle = registerProcessLifecycle(server);
+  try {
+    await server.connect(transport);
+  } catch (error: unknown) {
+    unregisterLifecycle();
+    await closeRuntimeResources(server).catch((closeError: unknown) => {
+      writeFatalError("startup cleanup failed", closeError);
+    });
+    throw error;
+  }
 }
 
 /** Runs configured adapters and returns the compact clustered project response. */
@@ -172,8 +216,9 @@ export async function collectProjectIssues(
   cwd: string = process.cwd(),
   signal?: AbortSignal,
 ): Promise<NormalizedIssue[]> {
+  const safePaths = (await resolveProjectPaths(paths, cwd)).map((path) => path.relativePath);
   const config = await loadSignalintConfig(cwd);
-  const includedPaths = filterIgnoredPaths(paths, config.ignore);
+  const includedPaths = filterIgnoredPaths(safePaths, config.ignore);
   if (includedPaths.length === 0) {
     return [];
   }
@@ -229,8 +274,9 @@ export async function checkConfiguredFilesWithStats(
   cwd: string = process.cwd(),
   signal?: AbortSignal,
 ): Promise<CheckFilesResult> {
+  const safeFiles = (await resolveProjectPaths(files, cwd)).map((path) => path.relativePath);
   const config = await loadSignalintConfig(cwd);
-  const includedFiles = filterIgnoredPaths(files, config.ignore);
+  const includedFiles = filterIgnoredPaths(safeFiles, config.ignore);
   if (includedFiles.length === 0) {
     return { issues: [], cache: { hits: 0, misses: 0 } };
   }
@@ -253,50 +299,102 @@ function registerToolHandlers(
   sessionMemory: SessionMemory,
   projectIssueProvider: IssueProvider,
   fileIssueProvider: IssueProvider,
+  cwd: string,
 ): void {
-  let latestIssues: NormalizedIssue[] = [];
+  const context: ToolHandlerContext = {
+    cwd,
+    fileIssueProvider,
+    latestIssues: [],
+    projectIssueProvider,
+    sessionMemory,
+  };
   server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools }));
   server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
-    if (request.params.name === "ping") {
-      return { content: [{ type: "text", text: "pong" }] };
-    }
-    if (request.params.name === "check_project") {
-      const paths = readStringArray(request.params.arguments, "paths", ["."]);
-      return runCheck(
-        paths,
+    try {
+      return await dispatchToolCall(
+        request.params.name,
+        request.params.arguments,
         extra.signal,
-        projectIssueProvider,
-        sessionMemory,
-        (issues) => {
-          latestIssues = issues;
-        },
+        context,
       );
+    } catch (error: unknown) {
+      if (error instanceof ZodError || error instanceof ProjectPathError) {
+        return createInputRefusal(error);
+      }
+      throw error;
     }
-    if (request.params.name === "check_files") {
-      const files = readStringArray(request.params.arguments, "files");
-      return runCheck(
-        files,
-        extra.signal,
-        fileIssueProvider,
-        sessionMemory,
-        (issues) => {
-          latestIssues = issues;
-        },
-      );
-    }
-    if (request.params.name === "get_issue_detail") {
-      return createTextResult(resolveIssueDetail(latestIssues, request.params.arguments));
-    }
-    if (request.params.name === "get_loop_status") {
-      return {
-        content: [{ type: "text", text: JSON.stringify(sessionMemory.getStatus(), null, 2) }],
-      };
-    }
-    return {
-      content: [{ type: "text", text: `Unknown tool: ${request.params.name}` }],
-      isError: true,
-    };
   });
+}
+
+async function dispatchToolCall(
+  name: string,
+  argumentsValue: unknown,
+  signal: AbortSignal,
+  context: ToolHandlerContext,
+): Promise<CallToolResult> {
+  if (name === "ping") {
+    parsePingArguments(argumentsValue);
+    return { content: [{ type: "text", text: "pong" }] };
+  }
+  if (name === "check_project") {
+    return await handleCheckProject(argumentsValue, signal, context);
+  }
+  if (name === "check_files") {
+    return await handleCheckFiles(argumentsValue, signal, context);
+  }
+  if (name === "get_issue_detail") {
+    const reference = parseIssueReference(argumentsValue);
+    return createTextResult(resolveIssueDetail(context.latestIssues, reference));
+  }
+  if (name === "get_loop_status") {
+    parseLoopStatusArguments(argumentsValue);
+    return createTextResult(context.sessionMemory.getStatus());
+  }
+  return {
+    content: [{ type: "text", text: `Unknown tool: ${name}` }],
+    isError: true,
+  };
+}
+
+async function handleCheckProject(
+  argumentsValue: unknown,
+  signal: AbortSignal,
+  context: ToolHandlerContext,
+): Promise<CallToolResult> {
+  const paths = await resolveToolPaths(
+    parseCheckProjectArguments(argumentsValue),
+    context.cwd,
+  );
+  return await runContextCheck(paths, signal, context.projectIssueProvider, context);
+}
+
+async function handleCheckFiles(
+  argumentsValue: unknown,
+  signal: AbortSignal,
+  context: ToolHandlerContext,
+): Promise<CallToolResult> {
+  const files = await resolveToolPaths(
+    parseCheckFilesArguments(argumentsValue),
+    context.cwd,
+  );
+  return await runContextCheck(files, signal, context.fileIssueProvider, context);
+}
+
+async function runContextCheck(
+  paths: readonly string[],
+  signal: AbortSignal,
+  provider: IssueProvider,
+  context: ToolHandlerContext,
+): Promise<CallToolResult> {
+  return await runCheck(
+    paths,
+    signal,
+    provider,
+    context.sessionMemory,
+    (issues) => {
+      context.latestIssues = issues;
+    },
+  );
 }
 
 function wrapIssueProvider(
@@ -331,50 +429,63 @@ async function runCheck(
     if (error instanceof EngineTimeoutError) {
       return createTextResult(error.response);
     }
+    if (error instanceof EngineOutputLimitError) {
+      logCheckFailure(error);
+      return { ...createTextResult(error.response), isError: true };
+    }
+    if (error instanceof ProjectPathError) {
+      return {
+        ...createTextResult({ status: "error", code: error.code, message: error.message }),
+        isError: true,
+      };
+    }
+    logCheckFailure(error);
     throw error;
   }
 }
 
-function resolveIssueDetail(
-  issues: readonly NormalizedIssue[],
-  argumentsValue: Record<string, unknown> | undefined,
-): NormalizedIssue[] | StaleReferenceResponse {
-  const reference = readIssueReference(argumentsValue);
-  const matches = issues.filter((issue) => issue[reference.key] === reference.value);
-  return matches.length === 0 ? STALE_REFERENCE_RESPONSE : matches;
+function logCheckFailure(error: unknown): void {
+  const engine = readErrorEngine(error) ?? "unknown";
+  const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  process.stderr.write(`[signalint] engine=${engine} check failed: ${detail}\n`);
 }
 
-function readIssueReference(
-  argumentsValue: Record<string, unknown> | undefined,
-): { key: "clusterId" | "issueId"; value: string } {
-  const clusterId = argumentsValue?.clusterId;
-  const issueId = argumentsValue?.issueId;
-  if (typeof clusterId === "string" && issueId === undefined) {
-    return { key: "clusterId", value: clusterId };
-  }
-  if (typeof issueId === "string" && clusterId === undefined) {
-    return { key: "issueId", value: issueId };
-  }
-  throw new Error("get_issue_detail requires exactly one clusterId or issueId string.");
+function resolveIssueDetail(
+  issues: readonly NormalizedIssue[],
+  reference: IssueReference,
+): NormalizedIssue[] | StaleReferenceResponse {
+  const [key, value] = "clusterId" in reference
+    ? ["clusterId", reference.clusterId] as const
+    : ["issueId", reference.issueId] as const;
+  const matches = issues.filter((issue) => issue[key] === value);
+  return matches.length === 0 ? STALE_REFERENCE_RESPONSE : matches;
 }
 
 function createTextResult(value: unknown): CallToolResult {
   return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
 }
 
-function readStringArray(
-  argumentsValue: Record<string, unknown> | undefined,
-  key: string,
-  defaultValue?: readonly string[],
-): string[] {
-  const value = argumentsValue?.[key];
-  if (value === undefined && defaultValue !== undefined) {
-    return [...defaultValue];
-  }
-  if (!Array.isArray(value) || !value.every((item) => typeof item === "string")) {
-    throw new Error(`${key} must be an array of strings.`);
-  }
-  return value;
+
+async function resolveToolPaths(paths: readonly string[], cwd: string): Promise<string[]> {
+  return (await resolveProjectPaths(paths, cwd)).map((path) => path.relativePath);
+}
+
+function createInputRefusal(error: ZodError | ProjectPathError): CallToolResult {
+  const code = error instanceof ProjectPathError ? error.code : "invalid_arguments";
+  const message = error instanceof ZodError ? formatZodError(error) : error.message;
+  return {
+    ...createTextResult({ status: "error", code, message }),
+    isError: true,
+  };
+}
+
+function formatZodError(error: ZodError): string {
+  return error.issues
+    .map((issue) => {
+      const path = issue.path.length === 0 ? "arguments" : issue.path.join(".");
+      return `${path}: ${issue.message}`;
+    })
+    .join("; ");
 }
 
 function compareIssues(left: NormalizedIssue, right: NormalizedIssue): number {
@@ -387,5 +498,10 @@ function compareIssues(left: NormalizedIssue, right: NormalizedIssue): number {
 }
 
 if (isMainModule(import.meta.url)) {
-  await startServer();
+  try {
+    await startServer();
+  } catch (error: unknown) {
+    writeFatalError("server startup failed", error);
+    process.exitCode = 1;
+  }
 }

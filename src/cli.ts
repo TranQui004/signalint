@@ -38,6 +38,20 @@ export async function runCli(
   return response.status === "clean" ? 0 : 1;
 }
 
+/** Runs the CLI with a concise stderr failure instead of an uncaught Node stack dump. */
+export async function runCliSafely(
+  args: readonly string[],
+  cwd: string = process.cwd(),
+): Promise<number> {
+  try {
+    return await runCli(args, cwd);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`[signalint] CLI failed: ${message}\n`);
+    return 1;
+  }
+}
+
 if (isMainModule(import.meta.url)) {
-  process.exitCode = await runCli(process.argv.slice(2));
+  process.exitCode = await runCliSafely(process.argv.slice(2));
 }

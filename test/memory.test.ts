@@ -171,7 +171,7 @@ async function connectClient(server: Server): Promise<Client> {
 async function callCheckFiles(client: Client): Promise<CheckResponse> {
   const result = await client.callTool({
     name: "check_files",
-    arguments: { files: ["src/example.ts"] },
+    arguments: { files: ["test/fixtures/sample-project/src/clean.ts"] },
   });
   const parsed = parseTextContent(result.content);
   if (!isCheckResponse(parsed)) {

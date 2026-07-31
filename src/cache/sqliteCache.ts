@@ -18,6 +18,8 @@ interface EngineStateRow {
   result: string;
 }
 
+const openCaches = new Set<SqliteCache>();
+
 /** Creates the Section 9 cache key from file content, engine name, and engine config hash. */
 export function createCacheKey(
   fileContent: string,
@@ -30,6 +32,7 @@ export function createCacheKey(
 
 export class SqliteCache {
   private readonly database: Database.Database;
+  private closed = false;
 
   /** Opens a SQLite cache and assumes its parent directory may be created when needed. */
   public constructor(databasePath: string) {
@@ -51,6 +54,7 @@ export class SqliteCache {
         timestamp INTEGER NOT NULL
       );
     `);
+    openCaches.add(this);
   }
 
   /** Returns cached normalized issues for an exact key, or undefined on a miss. */
@@ -131,7 +135,24 @@ export class SqliteCache {
 
   /** Closes the underlying SQLite connection and assumes no later cache calls occur. */
   public close(): void {
+    if (this.closed) {
+      return;
+    }
+    this.closed = true;
+    openCaches.delete(this);
     this.database.close();
+  }
+}
+
+/** Closes all SQLite handles still open during process shutdown. */
+export function closeAllSqliteCaches(): void {
+  for (const cache of openCaches) {
+    try {
+      cache.close();
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      process.stderr.write(`[signalint] Failed to close SQLite cache: ${message}\n`);
+    }
   }
 }
 

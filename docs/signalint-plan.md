@@ -131,8 +131,13 @@ A developer using an AI coding agent (Claude Code, Cursor, etc.) on a JS/TS repo
 
 ```json
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "status": "clean | issues_found",
+  "engines": {
+    "oxlint": { "status": "ok | error | disabled", "message": "optional failure detail" },
+    "tsc": { "status": "ok | error | disabled", "message": "optional failure detail" },
+    "biome": { "status": "ok | error | disabled", "message": "optional failure detail" }
+  },
   "totalIssues": 37,
   "clusters": ["...array of Cluster, sorted by priority ascending — priority 1 (highest urgency) first, max 10 by default..."],
   "truncated": true,
@@ -147,6 +152,7 @@ Track every deviation from the original schema here, in order, so anyone reading
 - **2026-07 (Phase 1):** `clusterId` changed from required-string to optional-string; `fixable` rule clarified to require structured fix data, not just presence of help text. Trigger: real Oxlint 1.75.0 output didn't match the original assumptions (no `fixable` field at all, and `clusterId` obviously can't exist before Phase 3 runs).
 - **2026-07 (Phase 3, pre-implementation):** fixed a genuine contradiction between Section 10 ("priority 1 = highest") and Section 7.3 ("sorted by priority desc"), which would have sorted the least urgent cluster first. Resolved by keeping "1 = highest" and specifying ascending sort explicitly in both sections. Caught by the coding agent before implementation, not after.
 - **2026-07 (Phase 6, external review):** added `schemaVersion: "1.0"` to the Check Response. Cheap to add now, expensive to retrofit once real consumers depend on an unversioned schema shape.
+- **2026-08 (pre-publish correctness pass):** bumped the Check Response to `schemaVersion: "1.1"` and added per-engine `ok | error | disabled` status objects. Engine fan-out now preserves successful diagnostics when another engine fails; an error status may include a short `message`, while the top-level `status` continues to describe the diagnostics that were returned (`clean | issues_found`).
 
 ## 8. MCP Tools Specification
 
@@ -168,17 +174,17 @@ Track every deviation from the original schema here, in order, so anyone reading
 - tsc: 120s (whole-program checks are inherently slower; see Section 9.1)
 - biome: 30s
 
-On timeout: kill the subprocess (and any of its children) and return a clear response rather than letting the MCP client's own timeout fire ambiguously, e.g. `{ status: "timeout", engine: "tsc", message: "tsc did not complete within 120s" }`. If the MCP connection itself is dropped mid-check, ensure any in-flight subprocess is also killed — no orphaned/zombie engine processes should outlive the MCP server process.
+On timeout: kill the subprocess (and any of its children) and return a clear response rather than letting the MCP client's own timeout fire ambiguously. In schema 1.1 check responses, a timed-out engine is represented by that engine's `{ status: "error", message: "tsc did not complete within 120s" }` entry while completed engines' diagnostics are preserved. If the MCP connection itself is dropped mid-check, ensure any in-flight subprocess is also killed — no orphaned/zombie engine processes should outlive the MCP server process.
 
 ## 9. Caching Strategy
 
-- Key: `sha256(file content) + engine name + engine config hash + signalint version` (see amendment below)
+- Key: `sha256(file content) + engine name + engine config hash + signalint version + resolved engine version` (see amendments below)
 - Store: SQLite table `cache(key TEXT PRIMARY KEY, result JSON, timestamp INTEGER)`
 - Cache invalidation: engine config hash changes (e.g., `.oxlintrc` edited) → invalidate all entries for that engine.
 
 **Amendment (found during Phase 6 dogfooding, 2026-07):** the original key design didn't account for Signalint's own code changing. If a user upgrades Signalint (e.g. to pick up a bug fix in an adapter) but a target file's content and engine config are unchanged, the old key would still resolve to a stale cached result computed by the pre-upgrade code — silently reintroducing fixed bugs. Add `signalint version` (the installed package's `package.json` version, or a hash of the adapter/cluster/normalization code if finer-grained invalidation is needed) as a cache key component so any Signalint upgrade automatically invalidates all prior cache entries.
 
-**Extension (external review, Phase 6, still backlog — not yet implemented):** the same staleness risk applies when an *engine* itself is upgraded (e.g. `npm update` bumps oxlint/tsc/biome) — file content, Signalint version, and engine config hash can all stay the same while the engine's actual behavior changes. Add `engine version` (from the installed binary/package's own version) as a separate cache key component alongside `signalint version`, not folded into the config hash. Bundle this with the `signalint version` work above as one combined cache-key redesign when backlog work resumes after Phase 6 — don't implement either piece separately mid-dogfooding.
+**Extension (external review, Phase 6; implemented pre-publish, 2026-08):** the same staleness risk applies when an *engine* itself is upgraded (e.g. `npm update` bumps oxlint/tsc/biome) — file content, Signalint version, and engine config hash can all stay the same while the engine's actual behavior changes. The cache key therefore includes the resolved engine package version as a separate component alongside Signalint's installed package version. Legacy keys and whole-program engine state are invalidated lazily on the next check.
 
 ### 9.1 Per-Engine Invocation Strategy (amended Phase 2)
 
@@ -350,10 +356,10 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 | node_modules diagnostics pollute results without skipLibCheck (Section 9.2) | Unconditional path-based filter added, engine-agnostic; not user-configurable off |
 | Clustering heuristic groups issues wrong with no feedback channel (external review, P2) | Backlog for v1.1: a lightweight `report_cluster_issue` tool or field; not worth the scope addition mid-v1 |
 | Launch relies on a single-moment Reddit/HN post, no durable discovery channel (external review, P2) | Backlog for post-launch: MCP server directory listings, cross-links from oxlint/biome community pages if permitted |
-| Cache keys still omit Signalint and engine version components (external security audit, 2026-07-31) | Reconfirmed open: implement the combined Signalint-version + engine-version redesign already specified in Section 9 after Phase 6 |
-| `session.jsonl` malformed-line handling contradicts itself: `stats.ts` throws while `sessionMemory.ts` skips (external security audit, 2026-07-31) | Backlog: define one recovery policy, apply it consistently, and test malformed middle and crash-truncated final lines |
+| Cache keys still omit Signalint and engine version components (external security audit, 2026-07-31) | Resolved pre-publish: keys and whole-program state include Signalint + resolved engine versions; legacy entries are invalidated lazily and covered by migration tests |
+| `session.jsonl` malformed-line handling contradicts itself: `stats.ts` throws while `sessionMemory.ts` skips (external security audit, 2026-07-31) | Resolved pre-publish: both readers skip malformed JSON/object lines and report the skipped-line count; malformed middle and crash-truncated final lines are tested |
 | Vitest has no coverage measurement or enforced thresholds (external security audit, 2026-07-31) | Backlog: establish a measured baseline, add meaningful per-layer thresholds, and raise them without incentivizing low-value tests |
-| `Promise.all` engine fan-out discards successful engine results when one engine fails (external security audit, 2026-07-31) | Backlog: evaluate `Promise.allSettled` plus a response shape that preserves partial results without hiding engine failures |
+| `Promise.all` engine fan-out discards successful engine results when one engine fails (external security audit, 2026-07-31) | Resolved pre-publish: `Promise.allSettled` preserves completed diagnostics and schema 1.1 reports `ok | error | disabled` per engine |
 | `SessionMemory` performs blocking `readFileSync` and unbounded full-log replay during startup (external security audit, 2026-07-31) | Backlog: combine bounded retention/rotation with asynchronous or compacted startup recovery |
 | The tsc adapter spawns twice per check (`--showConfig`, then diagnostics) and ignores paths after `paths[0]` (external security audit, 2026-07-31) | Backlog: cache effective config inspection and define explicit multi-path/project-selection semantics without breaking whole-program correctness |
 | CI tests only Node 22.x although `package.json` promises Node 20.19+ support (external security audit, 2026-07-31) | Backlog: add the minimum supported Node 20 line to the CI matrix while retaining the latest Node 22 job |

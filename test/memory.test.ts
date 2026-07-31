@@ -4,7 +4,7 @@ import { resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createServer } from "../src/index.js";
 import {
@@ -13,6 +13,7 @@ import {
   SessionMemory,
 } from "../src/memory/sessionMemory.js";
 import {
+  createSuccessfulEngineStatuses,
   isCheckResponse,
   isLoopStatus,
   type CheckResponse,
@@ -25,6 +26,7 @@ const clients: Client[] = [];
 const servers: Server[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(clients.map((client) => client.close()));
   await Promise.all(servers.map((server) => server.close()));
   clients.length = 0;
@@ -120,6 +122,7 @@ describe("Session Memory", () => {
     expect(firstSession.getStatus().looping).toBe(false);
 
     await appendFile(logPath, '{"timestamp":', "utf8");
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
     const restoredSession = new SessionMemory({
       logPath,
       now: () => {
@@ -127,6 +130,9 @@ describe("Session Memory", () => {
         return timestamp;
       },
     });
+    expect(stderr).toHaveBeenCalledWith(
+      "[signalint] Skipped 1 malformed session log line(s).\n",
+    );
     expect(restoredSession.getStatus().looping).toBe(false);
     await recordIssues(restoredSession, [issueB]);
     const secondOscillation = await recordIssues(restoredSession, [issueA]);
@@ -149,8 +155,9 @@ async function recordIssues(
   return memory.recordCheck(
     issues,
     {
-      schemaVersion: "1.0",
+      schemaVersion: "1.1",
       status: issues.length === 0 ? "clean" : "issues_found",
+      engines: createSuccessfulEngineStatuses(),
       totalIssues: issues.length,
       clusters: [],
       truncated: false,

@@ -46,7 +46,7 @@ describe("MCP response amendments", () => {
     if (!isCheckResponse(firstCheck)) {
       throw new Error("Expected a Check Response.");
     }
-    expect(firstCheck.schemaVersion).toBe("1.0");
+    expect(firstCheck.schemaVersion).toBe("1.1");
     const clusterId = firstCheck.clusters[0]?.clusterId;
     if (clusterId === undefined) {
       throw new Error("Expected a clustered fixture issue.");

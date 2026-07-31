@@ -28,6 +28,10 @@ import {
 } from "./config.js";
 import { filterDefaultExcludedIssues } from "./defaultExclusions.js";
 import {
+  createIdleEngineStatuses,
+  settleEngineTasks,
+} from "./engineFanout.js";
+import {
   closeRuntimeResources,
   registerProcessLifecycle,
   writeFatalError,
@@ -41,6 +45,7 @@ import {
 } from "./projectPaths.js";
 import type {
   CheckResponse,
+  EngineStatuses,
   NormalizedIssue,
   StaleReferenceResponse,
 } from "./schema.js";
@@ -73,6 +78,7 @@ export interface SignalintServerOptions {
 interface IssueProviderResult {
   issues: NormalizedIssue[];
   cache: CacheStats;
+  engines: EngineStatuses;
 }
 
 type IssueProvider = (
@@ -176,7 +182,8 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   const cwd = options.cwd ?? process.cwd();
   const sessionMemory = options.sessionMemory ?? new SessionMemory();
   const projectIssueProvider = options.projectIssueProvider === undefined
-    ? wrapIssueProvider((paths, signal) => collectProjectIssues(paths, cwd, signal))
+    ? (paths: readonly string[], signal?: AbortSignal) =>
+        collectProjectIssueResult(paths, cwd, signal)
     : wrapIssueProvider(options.projectIssueProvider);
   const fileIssueProvider = options.fileIssueProvider === undefined
     ? (files: readonly string[], signal?: AbortSignal) =>
@@ -207,7 +214,8 @@ export async function checkProject(
   paths: readonly string[],
   cwd: string = process.cwd(),
 ): Promise<CheckResponse> {
-  return clusterIssues(await collectProjectIssues(paths, cwd)).response;
+  const result = await collectProjectIssueResult(paths, cwd);
+  return clusterIssues(result.issues, 10, result.engines).response;
 }
 
 /** Runs enabled project adapters and excludes diagnostics matching configured ignore globs. */
@@ -216,41 +224,63 @@ export async function collectProjectIssues(
   cwd: string = process.cwd(),
   signal?: AbortSignal,
 ): Promise<NormalizedIssue[]> {
+  return (await collectProjectIssueResult(paths, cwd, signal)).issues;
+}
+
+async function collectProjectIssueResult(
+  paths: readonly string[],
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<IssueProviderResult> {
   const safePaths = (await resolveProjectPaths(paths, cwd)).map((path) => path.relativePath);
   const config = await loadSignalintConfig(cwd);
   const includedPaths = filterIgnoredPaths(safePaths, config.ignore);
   if (includedPaths.length === 0) {
-    return [];
+    return {
+      issues: [],
+      cache: { hits: 0, misses: 0 },
+      engines: createIdleEngineStatuses(config.engines),
+    };
   }
 
   const linkedAbort = createLinkedAbortController(signal);
   try {
-    const results = await Promise.all([
-      config.engines.oxlint
-        ? runOxlint(includedPaths, {
-            cwd,
-            signal: linkedAbort.controller.signal,
-            timeoutMs: config.timeoutsMs.oxlint,
-          })
-        : Promise.resolve([]),
-      config.engines.tsc
-        ? runTsc(includedPaths, {
-            cwd,
-            signal: linkedAbort.controller.signal,
-            timeoutMs: config.timeoutsMs.tsc,
-          })
-        : Promise.resolve([]),
-      config.engines.biome
-        ? runBiome(includedPaths, {
-            cwd,
-            signal: linkedAbort.controller.signal,
-            timeoutMs: config.timeoutsMs.biome,
-          })
-        : Promise.resolve([]),
+    const fanout = await settleEngineTasks<NormalizedIssue[]>([
+      {
+        engine: "oxlint",
+        enabled: config.engines.oxlint,
+        run: () => runOxlint(includedPaths, {
+          cwd,
+          signal: linkedAbort.controller.signal,
+          timeoutMs: config.timeoutsMs.oxlint,
+        }),
+      },
+      {
+        engine: "tsc",
+        enabled: config.engines.tsc,
+        run: () => runTsc(includedPaths, {
+          cwd,
+          signal: linkedAbort.controller.signal,
+          timeoutMs: config.timeoutsMs.tsc,
+        }),
+      },
+      {
+        engine: "biome",
+        enabled: config.engines.biome,
+        run: () => runBiome(includedPaths, {
+          cwd,
+          signal: linkedAbort.controller.signal,
+          timeoutMs: config.timeoutsMs.biome,
+        }),
+      },
     ]);
-    return filterDefaultExcludedIssues(results.flat())
-      .filter((issue) => !isIgnoredPath(issue.file, config.ignore))
-      .sort(compareIssues);
+    return {
+      issues: filterDefaultExcludedIssues(fanout.results.flat())
+        .filter((issue) => !isIgnoredPath(issue.file, config.ignore))
+        .sort(compareIssues),
+      cache: { hits: 0, misses: 0 },
+      engines: fanout.engines,
+    };
   } catch (error: unknown) {
     linkedAbort.controller.abort();
     throw error;
@@ -278,7 +308,11 @@ export async function checkConfiguredFilesWithStats(
   const config = await loadSignalintConfig(cwd);
   const includedFiles = filterIgnoredPaths(safeFiles, config.ignore);
   if (includedFiles.length === 0) {
-    return { issues: [], cache: { hits: 0, misses: 0 } };
+    return {
+      issues: [],
+      cache: { hits: 0, misses: 0 },
+      engines: createIdleEngineStatuses(config.engines),
+    };
   }
   const result = await checkFilesWithStats(includedFiles, {
     cwd,
@@ -290,6 +324,7 @@ export async function checkConfiguredFilesWithStats(
     issues: filterDefaultExcludedIssues(result.issues)
       .filter((issue) => !isIgnoredPath(issue.file, config.ignore)),
     cache: result.cache,
+    engines: result.engines,
   };
 }
 
@@ -403,6 +438,7 @@ function wrapIssueProvider(
   return async (paths, signal) => ({
     issues: await provider(paths, signal),
     cache: { hits: 0, misses: 0 },
+    engines: createIdleEngineStatuses({ oxlint: true, tsc: true, biome: true }),
   });
 }
 
@@ -416,7 +452,11 @@ async function runCheck(
   const startedAt = performance.now();
   try {
     const result = await provider(paths, signal);
-    const clustered = clusterIssues(filterDefaultExcludedIssues(result.issues));
+    const clustered = clusterIssues(
+      filterDefaultExcludedIssues(result.issues),
+      10,
+      result.engines,
+    );
     const response = await sessionMemory.recordCheck(
       clustered.issues,
       clustered.response,

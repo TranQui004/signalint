@@ -33,7 +33,12 @@ describe("check_project MCP integration", () => {
     const response = readResponse(result.content);
 
     expect(response.status).toBe("issues_found");
-    expect(response.schemaVersion).toBe("1.0");
+    expect(response.schemaVersion).toBe("1.1");
+    expect(response.engines).toEqual({
+      oxlint: { status: "ok" },
+      tsc: { status: "ok" },
+      biome: { status: "disabled" },
+    });
     expect(response.totalIssues).toBe(2);
     expect(response.clusters).toHaveLength(2);
     expect(response.clusters.map((cluster) => cluster.priority)).toEqual([1, 2]);

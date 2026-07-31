@@ -19,16 +19,20 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            node: '22.x'
+            install-node: '22.x'
+            runtime-node: '22.x'
             label: windows-latest
           - os: ubuntu-latest
-            node: '22.x'
+            install-node: '22.x'
+            runtime-node: '22.x'
             label: ubuntu-latest
           - os: macos-latest
-            node: '22.x'
+            install-node: '22.x'
+            runtime-node: '22.x'
             label: macos-latest
           - os: ubuntu-latest
-            node: '20.19.0'
+            install-node: '22.x'
+            runtime-node: '20.19.0'
             label: ubuntu-node-20.19
 
     steps:
@@ -43,17 +47,44 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.node }}
+          node-version: ${{ matrix.install-node }}
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Set up compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.runtime-node }}
+
+      - name: Rebuild native dependency for compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        run: npm rebuild better-sqlite3
+
       - name: Lint
+        if: matrix.runtime-node == matrix.install-node
         run: pnpm lint
 
+      - name: Lint on compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        run: ./node_modules/.bin/oxlint src test --ignore-pattern test/fixtures
+
       - name: Typecheck
+        if: matrix.runtime-node == matrix.install-node
         run: pnpm typecheck
 
+      - name: Typecheck on compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        run: node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit
+
       - name: Test
+        if: matrix.runtime-node == matrix.install-node
         run: pnpm test
+
+      - name: Test on compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        run: |
+          node node_modules/typescript/bin/tsc -p tsconfig.json
+          node node_modules/vitest/vitest.mjs run

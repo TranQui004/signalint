@@ -8,7 +8,11 @@ import {
   type IssueSeverity,
   type NormalizedIssue,
 } from "../schema.js";
-import { runEngineCommand, type CommandResult } from "../subprocess.js";
+import {
+  attributeEngineError,
+  runEngineCommand,
+  type CommandResult,
+} from "../subprocess.js";
 
 interface OxlintRunOptions {
   cwd?: string;
@@ -34,16 +38,22 @@ export async function runOxlint(
   paths: readonly string[],
   options: OxlintRunOptions = {},
 ): Promise<NormalizedIssue[]> {
-  const cwd = options.cwd ?? process.cwd();
-  const result = await runOxlintProcess(paths, cwd, options);
-  const output = result.stdout.trim() === "" ? result.stderr : result.stdout;
-  const issues = output.trim() === "" ? [] : parseOxlintOutput(output, cwd);
+  try {
+    const cwd = options.cwd ?? process.cwd();
+    const result = await runOxlintProcess(paths, cwd, options);
+    const output = result.stdout.trim() === "" ? result.stderr : result.stdout;
+    const issues = output.trim() === "" ? [] : parseOxlintOutput(output, cwd);
 
-  if (result.exitCode !== 0 && issues.length === 0) {
-    throw new Error(`Oxlint failed with exit code ${String(result.exitCode)}: ${result.stderr.trim()}`);
+    if (result.exitCode !== 0 && issues.length === 0) {
+      throw new Error(
+        `Oxlint failed with exit code ${String(result.exitCode)}: ${result.stderr.trim()}`,
+      );
+    }
+
+    return issues;
+  } catch (error: unknown) {
+    throw attributeEngineError("oxlint", error);
   }
-
-  return issues;
 }
 
 function normalizeOxlintDiagnostic(diagnostic: unknown, cwd: string): NormalizedIssue {
@@ -149,10 +159,18 @@ async function runOxlintProcess(
   const require = createRequire(import.meta.url);
   const packagePath = require.resolve("oxlint/package.json");
   const cliPath = resolve(dirname(packagePath), "bin", "oxlint");
-  return runEngineCommand(process.execPath, [cliPath, "--format", "json", ...paths], {
+  return runEngineCommand(process.execPath, createOxlintCliArgs(cliPath, paths), {
     cwd,
     engine: "oxlint",
     signal: options.signal,
     timeoutMs: options.timeoutMs ?? DEFAULT_CONFIG.timeoutsMs.oxlint,
   });
+}
+
+/** Builds Oxlint argv with an end-of-options separator before all file paths. */
+export function createOxlintCliArgs(
+  cliPath: string,
+  paths: readonly string[],
+): string[] {
+  return [cliPath, "--format", "json", "--", ...paths];
 }

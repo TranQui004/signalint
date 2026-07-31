@@ -2,8 +2,8 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { parseBiomeOutput } from "../src/adapters/biome.js";
-import { parseOxlintOutput } from "../src/adapters/oxlint.js";
+import { createBiomeCliArgs, parseBiomeOutput } from "../src/adapters/biome.js";
+import { createOxlintCliArgs, parseOxlintOutput } from "../src/adapters/oxlint.js";
 import {
   createTscArgs,
   parseTscOutput,
@@ -135,6 +135,17 @@ describe("Oxlint adapter", () => {
       rule: "TS1036",
     });
   });
+
+  it("places an end-of-options separator before every supplied path", () => {
+    expect(createOxlintCliArgs("oxlint-cli", ["src/a.ts", "-hostile.ts"])).toEqual([
+      "oxlint-cli",
+      "--format",
+      "json",
+      "--",
+      "src/a.ts",
+      "-hostile.ts",
+    ]);
+  });
 });
 
 describe("tsc adapter", () => {
@@ -217,6 +228,15 @@ describe("tsc adapter", () => {
 
     expect(issues).toEqual([]);
   });
+
+  it("rejects hostile project paths before constructing tsc argv", async () => {
+    await expect(createTscArgs(["--version"], solutionStyleFixture)).rejects.toMatchObject({
+      code: "invalid_path",
+    });
+    await expect(createTscArgs(["../tsconfig.json"], solutionStyleFixture)).rejects.toMatchObject({
+      code: "path_outside_project",
+    });
+  });
 });
 
 describe("Biome adapter", () => {
@@ -236,6 +256,17 @@ describe("Biome adapter", () => {
     });
     expect(issues[0]).not.toHaveProperty("clusterId");
     expect(issues.every(isNormalizedIssue)).toBe(true);
+  });
+
+  it("places an end-of-options separator before every supplied path", () => {
+    expect(createBiomeCliArgs("biome-cli", ["src/a.ts", "-hostile.ts"])).toEqual([
+      "biome-cli",
+      "check",
+      "--reporter=json",
+      "--",
+      "src/a.ts",
+      "-hostile.ts",
+    ]);
   });
 });
 

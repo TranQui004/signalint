@@ -4,24 +4,30 @@ import { resolve } from "node:path";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createServer } from "../src/index.js";
 import { SessionMemory } from "../src/memory/sessionMemory.js";
 import {
   isCheckResponse,
+  isEngineOutputLimitResponse,
   isNormalizedIssue,
   isStaleReferenceResponse,
   isTimeoutResponse,
   type NormalizedIssue,
 } from "../src/schema.js";
-import { EngineTimeoutError } from "../src/subprocess.js";
+import {
+  EngineExecutionError,
+  EngineOutputLimitError,
+  EngineTimeoutError,
+} from "../src/subprocess.js";
 
 const logPath = resolve(".signalint/test/mcp-responses.jsonl");
 const clients: Client[] = [];
 const servers: Server[] = [];
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   await Promise.all(clients.map((client) => client.close()));
   await Promise.all(servers.map((server) => server.close()));
   clients.length = 0;
@@ -78,6 +84,39 @@ describe("MCP response amendments", () => {
       status: "timeout",
       engine: "tsc",
       message: "tsc did not complete within 120s",
+    });
+  });
+
+  it("logs attributed non-timeout engine failures to stderr before rethrowing", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+    const client = await connectServer(() =>
+      Promise.reject(new EngineExecutionError("oxlint", new Error("fixture failure"))),
+    );
+
+    await expect(callTool(client, "check_project", { paths: ["."] })).rejects.toThrow();
+
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("engine=oxlint"));
+    expect(stderr).toHaveBeenCalledWith(expect.stringContaining("fixture failure"));
+    expect(stdout).not.toHaveBeenCalled();
+  });
+
+  it("returns a structured error when engine output exceeds its byte ceiling", async () => {
+    vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const client = await connectServer(() =>
+      Promise.reject(new EngineOutputLimitError("biome", 128)),
+    );
+
+    const response = parseText(
+      await callTool(client, "check_project", { paths: ["."] }),
+    );
+
+    expect(isEngineOutputLimitResponse(response)).toBe(true);
+    expect(response).toEqual({
+      status: "error",
+      code: "engine_output_exceeded",
+      engine: "biome",
+      message: "biome output exceeded the 128 bytes limit",
     });
   });
 });

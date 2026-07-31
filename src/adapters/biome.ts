@@ -8,7 +8,11 @@ import {
   type IssueSeverity,
   type NormalizedIssue,
 } from "../schema.js";
-import { runEngineCommand, type CommandResult } from "../subprocess.js";
+import {
+  attributeEngineError,
+  runEngineCommand,
+  type CommandResult,
+} from "../subprocess.js";
 
 interface BiomeRunOptions {
   cwd?: string;
@@ -33,13 +37,19 @@ export async function runBiome(
   paths: readonly string[],
   options: BiomeRunOptions = {},
 ): Promise<NormalizedIssue[]> {
-  const cwd = options.cwd ?? process.cwd();
-  const result = await runBiomeProcess(paths, cwd, options);
-  const issues = result.stdout.trim() === "" ? [] : parseBiomeOutput(result.stdout, cwd);
-  if (result.exitCode !== 0 && issues.length === 0) {
-    throw new Error(`Biome failed with exit code ${String(result.exitCode)}: ${result.stderr.trim()}`);
+  try {
+    const cwd = options.cwd ?? process.cwd();
+    const result = await runBiomeProcess(paths, cwd, options);
+    const issues = result.stdout.trim() === "" ? [] : parseBiomeOutput(result.stdout, cwd);
+    if (result.exitCode !== 0 && issues.length === 0) {
+      throw new Error(
+        `Biome failed with exit code ${String(result.exitCode)}: ${result.stderr.trim()}`,
+      );
+    }
+    return issues;
+  } catch (error: unknown) {
+    throw attributeEngineError("biome", error);
   }
-  return issues;
 }
 
 function normalizeBiomeDiagnostic(diagnostic: unknown, cwd: string): NormalizedIssue {
@@ -107,12 +117,20 @@ async function runBiomeProcess(
   const require = createRequire(import.meta.url);
   const packagePath = require.resolve("@biomejs/biome/package.json");
   const cliPath = resolve(dirname(packagePath), "bin", "biome");
-  return runEngineCommand(process.execPath, [cliPath, "check", "--reporter=json", ...paths], {
+  return runEngineCommand(process.execPath, createBiomeCliArgs(cliPath, paths), {
     cwd,
     engine: "biome",
     signal: options.signal,
     timeoutMs: options.timeoutMs ?? DEFAULT_CONFIG.timeoutsMs.biome,
   });
+}
+
+/** Builds Biome argv with an end-of-options separator before all file paths. */
+export function createBiomeCliArgs(
+  cliPath: string,
+  paths: readonly string[],
+): string[] {
+  return [cliPath, "check", "--reporter=json", "--", ...paths];
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

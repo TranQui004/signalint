@@ -8,7 +8,11 @@ import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/index.js";
-import { EngineTimeoutError, runEngineCommand } from "../src/subprocess.js";
+import {
+  EngineOutputLimitError,
+  EngineTimeoutError,
+  runEngineCommand,
+} from "../src/subprocess.js";
 
 interface PidRecord {
   parent: number;
@@ -65,6 +69,21 @@ afterEach(async () => {
 });
 
 describe("Engine subprocess lifecycle", () => {
+  it("terminates an engine whose combined output exceeds the byte ceiling", async () => {
+    await expect(
+      runEngineCommand(
+        process.execPath,
+        ["-e", "process.stdout.write('x'.repeat(4096))"],
+        {
+          cwd: process.cwd(),
+          engine: "biome",
+          maxOutputBytes: 128,
+          timeoutMs: 5_000,
+        },
+      ),
+    ).rejects.toEqual(new EngineOutputLimitError("biome", 128));
+  });
+
   it("returns a structured timeout and kills the engine process tree", async ({ skip }) => {
     if (taskkillPermissionDenied) {
       skip("taskkill permission denied in this environment");

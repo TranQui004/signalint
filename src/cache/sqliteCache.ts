@@ -20,6 +20,10 @@ interface EngineStateRow {
   result: string;
 }
 
+interface TimestampRow {
+  timestamp: number;
+}
+
 export interface CacheVersionInfo {
   engineVersion: string;
   signalintVersion: string;
@@ -40,6 +44,9 @@ const openCaches = new Set<SqliteCache>();
 const require = createRequire(import.meta.url);
 const resolvedVersionInfo = new Map<IssueEngine, CacheVersionInfo>();
 let installedSignalintVersion: string | undefined;
+
+/** Maximum number of file-result rows retained by the default SQLite cache. */
+export const DEFAULT_CACHE_ROW_LIMIT = 10_000;
 
 /** Creates the Section 9 cache key including installed Signalint and engine versions. */
 export function createCacheKey(
@@ -68,14 +75,23 @@ export function resolveCacheVersionInfo(engine: IssueEngine): CacheVersionInfo {
 
 export class SqliteCache {
   private readonly database: Database.Database;
+  private readonly maxRows: number;
+  private lastAccessTimestamp: number;
   private closed = false;
 
-  /** Opens a SQLite cache and assumes its parent directory may be created when needed. */
-  public constructor(databasePath: string) {
+  /** Opens a bounded SQLite cache and assumes its parent directory may be created. */
+  public constructor(
+    databasePath: string,
+    maxRows: number = DEFAULT_CACHE_ROW_LIMIT,
+  ) {
+    if (!Number.isInteger(maxRows) || maxRows < 1) {
+      throw new Error("SQLite cache maxRows must be a positive integer.");
+    }
     if (databasePath !== ":memory:") {
       mkdirSync(dirname(databasePath), { recursive: true });
     }
     this.database = new Database(databasePath);
+    this.maxRows = maxRows;
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS cache (
         key TEXT PRIMARY KEY,
@@ -89,7 +105,11 @@ export class SqliteCache {
         result JSON NOT NULL,
         timestamp INTEGER NOT NULL
       );
+
+      CREATE INDEX IF NOT EXISTS cache_timestamp ON cache(timestamp DESC);
     `);
+    this.lastAccessTimestamp = this.readLatestTimestamp();
+    this.evictOverflow();
     openCaches.add(this);
   }
 
@@ -105,7 +125,11 @@ export class SqliteCache {
       throw new Error("SQLite cache returned an invalid row.");
     }
 
-    return parseIssues(row.result, "file cache");
+    const issues = parseIssues(row.result, "file cache");
+    this.database
+      .prepare("UPDATE cache SET timestamp = ? WHERE key = ?")
+      .run(this.nextAccessTimestamp(), key);
+    return issues;
   }
 
   /** Upserts normalized issues under a cache key using the current epoch timestamp. */
@@ -118,7 +142,8 @@ export class SqliteCache {
           result = excluded.result,
           timestamp = excluded.timestamp
       `)
-      .run(key, JSON.stringify(issues), Date.now());
+      .run(key, JSON.stringify(issues), this.nextAccessTimestamp());
+    this.evictOverflow();
   }
 
   /** Deletes entries whose config, Signalint, or engine version is no longer current. */
@@ -189,6 +214,35 @@ export class SqliteCache {
     openCaches.delete(this);
     this.database.close();
   }
+
+  private evictOverflow(): void {
+    this.database
+      .prepare(`
+        DELETE FROM cache
+        WHERE key IN (
+          SELECT key
+          FROM cache
+          ORDER BY timestamp DESC, key DESC
+          LIMIT -1 OFFSET ?
+        )
+      `)
+      .run(this.maxRows);
+  }
+
+  private nextAccessTimestamp(): number {
+    this.lastAccessTimestamp = Math.max(Date.now(), this.lastAccessTimestamp + 1);
+    return this.lastAccessTimestamp;
+  }
+
+  private readLatestTimestamp(): number {
+    const row: unknown = this.database
+      .prepare("SELECT COALESCE(MAX(timestamp), 0) AS timestamp FROM cache")
+      .get();
+    if (!isTimestampRow(row)) {
+      throw new Error("SQLite cache returned an invalid timestamp row.");
+    }
+    return row.timestamp;
+  }
 }
 
 /** Closes all SQLite handles still open during process shutdown. */
@@ -214,6 +268,15 @@ function isCacheRow(value: unknown): value is CacheRow {
 
 function isEngineStateRow(value: unknown): value is EngineStateRow {
   return isCacheRow(value);
+}
+
+function isTimestampRow(value: unknown): value is TimestampRow {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "timestamp" in value &&
+    typeof value.timestamp === "number"
+  );
 }
 
 function parseIssues(serialized: string, source: string): NormalizedIssue[] {

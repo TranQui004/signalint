@@ -1,4 +1,4 @@
-import { appendFile, readFile, rm } from "node:fs/promises";
+import { appendFile, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -22,6 +22,7 @@ import {
 } from "../src/schema.js";
 
 const logPath = resolve(".signalint/test/session-memory.jsonl");
+const rotatedLogPath = `${logPath}.1`;
 const clients: Client[] = [];
 const servers: Server[] = [];
 
@@ -32,6 +33,7 @@ afterEach(async () => {
   clients.length = 0;
   servers.length = 0;
   await rm(logPath, { force: true });
+  await rm(rotatedLogPath, { force: true });
 });
 
 describe("Session Memory", () => {
@@ -146,6 +148,56 @@ describe("Session Memory", () => {
       signatures: [{ signature: createIssueSignature(issueA), occurrences: 2 }],
     });
   });
+
+  it("replays only the configured recent tail of session history", async () => {
+    const issueA = makeIssue("A", "rule-a", "Variable 'alpha' failed at line 10");
+    const signatureA = createIssueSignature(issueA);
+    const history = [
+      createReplayLine(1, [signatureA]),
+      createReplayLine(2, []),
+      createReplayLine(3, [signatureA]),
+      createReplayLine(4, []),
+      createReplayLine(5, [signatureA]),
+      createReplayLine(6, ["recent-signature"]),
+    ];
+    await writeFile(logPath, `${history.join("\n")}\n`, "utf8");
+
+    const memory = new SessionMemory({
+      logPath,
+      maxReplayEntries: 2,
+      maxLogBytes: 1024 * 1024,
+    });
+
+    expect(memory.getStatus()).toEqual({ looping: false, signatures: [] });
+  });
+
+  it("rotates an oversized session log while retaining a bounded recent tail", async () => {
+    const memory = new SessionMemory({
+      logPath,
+      maxReplayEntries: 2,
+      maxLogBytes: 500,
+    });
+
+    await recordIssues(memory, [makeIssue("A", "rule-a", "First fixture issue")]);
+    await recordIssues(memory, [makeIssue("B", "rule-b", "Second fixture issue")]);
+    await recordIssues(memory, [makeIssue("C", "rule-c", "Third fixture issue")]);
+
+    const currentLines = (await readFile(logPath, "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+    const rotatedLines = (await readFile(rotatedLogPath, "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean);
+    expect(currentLines).toHaveLength(2);
+    expect(rotatedLines).toHaveLength(2);
+    expect(new SessionMemory({
+      logPath,
+      maxReplayEntries: 2,
+      maxLogBytes: 500,
+    }).getStatus()).toEqual({ looping: false, signatures: [] });
+  });
 });
 
 async function recordIssues(
@@ -215,6 +267,10 @@ function makeIssue(issueId: string, rule: string, message: string): NormalizedIs
     message,
     fixable: false,
   };
+}
+
+function createReplayLine(timestamp: number, activeSignatures: readonly string[]): string {
+  return JSON.stringify({ timestamp, activeSignatures });
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

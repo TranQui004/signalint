@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { appendFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { performance } from "node:perf_hooks";
@@ -13,9 +12,21 @@ import {
   parseSessionJsonLines,
   type ParsedSessionLogEntry,
 } from "../sessionLog.js";
+import {
+  readSessionLogTail,
+  rotateSessionLogIfNeeded,
+} from "./sessionLogStorage.js";
+
+/** Maximum number of recent checks replayed into loop memory on startup. */
+export const DEFAULT_SESSION_REPLAY_LIMIT = 5_000;
+
+/** Active session-log size that triggers bounded rotation before an append. */
+export const DEFAULT_SESSION_LOG_MAX_BYTES = 10 * 1024 * 1024;
 
 export interface SessionMemoryOptions {
   logPath?: string;
+  maxLogBytes?: number;
+  maxReplayEntries?: number;
   now?: () => number;
 }
 
@@ -60,14 +71,24 @@ export class SessionMemory {
   private readonly appearanceTimestamps: Map<string, number[]>;
   private activeSignatures: Set<string>;
   private readonly logPath: string;
+  private readonly maxLogBytes: number;
+  private readonly maxReplayEntries: number;
   private readonly now: () => number;
   private needsLineBoundary: boolean;
 
   /** Creates diagnostic memory restored from valid entries in its append-only session log. */
   public constructor(options: SessionMemoryOptions = {}) {
     this.logPath = options.logPath ?? resolve(process.cwd(), ".signalint", "session.jsonl");
+    this.maxLogBytes = options.maxLogBytes ?? DEFAULT_SESSION_LOG_MAX_BYTES;
+    this.maxReplayEntries = options.maxReplayEntries ?? DEFAULT_SESSION_REPLAY_LIMIT;
+    assertPositiveInteger(this.maxLogBytes, "maxLogBytes");
+    assertPositiveInteger(this.maxReplayEntries, "maxReplayEntries");
     this.now = options.now ?? Date.now;
-    const history = readSessionHistory(this.logPath);
+    const history = readSessionHistory(
+      this.logPath,
+      this.maxReplayEntries,
+      this.maxLogBytes,
+    );
     if (history.malformedLinesSkipped > 0) {
       process.stderr.write(
         `[signalint] Skipped ${String(history.malformedLinesSkipped)} malformed session log line(s).\n`,
@@ -145,29 +166,39 @@ export class SessionMemory {
 
   private async appendLog(entry: SessionLogEntry): Promise<void> {
     await mkdir(dirname(this.logPath), { recursive: true });
-    const prefix = this.needsLineBoundary ? "\n" : "";
-    await appendFile(this.logPath, `${prefix}${JSON.stringify(entry)}\n`, "utf8");
+    const serializedEntry = `${JSON.stringify(entry)}\n`;
+    let prefix = this.needsLineBoundary ? "\n" : "";
+    const rotated = await rotateSessionLogIfNeeded(
+      this.logPath,
+      Buffer.byteLength(`${prefix}${serializedEntry}`, "utf8"),
+      this.maxReplayEntries,
+      this.maxLogBytes,
+    );
+    if (rotated) {
+      this.needsLineBoundary = false;
+      prefix = "";
+    }
+    await appendFile(this.logPath, `${prefix}${serializedEntry}`, "utf8");
     this.needsLineBoundary = false;
   }
 }
 
-function readSessionHistory(logPath: string): SessionHistory {
-  let serialized: string;
-  try {
-    serialized = readFileSync(logPath, "utf8");
-  } catch (error: unknown) {
-    if (isMissingFileError(error)) {
-      return { entries: [], malformedLinesSkipped: 0, needsLineBoundary: false };
-    }
-    throw error;
+function readSessionHistory(
+  logPath: string,
+  maxEntries: number,
+  maxBytes: number,
+): SessionHistory {
+  const tail = readSessionLogTail(logPath, maxEntries, maxBytes);
+  if (tail === undefined) {
+    return { entries: [], malformedLinesSkipped: 0, needsLineBoundary: false };
   }
-  const parsedLog = parseSessionJsonLines(serialized);
+  const parsedLog = parseSessionJsonLines(tail.serialized);
   return {
     entries: parsedLog.entries
       .map(parseSessionReplayEntry)
       .filter((entry): entry is SessionReplayEntry => entry !== undefined),
     malformedLinesSkipped: parsedLog.malformedLinesSkipped,
-    needsLineBoundary: serialized !== "" && !serialized.endsWith("\n"),
+    needsLineBoundary: tail.serialized !== "" && !tail.endsWithNewline,
   };
 }
 
@@ -251,6 +282,8 @@ function createLoopWarning(signature: string, occurrences: number): LoopWarning 
   };
 }
 
-function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
+function assertPositiveInteger(value: number, name: string): void {
+  if (!Number.isInteger(value) || value < 1) {
+    throw new Error(`SessionMemory ${name} must be a positive integer.`);
+  }
 }

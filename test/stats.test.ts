@@ -1,6 +1,7 @@
+import { rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   formatSessionStats,
@@ -36,6 +37,12 @@ const SESSION_LOG = [
     loopWarnings: [makeWarning("rule-b")],
   },
 ].map((entry) => JSON.stringify(entry)).join("\n");
+const rotatedLogPath = resolve(".signalint/test/rotated-stats.jsonl");
+
+afterEach(async () => {
+  await rm(rotatedLogPath, { force: true });
+  await rm(`${rotatedLogPath}.1`, { force: true });
+});
 
 describe("session statistics", () => {
   it("aggregates payload, cache, and distinct loop-warning metrics", () => {
@@ -74,6 +81,21 @@ describe("session statistics", () => {
     expect(formatSessionStats(stats)).toContain("Average check latency: n/a");
   });
 
+  it("includes rotated metrics without double-counting the retained overlap", async () => {
+    const first = createMetricLine(1, 100);
+    const retained = createMetricLine(2, 200);
+    const latest = createMetricLine(3, 300);
+    await writeFile(`${rotatedLogPath}.1`, `${first}\n${retained}\n`, "utf8");
+    await writeFile(rotatedLogPath, `${retained}\n${latest}\n`, "utf8");
+
+    const stats = await readSessionStats(rotatedLogPath);
+
+    expect(stats.checks).toBe(3);
+    expect(stats.latencySamples).toBe(3);
+    expect(stats.averageLatencyMs).toBe(200);
+    expect(stats.maxLatencyMs).toBe(300);
+  });
+
   it("skips malformed JSON and reports the count", () => {
     const stats = parseSessionLog('{"timestamp":1}\nnot-json\n{"timestamp":2}');
 
@@ -81,6 +103,26 @@ describe("session statistics", () => {
     expect(stats.malformedLinesSkipped).toBe(1);
     expect(formatSessionStats(stats)).toContain("Malformed session lines skipped: 1");
   });
+
+  it("computes the maximum across a large latency history without spreading it", () => {
+    const entryCount = 150_000;
+    const serialized = Array.from({ length: entryCount }, (_, latencyMs) =>
+      JSON.stringify({
+        metrics: {
+          rawPayloadBytes: 1,
+          clusteredPayloadBytes: 1,
+          cacheHits: 0,
+          cacheMisses: 0,
+          latencyMs,
+        },
+      }),
+    ).join("\n");
+
+    const stats = parseSessionLog(serialized);
+
+    expect(stats.latencySamples).toBe(entryCount);
+    expect(stats.maxLatencyMs).toBe(entryCount - 1);
+  }, 10_000);
 });
 
 function makeWarning(signature: string): Record<string, unknown> {
@@ -89,4 +131,17 @@ function makeWarning(signature: string): Record<string, unknown> {
     occurrences: 2,
     hint: "Fixture loop warning",
   };
+}
+
+function createMetricLine(timestamp: number, latencyMs: number): string {
+  return JSON.stringify({
+    timestamp,
+    metrics: {
+      rawPayloadBytes: 100,
+      clusteredPayloadBytes: 50,
+      cacheHits: 1,
+      cacheMisses: 0,
+      latencyMs,
+    },
+  });
 }

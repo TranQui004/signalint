@@ -82,6 +82,25 @@ describe("SQLite cache", () => {
     expect(cache.getEngineResult("oxlint", "config-a", oldVersions)).toBeUndefined();
   });
 
+  it("evicts the least recently used file row when the row cap is exceeded", () => {
+    const cache = createMemoryCache(3);
+    const firstKey = createCacheKey("first", "oxlint", "config-a");
+    const secondKey = createCacheKey("second", "oxlint", "config-a");
+    const thirdKey = createCacheKey("third", "oxlint", "config-a");
+    const fourthKey = createCacheKey("fourth", "oxlint", "config-a");
+    cache.set(firstKey, []);
+    cache.set(secondKey, []);
+    cache.set(thirdKey, []);
+    expect(cache.get(firstKey)).toEqual([]);
+
+    cache.set(fourthKey, []);
+
+    expect(cache.get(secondKey)).toBeUndefined();
+    expect(cache.get(firstKey)).toEqual([]);
+    expect(cache.get(thirdKey)).toEqual([]);
+    expect(cache.get(fourthKey)).toEqual([]);
+  });
+
   it("changes the engine config hash when a recognized config is edited", async () => {
     const configPath = resolve(fixtureRoot, ".oxlintrc.json");
     const original = await readFile(configPath, "utf8");
@@ -195,8 +214,10 @@ describe("Phase 2 acceptance benchmark", () => {
   });
 });
 
-function createMemoryCache(): SqliteCache {
-  const cache = new SqliteCache(":memory:");
+function createMemoryCache(maxRows?: number): SqliteCache {
+  const cache = maxRows === undefined
+    ? new SqliteCache(":memory:")
+    : new SqliteCache(":memory:", maxRows);
   openCaches.push(cache);
   return cache;
 }

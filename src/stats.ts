@@ -21,14 +21,14 @@ export interface SessionStats {
 export async function readSessionStats(
   logPath: string = resolve(process.cwd(), ".signalint", "session.jsonl"),
 ): Promise<SessionStats> {
-  try {
-    return parseSessionLog(await readFile(logPath, "utf8"));
-  } catch (error: unknown) {
-    if (isMissingFileError(error)) {
-      return emptySessionStats();
-    }
-    throw error;
+  const [rotated, active] = await Promise.all([
+    readOptionalSessionLog(`${logPath}.1`),
+    readOptionalSessionLog(logPath),
+  ]);
+  if (rotated === undefined && active === undefined) {
+    return emptySessionStats();
   }
+  return parseSessionLog(mergeSessionLogs(rotated ?? "", active ?? ""));
 }
 
 /** Parses Signalint session JSONL and supports pre-metrics Phase 4 log entries. */
@@ -71,7 +71,9 @@ export function parseSessionLog(serialized: string): SessionStats {
     cacheHitRatePercent: percentage(cacheHits, cacheHits + cacheMisses),
     latencySamples: latencies.length,
     averageLatencyMs: average(latencies),
-    maxLatencyMs: latencies.length === 0 ? null : Math.max(...latencies),
+    maxLatencyMs: latencies.length === 0
+      ? null
+      : latencies.reduce((a, b) => Math.max(a, b), -Infinity),
     loopWarningsTriggered: warnedSignatures.size,
     malformedLinesSkipped: parsedLog.malformedLinesSkipped,
   };
@@ -139,6 +141,56 @@ function emptySessionStats(): SessionStats {
     loopWarningsTriggered: 0,
     malformedLinesSkipped: 0,
   };
+}
+
+async function readOptionalSessionLog(logPath: string): Promise<string | undefined> {
+  try {
+    return await readFile(logPath, "utf8");
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+function mergeSessionLogs(rotated: string, active: string): string {
+  const rotatedLines = readNonEmptyLines(rotated);
+  const activeLines = readNonEmptyLines(active);
+  const overlap = findSuffixPrefixOverlap(rotatedLines, activeLines);
+  return [...rotatedLines, ...activeLines.slice(overlap)].join("\n");
+}
+
+function readNonEmptyLines(serialized: string): string[] {
+  return serialized.split(/\r?\n/).filter((line) => line.trim() !== "");
+}
+
+function findSuffixPrefixOverlap(
+  rotatedLines: readonly string[],
+  activeLines: readonly string[],
+): number {
+  const maxOverlap = Math.min(rotatedLines.length, activeLines.length);
+  for (let candidate = maxOverlap; candidate > 0; candidate -= 1) {
+    const rotatedStart = rotatedLines.length - candidate;
+    if (rangesMatch(rotatedLines, rotatedStart, activeLines, candidate)) {
+      return candidate;
+    }
+  }
+  return 0;
+}
+
+function rangesMatch(
+  rotatedLines: readonly string[],
+  rotatedStart: number,
+  activeLines: readonly string[],
+  length: number,
+): boolean {
+  for (let index = 0; index < length; index += 1) {
+    if (rotatedLines[rotatedStart + index] !== activeLines[index]) {
+      return false;
+    }
+  }
+  return true;
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

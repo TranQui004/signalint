@@ -36,11 +36,12 @@ The `main` branch is protected. Create a focused branch, commit your work there,
 push it, and open a pull request against `main`. Keep the branch current with
 `main`; required checks run against the merged result.
 
-A pull request can merge only after these three GitHub Actions checks pass:
+A pull request can merge only after these GitHub Actions checks pass:
 
 - `Test (windows-latest)`
 - `Test (ubuntu-latest)`
 - `Test (macos-latest)`
+- `Test (ubuntu-node-20.19)`
 
 Direct pushes and force-pushes to `main` are blocked, including for administrators.
 Do not bypass or disable the checks to merge a change.
@@ -61,6 +62,8 @@ docs(readme): document pre-release installation
 ## Coding and project rules
 
 Read [AGENTS.md](AGENTS.md) before changing code. It defines the TypeScript,
-testing, dependency, schema, and workflow standards used by this repository.
-The complete architecture and product rationale are in
-[docs/signalint-plan.md](docs/signalint-plan.md).
+testing, dependency, schema, and trust-boundary standards used by this repository.
+
+[ARCHITECTURE.md](ARCHITECTURE.md) describes how the layers fit together and what
+each module is responsible for. For the historical design rationale and the
+pre-launch audit trail, see [docs/history/](docs/history/).

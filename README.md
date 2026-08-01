@@ -20,7 +20,18 @@ Install Signalint in the project it should check:
 npm install --save-dev signalint-mcp
 ```
 
-Create `signalint.config.json` in that project root, or omit it to use the defaults:
+Run the setup command from that project root. It detects TypeScript, Oxlint, and
+Biome configuration, writes `signalint.config.json`, and offers to update a nearby
+Claude Code, Cursor, or Antigravity MCP configuration:
+
+```sh
+npx signalint-mcp init
+```
+
+If no MCP client can be selected safely, the command prints exact configuration
+snippets to copy. TypeScript is enabled only when a root `tsconfig.json` exists;
+Biome is enabled when its config exists; Oxlint is the fallback when no configured
+linter is detected. To configure Signalint manually, create `signalint.config.json`:
 
 ```json
 {
@@ -85,26 +96,24 @@ for configuration locations and status controls.
 ## Setting up with Antigravity
 
 Antigravity uses its own MCP configuration file, typically
-`%USERPROFILE%\.gemini\antigravity\mcp_config.json` on Windows. During local
-dogfooding, Antigravity did not resolve npm-link-generated `.cmd` shims reliably,
-so point it directly at the compiled server entrypoint:
+`%USERPROFILE%\.gemini\antigravity\mcp_config.json` on Windows. The `init` command
+can update this file after confirmation. The equivalent Windows configuration is:
 
 ```json
 {
   "mcpServers": {
     "signalint": {
-      "command": "node",
-      "args": ["<absolute-path-to-signalint>/dist/src/index.js"],
+      "command": "cmd",
+      "args": ["/c", "npx", "--no-install", "signalint-mcp"],
       "cwd": "<absolute-path-to-your-project>"
     }
   }
 }
 ```
 
-Run `npm run build` in the Signalint checkout before using that path, then restart
-or reconnect Antigravity. After `signalint-mcp` is published to npm, this setup can
-use the same `npx --no-install signalint-mcp` pattern documented for Claude Code
-and Cursor; direct Node invocation is the current local-checkout instruction.
+On macOS or Linux, use `"command": "npx"` and
+`"args": ["--no-install", "signalint-mcp"]`. Restart or reconnect Antigravity
+after updating the configuration.
 
 ## Windows troubleshooting
 

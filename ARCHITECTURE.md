@@ -34,7 +34,8 @@ clustering, schema, and session layers operate on `NormalizedIssue` objects.
 | Module | Responsibility |
 |---|---|
 | `src/index.ts` | Registers MCP tools, selects configured providers, clusters results, records session state, and serializes tool responses. |
-| `src/cli.ts` | Implements `signalint check` and `signalint stats` using the same project and telemetry paths as the server. |
+| `src/cli.ts` | Implements `signalint init`, `signalint check`, and `signalint stats` using the same setup, project, and telemetry paths as the server. |
+| `src/init.ts` | Detects project engine configuration and nearby MCP clients, writes `signalint.config.json`, and merges a confirmed MCP server entry. |
 | `src/schema.ts` | Defines and validates normalized issues, clusters, check responses, timeout responses, stale references, and loop status. |
 | `src/config.ts` | Loads `signalint.config.json`, validates engine/timeout settings, and applies ignore globs. |
 | `src/adapters/oxlint.ts` | Runs Oxlint and normalizes its JSON diagnostics. |

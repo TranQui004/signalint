@@ -36,6 +36,7 @@ import {
   registerProcessLifecycle,
   writeFatalError,
 } from "./lifecycle.js";
+import { runInitCommandSafely } from "./init.js";
 import { isMainModule } from "./mainModule.js";
 import { SessionMemory } from "./memory/sessionMemory.js";
 import {
@@ -170,7 +171,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   const server = new Server(
     {
       name: "signalint",
-      version: "0.1.0",
+      version: "0.2.0",
     },
     {
       capabilities: {
@@ -538,10 +539,19 @@ function compareIssues(left: NormalizedIssue, right: NormalizedIssue): number {
 }
 
 if (isMainModule(import.meta.url)) {
-  try {
-    await startServer();
-  } catch (error: unknown) {
-    writeFatalError("server startup failed", error);
-    process.exitCode = 1;
+  if (process.argv[2] === "init") {
+    if (process.argv.length > 3) {
+      process.stderr.write("Usage: signalint-mcp init\n");
+      process.exitCode = 2;
+    } else {
+      process.exitCode = await runInitCommandSafely();
+    }
+  } else {
+    try {
+      await startServer();
+    } catch (error: unknown) {
+      writeFatalError("server startup failed", error);
+      process.exitCode = 1;
+    }
   }
 }

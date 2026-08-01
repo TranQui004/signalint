@@ -238,6 +238,8 @@ runtime reachability, and the conditions that require reassessment.
 
 ## Documentation
 
+- [Website](https://tranqui004.github.io/signalint-site) — overview, docs, and
+  live examples.
 - [ARCHITECTURE.md](ARCHITECTURE.md) — how the layers fit together and what each
   module does.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup, verification, and pull

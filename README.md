@@ -141,13 +141,17 @@ diagnostics. Because tsc is a whole-program engine, it still receives the comple
 `tsconfig.json` program when invoked; ignored TypeScript paths do not trigger an
 incremental `check_files` run and their diagnostics are removed from the response.
 
-Engine-native configuration remains in `.oxlintrc*`, `tsconfig.json`, and
-`biome.json`/`biome.jsonc`. Changing one invalidates that engine's Signalint cache.
+Engine-native configuration remains in native files. The v1 cache hash recognizes
+root `.oxlintrc`, `.oxlintrc.json`, `oxlint.json`, `tsconfig.json`, `biome.json`,
+and `biome.jsonc`. Changing one invalidates the related engine cache. Other valid
+sources—including `.oxlintrc.jsonc`, extended configs, and nested package configs—
+are not part of v1 cache hashing; clear `.signalint/` after changing one of them.
 
 `timeoutsMs` sets positive-integer subprocess deadlines in milliseconds. Defaults are
 30 seconds for Oxlint, 120 seconds for tsc, and 30 seconds for Biome. A timed-out
-engine and its child processes are terminated, and the MCP tool returns a structured
-`status: "timeout"` response.
+engine and its child processes are terminated. In the schema 1.1 check response, that
+engine has `{ "status": "error", "message": "tsc did not complete within 120s" }`
+under `engines`, while completed engines' diagnostics are preserved.
 
 ## Known Limitations
 

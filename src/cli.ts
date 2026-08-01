@@ -2,6 +2,7 @@
 
 import { resolve } from "node:path";
 
+import { runInitCommand } from "./init.js";
 import { checkProject } from "./index.js";
 import { isMainModule } from "./mainModule.js";
 import { formatSessionStats, readSessionStats } from "./stats.js";
@@ -13,8 +14,15 @@ export async function runCli(
 ): Promise<number> {
   const [command, ...paths] = args;
   if (command === "--help" || command === "-h" || command === undefined) {
-    process.stdout.write("Usage: signalint <check [path ...] | stats>\n");
+    process.stdout.write("Usage: signalint <init | check [path ...] | stats>\n");
     return 0;
+  }
+  if (command === "init") {
+    if (paths.length > 0) {
+      process.stderr.write("Usage: signalint init\n");
+      return 2;
+    }
+    return await runInitCommand({ cwd });
   }
   if (command === "stats") {
     if (paths.length > 0) {
@@ -28,7 +36,7 @@ export async function runCli(
   }
   if (command !== "check") {
     process.stderr.write(
-      `Unknown command: ${command}\nUsage: signalint <check [path ...] | stats>\n`,
+      `Unknown command: ${command}\nUsage: signalint <init | check [path ...] | stats>\n`,
     );
     return 2;
   }

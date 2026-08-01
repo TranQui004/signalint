@@ -236,6 +236,16 @@ in a clean project. Publishing requires explicit release approval.
 See [SECURITY.md](SECURITY.md) for the current npm audit advisory, its evaluated
 runtime reachability, and the conditions that require reassessment.
 
+## Documentation
+
+- [ARCHITECTURE.md](ARCHITECTURE.md) — how the layers fit together and what each
+  module does.
+- [CONTRIBUTING.md](CONTRIBUTING.md) — development setup, verification, and pull
+  requests.
+- [AGENTS.md](AGENTS.md) — coding standards for this repository.
+- [SECURITY.md](SECURITY.md) — threat model, trust boundaries, and audit status.
+- [docs/history/](docs/history/) — original build plan and pre-launch audit trail.
+
 ## License
 
 Signalint is available under the [MIT License](LICENSE).

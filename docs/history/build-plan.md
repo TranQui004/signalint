@@ -1,3 +1,14 @@
+> **Archived build plan.** This is the original planning document, kept for
+> provenance. It records intent at the time of writing and is not maintained as
+> current documentation — where it disagrees with the code, the code and
+> [ARCHITECTURE.md](../../ARCHITECTURE.md) are correct.
+>
+> Phases 0–6 are complete. Section 18's embedded `AGENTS.md` copy is superseded by
+> the live [AGENTS.md](../../AGENTS.md). See [README.md](README.md) in this
+> directory for context on why this file is retained.
+
+---
+
 # Signalint — Agent-Optimized Code Feedback MCP Server
 
 ## Project Plan v2.0

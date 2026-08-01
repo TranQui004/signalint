@@ -6,34 +6,18 @@ issues; and warns when the same diagnostic disappears and repeatedly returns.
 Loop history is restored from valid `.signalint/session.jsonl` entries when the MCP
 server restarts; malformed or crash-truncated lines are skipped.
 
-> [!IMPORTANT]
-> `signalint-mcp` is not yet published to npm. Registry installation is not
-> available today; use the packed-tarball installation below until the first npm
-> release.
-
 ## Requirements
 
 - Node.js 20.19 or later in the Node 20 line, or Node.js 22.12 or later
 - A JavaScript or TypeScript project; TypeScript checks require a `tsconfig.json`
-- pnpm 11.9.0 when building a pre-release tarball from this repository
+- pnpm 11.9.0 for source development
 
 ## Install
 
-Clone the public repository, install its locked dependencies, and build a local
-package tarball:
+Install Signalint in the project it should check:
 
 ```sh
-git clone https://github.com/TranQui004/signalint.git
-cd signalint
-pnpm install --frozen-lockfile
-npm pack
-```
-
-Install that tarball in the project Signalint should check:
-
-```sh
-cd /path/to/your-project
-npm install --save-dev /absolute/path/to/signalint/signalint-mcp-0.1.0.tgz
+npm install --save-dev signalint-mcp
 ```
 
 Create `signalint.config.json` in that project root, or omit it to use the defaults:
@@ -235,8 +219,8 @@ pnpm build
 
 If a global npm shim cannot find `npm-cli.js`, build directly with `node node_modules/typescript/bin/tsc -p tsconfig.json`.
 
-`npm publish` is intentionally not part of Phase 5. Use `npm pack --dry-run` and a
-fresh tarball install until the public launch is explicitly approved.
+Before preparing a release, use `npm pack --dry-run` and verify the packed tarball
+in a clean project. Publishing requires explicit release approval.
 
 ## Security
 

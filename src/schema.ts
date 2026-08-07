@@ -47,6 +47,14 @@ export interface EngineStatus {
 
 export type EngineStatuses = Record<IssueEngine, EngineStatus>;
 
+/**
+ * `schemaVersion` moved from "1.0" to "1.1" to add per-engine `EngineStatus`.
+ * Before 1.1, a `Promise.all` fan-out meant one failing engine rejected the
+ * whole check and discarded diagnostics other engines had already produced;
+ * `engines` now reports `ok | error | disabled` per engine so completed
+ * results survive a sibling engine's failure or timeout. See
+ * docs/history/README.md for the pre-publish review that triggered this.
+ */
 export interface CheckResponse {
   schemaVersion: "1.1";
   status: "clean" | "issues_found";

@@ -136,7 +136,11 @@ tail at startup instead of reading the whole file, and the log is rotated to a
    diagnostics that should not reach the caller.
 6. `src/cluster/clusterEngine.ts` assigns `clusterId` values and builds the
    `schemaVersion: "1.1"` response, ordered by priority ascending (1 is most
-   urgent) and limited to ten clusters by default.
+   urgent) and limited to ten clusters by default. Schema 1.1 added the
+   per-engine `ok | error | disabled` status objects described in step 4;
+   1.0 had no such field, so one failing engine's `Promise.all` rejection
+   discarded diagnostics the other engines had already produced (see
+   [docs/history/README.md](docs/history/README.md)).
 7. `SessionMemory` updates diagnostic appearances, adds any loop warning, records
    cache/payload/latency metrics, and appends `.signalint/session.jsonl`.
 8. The MCP handler returns the response as JSON text and retains the latest issues

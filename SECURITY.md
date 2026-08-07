@@ -2,8 +2,10 @@
 
 ## Reporting a vulnerability
 
-Do not publish exploit details in a public issue. Until a private reporting channel
-is added, contact the repository owner through GitHub and request a private channel.
+Do not publish exploit details in a public issue. Report privately through GitHub's
+[Security Advisories](https://github.com/TranQui004/signalint/security/advisories/new)
+for this repository (Security tab → "Report a vulnerability"), which is enabled for
+this project.
 
 ## Threat model and tool-argument trust
 
@@ -47,7 +49,10 @@ permissions.
 
 ## Known npm audit advisory
 
-Checked on 2026-07-26 for Signalint 0.1.0:
+First evaluated 2026-07-26, while `@modelcontextprotocol/sdk` resolved to `1.29.0`.
+This assessment is tied to the dependency versions and transport code described
+below, not to a specific Signalint release — re-check it whenever either changes,
+not just when the package version changes.
 
 - Advisory: [GHSA-frvp-7c67-39w9](https://github.com/advisories/GHSA-frvp-7c67-39w9),
   moderate severity.

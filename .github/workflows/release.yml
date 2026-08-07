@@ -1,0 +1,188 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    name: Verify (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            install-node: '22.x'
+            runtime-node: '22.x'
+            label: windows-latest
+          - os: ubuntu-latest
+            install-node: '22.x'
+            runtime-node: '22.x'
+            label: ubuntu-latest
+          - os: macos-latest
+            install-node: '22.x'
+            runtime-node: '22.x'
+            label: macos-latest
+          - os: ubuntu-latest
+            install-node: '22.x'
+            runtime-node: '20.19.0'
+            label: ubuntu-node-20.19
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.install-node }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Set up compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ matrix.runtime-node }}
+
+      - name: Rebuild native dependency for compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        run: npm rebuild better-sqlite3
+
+      - name: Lint
+        if: matrix.runtime-node == matrix.install-node
+        run: pnpm lint
+
+      - name: Lint on compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        run: ./node_modules/.bin/oxlint src test --ignore-pattern test/fixtures
+
+      - name: Typecheck
+        if: matrix.runtime-node == matrix.install-node
+        run: pnpm typecheck
+
+      - name: Typecheck on compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        run: node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit
+
+      - name: Test
+        if: matrix.runtime-node == matrix.install-node
+        run: pnpm test
+
+      - name: Test on compatibility Node.js
+        if: matrix.runtime-node != matrix.install-node
+        run: |
+          node node_modules/typescript/bin/tsc -p tsconfig.json
+          node node_modules/vitest/vitest.mjs run
+
+      - name: Build
+        if: matrix.runtime-node == matrix.install-node
+        run: pnpm build
+
+  publish:
+    name: Publish to npm
+    needs: gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: 11.9.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22.x'
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify tag matches package version
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$tag_version" != "$package_version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package.json version $package_version" >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: pnpm build
+
+      - name: Generate release notes from commit messages
+        run: |
+          previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          if [ -n "$previous_tag" ]; then
+            range="${previous_tag}..${GITHUB_REF_NAME}"
+            echo "Changes since ${previous_tag}:" > release-notes.md
+          else
+            range="${GITHUB_REF_NAME}"
+            echo "Changes in ${GITHUB_REF_NAME}:" > release-notes.md
+          fi
+          echo "" >> release-notes.md
+          for type in feat fix refactor test docs ci; do
+            matches="$(git log --no-merges --pretty=format:'%s' "$range" | grep -E "^${type}(\(.+\))?: " || true)"
+            if [ -n "$matches" ]; then
+              case "$type" in
+                feat) heading="Features" ;;
+                fix) heading="Fixes" ;;
+                refactor) heading="Refactoring" ;;
+                test) heading="Tests" ;;
+                docs) heading="Documentation" ;;
+                ci) heading="CI" ;;
+              esac
+              echo "### ${heading}" >> release-notes.md
+              echo "$matches" | sed 's/^/- /' >> release-notes.md
+              echo "" >> release-notes.md
+            fi
+          done
+          other="$(git log --no-merges --pretty=format:'%s' "$range" | grep -Ev "^(feat|fix|refactor|test|docs|ci)(\(.+\))?: " || true)"
+          if [ -n "$other" ]; then
+            echo "### Other" >> release-notes.md
+            echo "$other" | sed 's/^/- /' >> release-notes.md
+            echo "" >> release-notes.md
+          fi
+          cat release-notes.md
+
+      - name: Verify npm token secret is configured
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ -z "$NPM_TOKEN" ]; then
+            echo "NPM_TOKEN repository secret is not set; add an npm automation token before tagging a release." >&2
+            exit 1
+          fi
+
+      - name: Publish to npm
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

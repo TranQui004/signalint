@@ -1,5 +1,8 @@
 # Signalint
 
+[![CI](https://github.com/TranQui004/signalint/actions/workflows/ci.yml/badge.svg)](https://github.com/TranQui004/signalint/actions/workflows/ci.yml)
+[![npm version](https://img.shields.io/npm/v/signalint-mcp.svg)](https://www.npmjs.com/package/signalint-mcp)
+
 Signalint is a local MCP server for JavaScript and TypeScript diagnostics. It runs
 Oxlint, TypeScript, and optionally Biome; caches unchanged checks; clusters repeated
 issues; and warns when the same diagnostic disappears and repeatedly returns.
@@ -250,6 +253,7 @@ runtime reachability, and the conditions that require reassessment.
   requests.
 - [AGENTS.md](AGENTS.md) — coding standards for this repository.
 - [SECURITY.md](SECURITY.md) — threat model, trust boundaries, and audit status.
+- [CHANGELOG.md](CHANGELOG.md) — notable changes by release.
 - [docs/history/](docs/history/) — original build plan and pre-launch audit trail.
 
 ## License

@@ -26,6 +26,9 @@ jobs:
             install-node: '22.x'
             runtime-node: '22.x'
             label: ubuntu-latest
+          # macos-latest currently resolves to an arm64 (Apple Silicon) image, not
+          # Intel/x86_64 — confirmed against GitHub's hosted-runner reference. This
+          # matters for better-sqlite3's native build, so don't assume x64 here.
           - os: macos-latest
             install-node: '22.x'
             runtime-node: '22.x'

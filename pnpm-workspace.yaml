@@ -1,2 +1,5 @@
+# This is a single-package repo, not a pnpm multi-package workspace. This file
+# exists only so pnpm's build-script allowlist can approve better-sqlite3's
+# native build script; pnpm-workspace.yaml is where that setting lives.
 allowBuilds:
   better-sqlite3: true

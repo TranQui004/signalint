@@ -20,7 +20,7 @@ import {
   type CacheStats,
   type CheckFilesResult,
 } from "./checkFiles.js";
-import { clusterIssues } from "./cluster/clusterEngine.js";
+import { clusterIssues, type ClusterResult } from "./cluster/clusterEngine.js";
 import {
   filterIgnoredPaths,
   isIgnoredPath,
@@ -215,8 +215,16 @@ export async function checkProject(
   paths: readonly string[],
   cwd: string = process.cwd(),
 ): Promise<CheckResponse> {
+  return (await checkProjectWithIssues(paths, cwd)).response;
+}
+
+/** Runs configured adapters and returns both the clustered issues and the project response. */
+export async function checkProjectWithIssues(
+  paths: readonly string[],
+  cwd: string = process.cwd(),
+): Promise<ClusterResult> {
   const result = await collectProjectIssueResult(paths, cwd);
-  return clusterIssues(result.issues, 10, result.engines).response;
+  return clusterIssues(result.issues, 10, result.engines);
 }
 
 /** Runs enabled project adapters and excludes diagnostics matching configured ignore globs. */

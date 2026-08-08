@@ -1,0 +1,32 @@
+name: Signalint
+description: Runs Signalint diagnostics and annotates issues on the pull request diff.
+author: TranQui004
+
+inputs:
+  fail-on-priority:
+    description: >-
+      Fail the job only if a cluster's priority (1 = most urgent, 5 = least
+      urgent) is at or below this threshold. Defaults to 5, which fails on any
+      issue found, matching `signalint check`'s default behavior.
+    required: false
+    default: "5"
+  node-version:
+    description: Node.js version to install before running Signalint.
+    required: false
+    default: "22.x"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Install signalint-mcp
+      shell: bash
+      run: npm install --global signalint-mcp
+
+    - name: Run Signalint
+      shell: bash
+      run: signalint check . --format github --fail-on-priority "${{ inputs.fail-on-priority }}"

@@ -182,6 +182,24 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Verify server.json version matches package.json
+        run: |
+          server_version="$(node -p "require('./server.json').version")"
+          package_version="$(node -p "require('./package.json').version")"
+          if [ "$server_version" != "$package_version" ]; then
+            echo "server.json version $server_version does not match package.json version $package_version" >&2
+            exit 1
+          fi
+
+      - name: Install mcp-publisher
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+
+      - name: Publish to MCP Registry
+        run: |
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+
       - name: Create GitHub Release
         run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
         env:

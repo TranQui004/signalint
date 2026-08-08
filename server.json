@@ -1,0 +1,22 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.TranQui004/signalint",
+  "description": "Local stdio MCP server for compact, cached, loop-aware JavaScript/TypeScript diagnostics. Clusters and prioritizes Oxlint/tsc/Biome issues, caches per-engine results to skip unchanged files, and detects recurring diagnostic loops.",
+  "repository": {
+    "url": "https://github.com/TranQui004/signalint",
+    "source": "github",
+    "id": "1311964247"
+  },
+  "version": "0.3.2",
+  "packages": [
+    {
+      "registryType": "npm",
+      "registryBaseUrl": "https://registry.npmjs.org",
+      "identifier": "signalint-mcp",
+      "version": "0.3.2",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}

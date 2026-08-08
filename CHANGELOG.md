@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.3.1
+
+- Add branding (icon, color) to action.yml for GitHub Marketplace listing.
+
 ## 0.3.0
 
 - Added `--format github` to `signalint check`: prints one GitHub Actions

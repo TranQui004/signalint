@@ -2,6 +2,10 @@ name: Signalint
 description: Runs Signalint diagnostics and annotates issues on the pull request diff.
 author: TranQui004
 
+branding:
+  icon: check-circle
+  color: blue
+
 inputs:
   fail-on-priority:
     description: >-

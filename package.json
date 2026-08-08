@@ -1,6 +1,6 @@
 {
   "name": "signalint-mcp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agent-optimized code feedback MCP server for JavaScript and TypeScript projects.",
   "type": "module",
   "license": "MIT",

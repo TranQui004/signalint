@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.3.2
+
+- Added `server.json` and published Signalint to the official MCP Registry
+  (registry.modelcontextprotocol.io), authenticated via GitHub OIDC in CI
+  (no stored secret).
+
 ## 0.3.1
 
 - Add branding (icon, color) to action.yml for GitHub Marketplace listing.

@@ -1,6 +1,7 @@
 {
   "name": "signalint-mcp",
-  "version": "0.3.1",
+  "version": "0.3.2",
+  "mcpName": "io.github.TranQui004/signalint",
   "description": "Agent-optimized code feedback MCP server for JavaScript and TypeScript projects.",
   "type": "module",
   "license": "MIT",

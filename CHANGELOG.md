@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.3.0
+
+- Added `--format github` to `signalint check`: prints one GitHub Actions
+  workflow-command annotation per issue (`::error`/`::warning
+  file=...,line=...,col=...::message`) instead of JSON, so issues surface
+  inline on a pull request diff.
+- Added `--fail-on-priority <N>` to `signalint check`: exits non-zero only
+  when a cluster's priority is at or below `N`, reusing the existing
+  priority ladder from `src/cluster/clusterEngine.ts`. Omitting the flag
+  keeps the previous default of failing on any issue found.
+- Added `action.yml`: a composite GitHub Action that installs Node and
+  `signalint-mcp`, then runs `signalint check . --format github
+  --fail-on-priority <input>`, so Signalint can run in CI/PR workflows
+  without an MCP client.
+
 ## 0.2.0
 
 - Added `signalint-mcp init`: detects TypeScript, Oxlint, and Biome

@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.3.3
+
+- Shortened `server.json`'s `description` to satisfy the registry's 100
+  character limit (0.3.2's MCP Registry publish step failed validation;
+  npm publish of 0.3.2 still succeeded).
+
 ## 0.3.2
 
 - Added `server.json` and published Signalint to the official MCP Registry

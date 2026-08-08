@@ -213,12 +213,38 @@ backup, with their retained overlap counted once. Clean checks with zero raw pay
 reduction average, and older checks with missing metrics remain counted without
 contributing to the unavailable aggregate.
 
-The CLI exits with code 1 when issues are found. To exercise an actual MCP
-`check_project` call against the installed package, run:
+The CLI exits with code 1 when issues are found. Two flags support CI use:
+`--format github` prints one GitHub Actions annotation
+(`::error file=...,line=...,col=...::message` or `::warning ...`) per issue
+instead of JSON, and `--fail-on-priority <N>` exits non-zero only if a
+cluster's priority is at or below `N` instead of on any issue found.
+
+To exercise an actual MCP `check_project` call against the installed package,
+run:
 
 ```sh
 node node_modules/signalint-mcp/examples/check-project.mjs .
 ```
+
+## GitHub Actions
+
+`action.yml` at the repository root wraps `signalint check` as a composite
+action for CI. It installs Node, installs `signalint-mcp` from npm, and runs
+the check with `--format github` so issues appear as inline annotations on
+the pull request diff:
+
+```yaml
+- uses: TranQui004/signalint@main
+  with:
+    fail-on-priority: "3"
+```
+
+`fail-on-priority` defaults to `5`, which fails the job on any issue found,
+matching `signalint check`'s default behavior without the flag. Lower values
+only fail the job when a cluster is at least that urgent: priority 1 is an
+error with no structured fix, and priority increases toward 5 as issues
+become more fixable or more systemic (see `scorePriority` in
+`src/cluster/clusterEngine.ts`).
 
 ## Development
 

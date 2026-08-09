@@ -25,7 +25,7 @@ npm install --save-dev signalint-mcp
 
 Run the setup command from that project root. It detects TypeScript, Oxlint, and
 Biome configuration, writes `signalint.config.json`, and offers to update a nearby
-Claude Code, Cursor, or Antigravity MCP configuration:
+Claude Code, Cursor, Codex CLI, or Antigravity MCP configuration:
 
 ```sh
 npx signalint-mcp init
@@ -96,11 +96,45 @@ settings, enable `signalint`, and call `ping` followed by `check_project`.
 See the [Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol)
 for configuration locations and status controls.
 
+## Codex CLI setup
+
+The ChatGPT desktop app, Codex CLI, and IDE extension share a single
+configuration file. The quick-add command writes to `~/.codex/config.toml`
+(global) automatically:
+
+```sh
+codex mcp add signalint -- npx --no-install signalint-mcp
+```
+
+For project-scoped configuration (trusted projects only), add to
+`.codex/config.toml` in the project root:
+
+```toml
+[mcp_servers.signalint]
+command = "npx"
+args = ["--no-install", "signalint-mcp"]
+```
+
+On native Windows, use `cmd` and pass `npx` as an argument:
+
+```toml
+[mcp_servers.signalint]
+command = "cmd"
+args = ["/c", "npx", "--no-install", "signalint-mcp"]
+```
+
+See the [Codex MCP documentation](https://developers.openai.com/codex/mcp)
+for all configuration options including `cwd`, `env`, and per-tool approval
+settings.
+
 ## Setting up with Antigravity
 
-Antigravity uses its own MCP configuration file, typically
-`%USERPROFILE%\.gemini\antigravity\mcp_config.json` on Windows. The `init` command
-can update this file after confirmation. The equivalent Windows configuration is:
+Antigravity uses its own MCP configuration file. The path that has been
+verified through dogfooding on Windows is:
+`%USERPROFILE%\.gemini\antigravity\mcp_config.json`.
+
+The `init` command can update this file after confirmation. The equivalent
+Windows configuration is:
 
 ```json
 {
@@ -117,6 +151,13 @@ can update this file after confirmation. The equivalent Windows configuration is
 On macOS or Linux, use `"command": "npx"` and
 `"args": ["--no-install", "signalint-mcp"]`. Restart or reconnect Antigravity
 after updating the configuration.
+
+**Note on Antigravity product variants:** Antigravity has split into separate
+products (IDE, CLI, SDK). Each variant may use a different config path — the
+IDE path above is the one confirmed working; other variants may use
+`~/.gemini/config/mcp_config.json` or a project-scoped `.agents/mcp_config.json`.
+See [antigravity.google/docs/mcp](https://antigravity.google/docs/mcp) for
+the authoritative list per product.
 
 ## Windows troubleshooting
 

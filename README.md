@@ -6,7 +6,7 @@
 **Listed on:**
 - [![TranQui004/signalint MCP server](https://glama.ai/mcp/servers/TranQui004/signalint/badges/score.svg)](https://glama.ai/mcp/servers/TranQui004/signalint)
 - [mcpservers.org](https://mcpservers.org/servers/tranqui004/signalint)
-- Official MCP Registry ([API listing](https://registry.modelcontextprotocol.io/v1/servers/TranQui004/signalint))
+- Official MCP Registry ([API listing](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.TranQui004%2Fsignalint/versions/latest))
 
 Signalint is a local MCP server for JavaScript and TypeScript diagnostics. It runs
 Oxlint, TypeScript, and optionally Biome; caches unchanged checks; clusters repeated

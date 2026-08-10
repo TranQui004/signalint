@@ -206,18 +206,20 @@ jobs:
           fi
 
       - name: Install mcp-publisher
-        if: steps.check-publish.outputs.skip_publish != 'true'
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
 
       - name: Publish to MCP Registry
-        if: steps.check-publish.outputs.skip_publish != 'true'
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish
 
       - name: Create GitHub Release
-        if: steps.check-publish.outputs.skip_publish != 'true'
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+        run: |
+          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

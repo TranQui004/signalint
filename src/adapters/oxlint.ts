@@ -25,7 +25,12 @@ export function parseOxlintOutput(
   output: string,
   cwd: string = process.cwd(),
 ): NormalizedIssue[] {
-  const parsed: unknown = JSON.parse(output);
+  const jsonStart = output.indexOf("{");
+  if (jsonStart === -1) {
+    throw new Error("Oxlint output did not contain valid JSON.");
+  }
+  const jsonPayload = jsonStart > 0 ? output.slice(jsonStart) : output;
+  const parsed: unknown = JSON.parse(jsonPayload);
   if (!isRecord(parsed) || !Array.isArray(parsed.diagnostics)) {
     throw new Error("Oxlint output did not contain a diagnostics array.");
   }

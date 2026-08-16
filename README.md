@@ -3,16 +3,100 @@
 [![CI](https://github.com/TranQui004/signalint/actions/workflows/ci.yml/badge.svg)](https://github.com/TranQui004/signalint/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/signalint-mcp.svg)](https://www.npmjs.com/package/signalint-mcp)
 
-**Listed on:**
-- [![TranQui004/signalint MCP server](https://glama.ai/mcp/servers/TranQui004/signalint/badges/score.svg)](https://glama.ai/mcp/servers/TranQui004/signalint)
-- [mcpservers.org](https://mcpservers.org/servers/tranqui004/signalint)
-- Official MCP Registry ([API listing](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.TranQui004%2Fsignalint/versions/latest))
-
 Signalint is a local MCP server for JavaScript and TypeScript diagnostics. It runs
 Oxlint, TypeScript, and optionally Biome; caches unchanged checks; clusters repeated
 issues; and warns when the same diagnostic disappears and repeatedly returns.
 Loop history is restored from valid `.signalint/session.jsonl` entries when the MCP
 server restarts; malformed or crash-truncated lines are skipped.
+
+**Listed on:**
+- [![TranQui004/signalint MCP server](https://glama.ai/mcp/servers/TranQui004/signalint/badges/score.svg)](https://glama.ai/mcp/servers/TranQui004/signalint)
+- [mcpservers.org](https://mcpservers.org/servers/tranqui004/signalint)
+- Official MCP Registry ([API listing](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.TranQui004%2Fsignalint/versions/latest))
+
+## Diagnostic compression example
+
+When a coding agent requests diagnostics on a project, raw compiler and linter outputs quickly flood the context window with repetitive errors across multiple files. Signalint normalizes issues and clusters them by root cause before returning a bounded, priority-ranked response:
+
+### Raw diagnostics (40 issues across 10 files · 9,151 bytes)
+
+```json
+[
+  {
+    "issueId": "ts-01",
+    "file": "src/file01.ts",
+    "line": 10,
+    "col": 5,
+    "engine": "tsc",
+    "rule": "TS2322",
+    "severity": "error",
+    "message": "Type 'string' is not assignable to type 'number' in fixture assignment 01.",
+    "fixable": false
+  },
+  // ... 39 more raw normalized issues
+]
+```
+
+### Clustered response returned to agent (4 clusters · 1,233 bytes · 86.5% reduction)
+
+```json
+{
+  "schemaVersion": "1.1",
+  "status": "issues_found",
+  "engines": {
+    "oxlint": { "status": "ok" },
+    "tsc": { "status": "ok" },
+    "biome": { "status": "disabled" }
+  },
+  "totalIssues": 40,
+  "clusters": [
+    {
+      "clusterId": "c1",
+      "rootCauseSummary": "10 TS2322 issues across 10 files",
+      "ruleIds": ["TS2322"],
+      "issueCount": 10,
+      "fileCount": 10,
+      "priority": 1,
+      "suggestedAction": "Review the shared cause of TS2322 across 10 files",
+      "sampleIssueIds": ["ts-01", "ts-02"]
+    },
+    {
+      "clusterId": "c2",
+      "rootCauseSummary": "10 no-unused-vars issues across 10 files",
+      "ruleIds": ["no-unused-vars"],
+      "issueCount": 10,
+      "fileCount": 10,
+      "priority": 2,
+      "suggestedAction": "Review the shared cause of no-unused-vars across 10 files",
+      "sampleIssueIds": ["unused-01", "unused-02"]
+    },
+    {
+      "clusterId": "c3",
+      "rootCauseSummary": "10 eqeqeq issues across 10 files",
+      "ruleIds": ["eqeqeq"],
+      "issueCount": 10,
+      "fileCount": 10,
+      "priority": 5,
+      "suggestedAction": "Apply structured fixes for eqeqeq across 10 files",
+      "sampleIssueIds": ["eqeqeq-01", "eqeqeq-02"]
+    },
+    {
+      "clusterId": "c4",
+      "rootCauseSummary": "10 prefer-const issues across 10 files",
+      "ruleIds": ["prefer-const"],
+      "issueCount": 10,
+      "fileCount": 10,
+      "priority": 5,
+      "suggestedAction": "Apply structured fixes for prefer-const across 10 files",
+      "sampleIssueIds": ["const-01", "const-02"]
+    }
+  ],
+  "truncated": false,
+  "loopWarning": null
+}
+```
+
+The agent receives a concise summary with priority-ordered clusters and sample issue IDs. When deeper detail is needed for a specific cluster or issue, the agent calls `get_issue_detail` without re-running the whole-project scan.
 
 ## Requirements
 

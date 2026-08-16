@@ -1,6 +1,6 @@
 {
   "name": "signalint-mcp",
-  "version": "0.3.4",
+  "version": "0.3.5",
   "mcpName": "io.github.TranQui004/signalint",
   "description": "Agent-optimized code feedback MCP server for JavaScript and TypeScript projects.",
   "type": "module",
@@ -14,11 +14,22 @@
     "url": "https://github.com/TranQui004/signalint/issues"
   },
   "keywords": [
+    "ai",
+    "claude",
+    "cursor",
+    "codex",
+    "ai-agent",
+    "coding-agent",
+    "model-context-protocol",
     "mcp",
+    "linter",
     "lint",
+    "type-checking",
     "typescript",
     "oxlint",
-    "biome"
+    "biome",
+    "diagnostics",
+    "developer-tools"
   ],
   "main": "./dist/src/index.js",
   "types": "./dist/src/index.d.ts",

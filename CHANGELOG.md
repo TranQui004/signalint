@@ -4,6 +4,24 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.3.5
+
+- Added before/after diagnostic compression example to `README.md` using the
+  40-issue acceptance fixture data (86.5% payload reduction).
+- Reordered `README.md` top section so the intro paragraph precedes the
+  "Listed on" registry block.
+- Expanded `package.json`'s `keywords` array to include discovery terms
+  (`ai`, `claude`, `cursor`, `codex`, `ai-agent`, `coding-agent`,
+  `model-context-protocol`, `linter`, `type-checking`, `diagnostics`,
+  `developer-tools`).
+
+## 0.3.4
+
+- Rewrote all 5 MCP tool descriptions in `src/index.ts` for behavioral
+  transparency: disclosed read-only guarantees, argument error behavior, stale
+  reference responses, and incremental content-hash caching semantics.
+- Added `glama.json` maintainer configuration.
+
 ## 0.3.3
 
 - Shortened `server.json`'s `description` to satisfy the registry's 100

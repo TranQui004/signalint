@@ -9,7 +9,7 @@ import { checkProject } from "../src/index.js";
 import { createIssueId, type NormalizedIssue } from "../src/schema.js";
 
 const cacheFixtureRoot = resolve("test/fixtures/cache-project");
-const partialProjectRoot = resolve(".signalint/test/partial-engine-project");
+const partialProjectRoot = resolve("test/fixtures/partial-engine-project");
 
 afterEach(async () => {
   vi.restoreAllMocks();

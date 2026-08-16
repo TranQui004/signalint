@@ -64,10 +64,10 @@
     "prepack": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@biomejs/biome": "2.5.5",
-    "@modelcontextprotocol/sdk": "1.29.0",
-    "better-sqlite3": "12.6.2",
-    "oxlint": "1.75.0",
+    "@biomejs/biome": "2.5.8",
+    "@modelcontextprotocol/sdk": "1.30.0",
+    "better-sqlite3": "13.0.3",
+    "oxlint": "1.78.0",
     "typescript": "7.0.2",
     "zod": "4.4.3"
   },

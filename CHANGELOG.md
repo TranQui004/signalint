@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.3.6
+
+- Updated `@modelcontextprotocol/sdk` to 1.30.0.
+- Updated `oxlint` to 1.78.0 and hardened adapter against non-JSON output prefixes.
+- Updated `@biomejs/biome` to 2.5.8.
+- Retained `better-sqlite3` at 12.6.2 for verified Node 20.19 compatibility.
+
 ## 0.3.5
 
 - Added before/after diagnostic compression example to `README.md` using the

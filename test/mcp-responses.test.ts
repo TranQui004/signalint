@@ -14,6 +14,7 @@ import {
   isNormalizedIssue,
   isStaleReferenceResponse,
   isTimeoutResponse,
+  type CheckResponse,
   type NormalizedIssue,
 } from "../src/schema.js";
 import {
@@ -118,6 +119,95 @@ describe("MCP response amendments", () => {
       engine: "biome",
       message: "biome output exceeded the 128 bytes limit",
     });
+  });
+
+  it("declares outputSchema for all five tools and returns matching structuredContent", async () => {
+    const issue = makeIssue();
+    const client = await connectServer(() => Promise.resolve([issue]));
+
+    const toolsList = await client.listTools();
+    expect(toolsList.tools).toHaveLength(5);
+    for (const tool of toolsList.tools) {
+      expect(tool.outputSchema).toBeDefined();
+      expect(tool.outputSchema?.type).toBe("object");
+    }
+
+    const pingResult = await client.callTool({ name: "ping", arguments: {} });
+    expect(pingResult.structuredContent).toEqual({ pong: true });
+    expect(pingResult.content).toEqual([{ type: "text", text: "pong" }]);
+
+    const checkResult = await client.callTool({
+      name: "check_project",
+      arguments: { paths: ["."] },
+    });
+    expect(checkResult.structuredContent).toBeDefined();
+    const checkParsed = parseText(checkResult.content);
+    expect(checkResult.structuredContent).toEqual(checkParsed);
+    expect(isCheckResponse(checkResult.structuredContent)).toBe(true);
+
+    const clusterId = (checkResult.structuredContent as CheckResponse).clusters[0]?.clusterId;
+    if (clusterId === undefined) {
+      throw new Error("Expected clustered fixture issue.");
+    }
+
+    const detailResult = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { clusterId },
+    });
+    expect(detailResult.structuredContent).toEqual({
+      issues: [{ ...issue, clusterId: "c1" }],
+    });
+    expect(parseText(detailResult.content)).toEqual([{ ...issue, clusterId: "c1" }]);
+
+    const loopResult = await client.callTool({
+      name: "get_loop_status",
+      arguments: {},
+    });
+    expect(loopResult.structuredContent).toEqual({ looping: false, signatures: [] });
+    expect(parseText(loopResult.content)).toEqual({ looping: false, signatures: [] });
+  });
+
+  it("delivers structuredContent on timeout, output-limit, and invalid argument errors", async () => {
+    const timeoutClient = await connectServer(() =>
+      Promise.reject(new EngineTimeoutError("tsc", 120_000)),
+    );
+    const timeoutResult = await timeoutClient.callTool({
+      name: "check_project",
+      arguments: { paths: ["."] },
+    });
+    expect(timeoutResult.structuredContent).toEqual({
+      status: "timeout",
+      engine: "tsc",
+      message: "tsc did not complete within 120s",
+    });
+
+    vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    const limitClient = await connectServer(() =>
+      Promise.reject(new EngineOutputLimitError("oxlint", 256)),
+    );
+    const limitResult = await limitClient.callTool({
+      name: "check_project",
+      arguments: { paths: ["."] },
+    });
+    expect(limitResult.isError).toBe(true);
+    expect(limitResult.structuredContent).toEqual({
+      status: "error",
+      code: "engine_output_exceeded",
+      engine: "oxlint",
+      message: "oxlint output exceeded the 256 bytes limit",
+    });
+
+    const errorResult = await timeoutClient.callTool({
+      name: "check_files",
+      arguments: { files: ["../outside.ts"] },
+    });
+    expect(errorResult.isError).toBe(true);
+    expect(errorResult.structuredContent).toEqual(
+      expect.objectContaining({
+        status: "error",
+        code: "path_outside_project",
+      }),
+    );
   });
 });
 

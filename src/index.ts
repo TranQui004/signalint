@@ -346,7 +346,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   const server = new Server(
     {
       name: "signalint",
-      version: "0.3.6",
+      version: "0.3.7",
     },
     {
       capabilities: {

@@ -100,6 +100,176 @@ const STALE_REFERENCE_RESPONSE: StaleReferenceResponse = {
   message: "This cluster/issue no longer exists; run check_project again.",
 };
 
+const engineStatusOutputSchema = {
+  type: "object" as const,
+  properties: {
+    status: {
+      type: "string" as const,
+      enum: ["ok", "error", "disabled"] as const,
+    },
+    message: { type: "string" as const },
+  },
+  required: ["status"],
+  additionalProperties: false,
+};
+
+const clusterOutputSchema = {
+  type: "object" as const,
+  properties: {
+    clusterId: { type: "string" as const },
+    rootCauseSummary: { type: "string" as const },
+    ruleIds: {
+      type: "array" as const,
+      items: { type: "string" as const },
+    },
+    issueCount: { type: "integer" as const },
+    fileCount: { type: "integer" as const },
+    priority: { type: "integer" as const },
+    suggestedAction: { type: "string" as const },
+    sampleIssueIds: {
+      type: "array" as const,
+      items: { type: "string" as const },
+    },
+  },
+  required: [
+    "clusterId",
+    "rootCauseSummary",
+    "ruleIds",
+    "issueCount",
+    "fileCount",
+    "priority",
+    "suggestedAction",
+    "sampleIssueIds",
+  ],
+  additionalProperties: false,
+};
+
+const loopWarningOutputSchema = {
+  type: "object" as const,
+  properties: {
+    signature: { type: "string" as const },
+    occurrences: { type: "integer" as const },
+    hint: { type: "string" as const },
+  },
+  required: ["signature", "occurrences", "hint"],
+  additionalProperties: false,
+};
+
+const pingOutputSchema = {
+  type: "object" as const,
+  properties: {
+    pong: {
+      type: "boolean" as const,
+      description: "True when the server is responsive.",
+    },
+  },
+  required: ["pong"],
+  additionalProperties: false,
+};
+
+const checkOutputSchema = {
+  type: "object" as const,
+  properties: {
+    schemaVersion: { type: "string" as const, enum: ["1.1"] as const },
+    status: {
+      type: "string" as const,
+      enum: ["clean", "issues_found", "timeout", "error"] as const,
+    },
+    engines: {
+      type: "object" as const,
+      properties: {
+        oxlint: engineStatusOutputSchema,
+        tsc: engineStatusOutputSchema,
+        biome: engineStatusOutputSchema,
+      },
+      required: ["oxlint", "tsc", "biome"],
+      additionalProperties: false,
+    },
+    totalIssues: { type: "integer" as const },
+    clusters: {
+      type: "array" as const,
+      items: clusterOutputSchema,
+    },
+    truncated: { type: "boolean" as const },
+    loopWarning: {
+      oneOf: [
+        loopWarningOutputSchema,
+        { type: "null" as const },
+      ],
+    },
+    engine: {
+      type: "string" as const,
+      enum: ["oxlint", "tsc", "biome"] as const,
+    },
+    code: { type: "string" as const },
+    message: { type: "string" as const },
+  },
+  required: ["status"],
+};
+
+const normalizedIssueOutputSchema = {
+  type: "object" as const,
+  properties: {
+    issueId: { type: "string" as const },
+    file: { type: "string" as const },
+    line: { type: "integer" as const },
+    col: { type: "integer" as const },
+    engine: {
+      type: "string" as const,
+      enum: ["oxlint", "tsc", "biome"] as const,
+    },
+    rule: { type: "string" as const },
+    severity: {
+      type: "string" as const,
+      enum: ["error", "warning"] as const,
+    },
+    message: { type: "string" as const },
+    fixable: { type: "boolean" as const },
+    clusterId: { type: "string" as const },
+  },
+  required: [
+    "issueId",
+    "file",
+    "line",
+    "col",
+    "engine",
+    "rule",
+    "severity",
+    "message",
+    "fixable",
+  ],
+  additionalProperties: false,
+};
+
+const getIssueDetailOutputSchema = {
+  type: "object" as const,
+  properties: {
+    issues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+    status: {
+      type: "string" as const,
+      enum: ["stale", "error"] as const,
+    },
+    code: { type: "string" as const },
+    message: { type: "string" as const },
+  },
+};
+
+const getLoopStatusOutputSchema = {
+  type: "object" as const,
+  properties: {
+    looping: { type: "boolean" as const },
+    signatures: {
+      type: "array" as const,
+      items: loopWarningOutputSchema,
+    },
+  },
+  required: ["looping", "signatures"],
+  additionalProperties: false,
+};
+
 const tools = [
   {
     name: "ping",
@@ -108,6 +278,7 @@ const tools = [
       type: "object" as const,
       additionalProperties: false,
     },
+    outputSchema: pingOutputSchema,
   },
   {
     name: "check_project",
@@ -123,6 +294,7 @@ const tools = [
       },
       additionalProperties: false,
     },
+    outputSchema: checkOutputSchema,
   },
   {
     name: "check_files",
@@ -139,6 +311,7 @@ const tools = [
       required: ["files"],
       additionalProperties: false,
     },
+    outputSchema: checkOutputSchema,
   },
   {
     name: "get_issue_detail",
@@ -155,6 +328,7 @@ const tools = [
       ],
       additionalProperties: false,
     },
+    outputSchema: getIssueDetailOutputSchema,
   },
   {
     name: "get_loop_status",
@@ -163,6 +337,7 @@ const tools = [
       type: "object" as const,
       additionalProperties: false,
     },
+    outputSchema: getLoopStatusOutputSchema,
   },
 ];
 
@@ -378,7 +553,10 @@ async function dispatchToolCall(
 ): Promise<CallToolResult> {
   if (name === "ping") {
     parsePingArguments(argumentsValue);
-    return { content: [{ type: "text", text: "pong" }] };
+    return {
+      content: [{ type: "text", text: "pong" }],
+      structuredContent: { pong: true },
+    };
   }
   if (name === "check_project") {
     return await handleCheckProject(argumentsValue, signal, context);
@@ -511,7 +689,20 @@ function resolveIssueDetail(
 }
 
 function createTextResult(value: unknown): CallToolResult {
-  return { content: [{ type: "text", text: JSON.stringify(value, null, 2) }] };
+  return {
+    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+    structuredContent: createStructuredContent(value),
+  };
+}
+
+function createStructuredContent(value: unknown): Record<string, unknown> {
+  if (Array.isArray(value)) {
+    return { issues: value };
+  }
+  if (typeof value === "object" && value !== null) {
+    return value as Record<string, unknown>;
+  }
+  return { value };
 }
 
 

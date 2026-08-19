@@ -164,15 +164,19 @@ Track every deviation from the original schema here, in order, so anyone reading
 - **2026-07 (Phase 3, pre-implementation):** fixed a genuine contradiction between Section 10 ("priority 1 = highest") and Section 7.3 ("sorted by priority desc"), which would have sorted the least urgent cluster first. Resolved by keeping "1 = highest" and specifying ascending sort explicitly in both sections. Caught by the coding agent before implementation, not after.
 - **2026-07 (Phase 6, external review):** added `schemaVersion: "1.0"` to the Check Response. Cheap to add now, expensive to retrofit once real consumers depend on an unversioned schema shape.
 - **2026-08 (pre-publish correctness pass):** bumped the Check Response to `schemaVersion: "1.1"` and added per-engine `ok | error | disabled` status objects. Engine fan-out now preserves successful diagnostics when another engine fails; an error status may include a short `message`, while the top-level `status` continues to describe the diagnostics that were returned (`clean | issues_found`).
+- **2026-08 (SDK 1.30.0 outputSchema and structuredContent addition):** declared strict JSON `outputSchema` on all five MCP tools and enabled `structuredContent` delivery in `CallToolResult` alongside backwards-compatible text blocks. `CheckResponse.schemaVersion` remains `"1.1"` because payload field shapes are unchanged.
 
 ## 8. MCP Tools Specification
 
-| Tool | Input | Output | Purpose |
+| Tool | Input | Output (`outputSchema` / `structuredContent`) | Purpose |
 |---|---|---|---|
-| `check_project` | `{ paths?: string[] }` | Check Response (7.3) | Full or scoped scan, clustered |
-| `check_files` | `{ files: string[] }` | Check Response (7.3) | Incremental check post-edit, uses cache |
-| `get_issue_detail` | `{ clusterId or issueId }` | Full Issue list with all fields | Agent drills into a cluster it decided to fix |
-| `get_loop_status` | `{}` | `{ looping: bool, signatures: [...] }` | Explicit loop check, also auto-included in check responses |
+| `ping` | `{}` | `{ pong: boolean }` | Health check, returns true when responsive |
+| `check_project` | `{ paths?: string[] }` | Check Response (7.3), Timeout (8.1), or Output Limit | Full or scoped scan, clustered |
+| `check_files` | `{ files: string[] }` | Check Response (7.3), Timeout (8.1), or Output Limit | Incremental check post-edit, uses cache |
+| `get_issue_detail` | `{ clusterId or issueId }` | `{ issues: NormalizedIssue[] }` or Stale Reference | Agent drills into a cluster it decided to fix |
+| `get_loop_status` | `{}` | `{ looping: boolean, signatures: LoopWarning[] }` | Explicit loop check, also auto-included in check responses |
+
+**Delivery mechanism:** every tool returns both `content: [{ type: "text", text: ... }]` (for text-based clients) and `structuredContent` (for structured MCP clients) conforming to the tool's declared `outputSchema`.
 
 **Stale reference handling (amended after external review, Phase 6):** `get_issue_detail` may be called with a `clusterId`/`issueId` that no longer exists — the agent may have fixed the code, or a later `check_project`/`check_files` call may have re-clustered everything with new IDs. In this case, return `{ status: "stale", message: "This cluster/issue no longer exists; run check_project again." }` rather than an empty array or a generic error. An empty array is ambiguous (could be misread as "nothing left to fix" instead of "your reference expired"), which risks the agent silently skipping real remaining issues.
 

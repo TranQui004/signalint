@@ -4,6 +4,15 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.3.7
+
+- Added explicit `outputSchema` declarations across all five MCP tools (`ping`,
+  `check_project`, `check_files`, `get_issue_detail`, `get_loop_status`).
+- Added `structuredContent` delivery in `CallToolResult` alongside existing text
+  content blocks per MCP SDK 1.30.0 specification.
+- Updated `docs/history/build-plan.md` Section 7.4 and Section 8 to record the
+  output schema and delivery additions.
+
 ## 0.3.6
 
 - Updated `@modelcontextprotocol/sdk` to 1.30.0.

@@ -146,6 +146,8 @@ describe("Session Memory", () => {
     expect(new SessionMemory({ logPath }).getStatus()).toMatchObject({
       looping: true,
       signatures: [{ signature: createIssueSignature(issueA), occurrences: 2 }],
+      fileChurning: false,
+      fileRuleChurns: [],
     });
   });
 
@@ -168,14 +170,14 @@ describe("Session Memory", () => {
       maxLogBytes: 1024 * 1024,
     });
 
-    expect(memory.getStatus()).toEqual({ looping: false, signatures: [] });
+    expect(memory.getStatus()).toEqual({ looping: false, signatures: [], fileChurning: false, fileRuleChurns: [] });
   });
 
   it("rotates an oversized session log while retaining a bounded recent tail", async () => {
     const memory = new SessionMemory({
       logPath,
       maxReplayEntries: 2,
-      maxLogBytes: 500,
+      maxLogBytes: 700,
     });
 
     await recordIssues(memory, [makeIssue("A", "rule-a", "First fixture issue")]);
@@ -195,26 +197,148 @@ describe("Session Memory", () => {
     expect(new SessionMemory({
       logPath,
       maxReplayEntries: 2,
-      maxLogBytes: 500,
-    }).getStatus()).toEqual({ looping: false, signatures: [] });
+      maxLogBytes: 700,
+    }).getStatus()).toEqual({ looping: false, signatures: [], fileChurning: false, fileRuleChurns: [] });
+  });
+});
+
+describe("File-Rule Churn Detection", () => {
+  it("emits fileRuleChurnWarning after 3 check_files calls on the same (file, rule) pair", async () => {
+    await rm(logPath, { force: true });
+    const memory = new SessionMemory({ logPath });
+    const issue = makeIssueWithFile("src/auth.ts", "TS2345");
+
+    const resp1 = await recordIssues(memory, [issue], "files");
+    const resp2 = await recordIssues(memory, [issue], "files");
+    const resp3 = await recordIssues(memory, [issue], "files");
+
+    expect(resp1.fileRuleChurnWarning).toBeNull();
+    expect(resp2.fileRuleChurnWarning).toBeNull();
+    expect(resp3.fileRuleChurnWarning).toMatchObject({
+      file: "src/auth.ts",
+      rule: "TS2345",
+      checkCount: 3,
+    });
+    expect(resp3.fileRuleChurnWarning?.hint).toContain("src/auth.ts");
+    expect(resp3.fileRuleChurnWarning?.hint).toContain("TS2345");
+  });
+
+  it("does not emit fileRuleChurnWarning for check_project calls", async () => {
+    await rm(logPath, { force: true });
+    const memory = new SessionMemory({ logPath });
+    const issue = makeIssueWithFile("src/auth.ts", "TS2345");
+
+    // 3 check_project calls — must NOT trigger churn
+    await recordIssues(memory, [issue], "project");
+    await recordIssues(memory, [issue], "project");
+    const resp = await recordIssues(memory, [issue], "project");
+
+    expect(resp.fileRuleChurnWarning).toBeNull();
+    expect(memory.getStatus().fileChurning).toBe(false);
+    expect(memory.getStatus().fileRuleChurns).toHaveLength(0);
+  });
+
+  it("resets churn counter to 0 when a (file, rule) pair is absent from a check_files call", async () => {
+    await rm(logPath, { force: true });
+    const memory = new SessionMemory({ logPath });
+    const issue = makeIssueWithFile("src/auth.ts", "TS2345");
+
+    // 2 appearances — not yet at threshold
+    await recordIssues(memory, [issue], "files");
+    await recordIssues(memory, [issue], "files");
+    // Fix: pair absent in this call
+    await recordIssues(memory, [], "files");
+    // Reappear: count restarts from 1
+    await recordIssues(memory, [issue], "files");
+    await recordIssues(memory, [issue], "files");
+    const resp = await recordIssues(memory, [issue], "files");
+
+    // Would be checkCount=3 only because of the 3 post-reset appearances
+    expect(resp.fileRuleChurnWarning).toMatchObject({
+      file: "src/auth.ts",
+      rule: "TS2345",
+      checkCount: 3,
+    });
+    // There were no churn warnings before the reset
+    expect(memory.getStatus().fileChurning).toBe(true);
+  });
+
+  it("clears fileRuleChurnWarning on the check_files call that omits a previously churning pair", async () => {
+    await rm(logPath, { force: true });
+    const memory = new SessionMemory({ logPath });
+    const issue = makeIssueWithFile("src/auth.ts", "TS2345");
+
+    // Trigger the warning
+    await recordIssues(memory, [issue], "files");
+    await recordIssues(memory, [issue], "files");
+    await recordIssues(memory, [issue], "files");
+    expect(memory.getStatus().fileChurning).toBe(true);
+
+    // Fix: pair absent — should clear
+    const afterFix = await recordIssues(memory, [], "files");
+    expect(afterFix.fileRuleChurnWarning).toBeNull();
+    expect(memory.getStatus().fileChurning).toBe(false);
+  });
+
+  it("keeps looping and fileChurning independent — looping stays false when only fileChurning is true", async () => {
+    await rm(logPath, { force: true });
+    const memory = new SessionMemory({ logPath });
+    const issue = makeIssueWithFile("src/auth.ts", "TS2345");
+
+    await recordIssues(memory, [issue], "files");
+    await recordIssues(memory, [issue], "files");
+    await recordIssues(memory, [issue], "files");
+
+    const status = memory.getStatus();
+    // File-rule churn is present
+    expect(status.fileChurning).toBe(true);
+    expect(status.fileRuleChurns).toHaveLength(1);
+    // Exact-signature loop is NOT present (issue never disappeared and reappeared)
+    expect(status.looping).toBe(false);
+    expect(status.signatures).toHaveLength(0);
+  });
+
+  it("restores churn counters correctly across SessionMemory instances via session log replay", async () => {
+    await rm(logPath, { force: true });
+    const issue = makeIssueWithFile("src/auth.ts", "TS2345");
+
+    // First session: 2 appearances (below threshold)
+    const firstSession = new SessionMemory({ logPath });
+    await recordIssues(firstSession, [issue], "files");
+    await recordIssues(firstSession, [issue], "files");
+
+    // Second session picks up from log — 1 more appearance should reach threshold
+    const secondSession = new SessionMemory({ logPath });
+    const resp = await recordIssues(secondSession, [issue], "files");
+
+    expect(resp.fileRuleChurnWarning).toMatchObject({
+      file: "src/auth.ts",
+      rule: "TS2345",
+      checkCount: 3,
+    });
   });
 });
 
 async function recordIssues(
   memory: SessionMemory,
   issues: readonly NormalizedIssue[],
+  source: "project" | "files" = "project",
 ): Promise<CheckResponse> {
   return memory.recordCheck(
     issues,
     {
-      schemaVersion: "1.1",
+      schemaVersion: "1.2",
       status: issues.length === 0 ? "clean" : "issues_found",
       engines: createSuccessfulEngineStatuses(),
       totalIssues: issues.length,
       clusters: [],
       truncated: false,
       loopWarning: null,
+      fileRuleChurnWarning: null,
     },
+    undefined,
+    undefined,
+    source,
   );
 }
 
@@ -275,4 +399,18 @@ function createReplayLine(timestamp: number, activeSignatures: readonly string[]
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function makeIssueWithFile(file: string, rule: string): NormalizedIssue {
+  return {
+    issueId: `${file}:${rule}`,
+    file,
+    line: 1,
+    col: 1,
+    engine: "tsc",
+    rule,
+    severity: "error",
+    message: `Type error from ${rule} in ${file}`,
+    fixable: false,
+  };
 }

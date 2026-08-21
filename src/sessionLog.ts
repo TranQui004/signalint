@@ -13,6 +13,7 @@ export interface SessionLogWarning {
 export interface ParsedSessionLogEntry {
   timestamp?: number;
   activeSignatures?: string[];
+  activeFileRulePairs?: string[];
   loopWarnings?: SessionLogWarning[];
   metrics?: SessionLogMetrics;
 }
@@ -66,6 +67,15 @@ function parseSessionLine(line: string): ParsedSessionLogEntry | undefined {
       return undefined;
     }
     entry.activeSignatures = [...new Set(parsed.activeSignatures)];
+  }
+  if (parsed.activeFileRulePairs !== undefined) {
+    if (
+      !Array.isArray(parsed.activeFileRulePairs) ||
+      !parsed.activeFileRulePairs.every((pair) => typeof pair === "string")
+    ) {
+      return undefined;
+    }
+    entry.activeFileRulePairs = [...new Set(parsed.activeFileRulePairs)];
   }
   if (parsed.loopWarnings !== undefined) {
     const warnings = parseWarnings(parsed.loopWarnings);

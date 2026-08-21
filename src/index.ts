@@ -155,6 +155,18 @@ const loopWarningOutputSchema = {
   additionalProperties: false,
 };
 
+const fileRuleChurnWarningOutputSchema = {
+  type: "object" as const,
+  properties: {
+    file: { type: "string" as const },
+    rule: { type: "string" as const },
+    checkCount: { type: "integer" as const },
+    hint: { type: "string" as const },
+  },
+  required: ["file", "rule", "checkCount", "hint"],
+  additionalProperties: false,
+};
+
 const pingOutputSchema = {
   type: "object" as const,
   properties: {
@@ -170,7 +182,7 @@ const pingOutputSchema = {
 const checkOutputSchema = {
   type: "object" as const,
   properties: {
-    schemaVersion: { type: "string" as const, enum: ["1.1"] as const },
+    schemaVersion: { type: "string" as const, enum: ["1.2"] as const },
     status: {
       type: "string" as const,
       enum: ["clean", "issues_found", "timeout", "error"] as const,
@@ -194,6 +206,12 @@ const checkOutputSchema = {
     loopWarning: {
       oneOf: [
         loopWarningOutputSchema,
+        { type: "null" as const },
+      ],
+    },
+    fileRuleChurnWarning: {
+      oneOf: [
+        fileRuleChurnWarningOutputSchema,
         { type: "null" as const },
       ],
     },
@@ -265,8 +283,13 @@ const getLoopStatusOutputSchema = {
       type: "array" as const,
       items: loopWarningOutputSchema,
     },
+    fileChurning: { type: "boolean" as const },
+    fileRuleChurns: {
+      type: "array" as const,
+      items: fileRuleChurnWarningOutputSchema,
+    },
   },
-  required: ["looping", "signatures"],
+  required: ["looping", "signatures", "fileChurning", "fileRuleChurns"],
   additionalProperties: false,
 };
 
@@ -599,7 +622,7 @@ async function handleCheckFiles(
     parseCheckFilesArguments(argumentsValue),
     context.cwd,
   );
-  return await runContextCheck(files, signal, context.fileIssueProvider, context);
+  return await runContextCheck(files, signal, context.fileIssueProvider, context, "files");
 }
 
 async function runContextCheck(
@@ -607,6 +630,7 @@ async function runContextCheck(
   signal: AbortSignal,
   provider: IssueProvider,
   context: ToolHandlerContext,
+  source: "project" | "files" = "project",
 ): Promise<CallToolResult> {
   return await runCheck(
     paths,
@@ -616,6 +640,7 @@ async function runContextCheck(
     (issues) => {
       context.latestIssues = issues;
     },
+    source,
   );
 }
 
@@ -635,6 +660,7 @@ async function runCheck(
   provider: IssueProvider,
   sessionMemory: SessionMemory,
   saveIssues: (issues: NormalizedIssue[]) => void,
+  source: "project" | "files" = "project",
 ): Promise<CallToolResult> {
   const startedAt = performance.now();
   try {
@@ -649,6 +675,7 @@ async function runCheck(
       clustered.response,
       result.cache,
       startedAt,
+      source,
     );
     saveIssues(clustered.issues);
     return createTextResult(response);

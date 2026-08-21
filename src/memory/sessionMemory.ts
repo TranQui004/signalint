@@ -4,6 +4,7 @@ import { performance } from "node:perf_hooks";
 
 import type {
   CheckResponse,
+  FileRuleChurnWarning,
   LoopStatus,
   LoopWarning,
   NormalizedIssue,
@@ -23,6 +24,9 @@ export const DEFAULT_SESSION_REPLAY_LIMIT = 5_000;
 /** Active session-log size that triggers bounded rotation before an append. */
 export const DEFAULT_SESSION_LOG_MAX_BYTES = 10 * 1024 * 1024;
 
+/** Number of distinct check_files calls to the same (file, rule) pair before a churn warning is emitted. */
+export const FILE_RULE_CHURN_THRESHOLD = 3;
+
 export interface SessionMemoryOptions {
   logPath?: string;
   maxLogBytes?: number;
@@ -35,6 +39,9 @@ export interface SessionCacheStats {
   misses: number;
 }
 
+/** Whether a check was a full-project scan or an incremental file check. */
+export type CheckSource = "project" | "files";
+
 interface SessionLogMetrics {
   rawPayloadBytes: number;
   clusteredPayloadBytes: number;
@@ -46,6 +53,7 @@ interface SessionLogMetrics {
 interface SessionLogEntry {
   timestamp: number;
   activeSignatures: string[];
+  activeFileRulePairs: string[];
   reappearedSignatures: string[];
   loopWarnings: LoopWarning[];
   metrics: SessionLogMetrics;
@@ -54,6 +62,7 @@ interface SessionLogEntry {
 interface SessionReplayEntry {
   timestamp: number;
   activeSignatures: string[];
+  activeFileRulePairs: string[];
 }
 
 interface SessionHistory {
@@ -65,11 +74,16 @@ interface SessionHistory {
 interface RestoredSessionState {
   appearanceTimestamps: Map<string, number[]>;
   activeSignatures: Set<string>;
+  churnCounts: Map<string, number>;
+  activeFileRulePairs: Set<string>;
 }
 
 export class SessionMemory {
   private readonly appearanceTimestamps: Map<string, number[]>;
   private activeSignatures: Set<string>;
+  /** Counts distinct check_files calls that produced each (file, rule) pair. Reset to 0 on absence. */
+  private readonly churnCounts: Map<string, number>;
+  private activeFileRulePairs: Set<string>;
   private readonly logPath: string;
   private readonly maxLogBytes: number;
   private readonly maxReplayEntries: number;
@@ -97,6 +111,8 @@ export class SessionMemory {
     const restored = restoreSessionState(history.entries);
     this.appearanceTimestamps = restored.appearanceTimestamps;
     this.activeSignatures = restored.activeSignatures;
+    this.churnCounts = restored.churnCounts;
+    this.activeFileRulePairs = restored.activeFileRulePairs;
     this.needsLineBoundary = history.needsLineBoundary;
   }
 
@@ -106,19 +122,29 @@ export class SessionMemory {
     response: CheckResponse,
     cache: SessionCacheStats = { hits: 0, misses: 0 },
     startedAt: number = performance.now(),
+    source: CheckSource = "project",
   ): Promise<CheckResponse> {
     const timestamp = this.now();
     const currentSignatures = new Set(issues.map(createIssueSignature));
     const reappearedSignatures = this.recordAppearances(currentSignatures, timestamp);
     this.activeSignatures = currentSignatures;
+
+    let currentFileRulePairs = new Set<string>();
+    if (source === "files") {
+      currentFileRulePairs = new Set(issues.map(createFileRuleKey));
+      this.updateChurnCounts(currentFileRulePairs);
+    }
+
     const status = this.getStatus();
     const responseWithWarning: CheckResponse = {
       ...response,
       loopWarning: status.signatures[0] ?? null,
+      fileRuleChurnWarning: status.fileRuleChurns[0] ?? null,
     };
     await this.appendLog({
       timestamp,
       activeSignatures: [...currentSignatures].sort(),
+      activeFileRulePairs: [...currentFileRulePairs].sort(),
       reappearedSignatures,
       loopWarnings: status.signatures,
       metrics: createLogMetrics(
@@ -131,7 +157,7 @@ export class SessionMemory {
     return responseWithWarning;
   }
 
-  /** Returns all signatures that disappeared and reappeared at least twice this session. */
+  /** Returns all signatures that disappeared and reappeared at least twice this session, plus all file/rule pairs that have triggered across 3+ check_files calls. */
   public getStatus(): LoopStatus {
     const signatures: LoopWarning[] = [];
     for (const [signature, timestamps] of this.appearanceTimestamps) {
@@ -144,7 +170,26 @@ export class SessionMemory {
       (left, right) =>
         right.occurrences - left.occurrences || left.signature.localeCompare(right.signature),
     );
-    return { looping: signatures.length > 0, signatures };
+
+    const fileRuleChurns: FileRuleChurnWarning[] = [];
+    for (const [key, count] of this.churnCounts) {
+      if (count >= FILE_RULE_CHURN_THRESHOLD) {
+        fileRuleChurns.push(createFileRuleChurnWarning(key, count));
+      }
+    }
+    fileRuleChurns.sort(
+      (left, right) =>
+        right.checkCount - left.checkCount ||
+        left.file.localeCompare(right.file) ||
+        left.rule.localeCompare(right.rule),
+    );
+
+    return {
+      looping: signatures.length > 0,
+      signatures,
+      fileChurning: fileRuleChurns.length > 0,
+      fileRuleChurns,
+    };
   }
 
   private recordAppearances(current: Set<string>, timestamp: number): string[] {
@@ -162,6 +207,20 @@ export class SessionMemory {
       }
     }
     return reappeared.sort();
+  }
+
+  private updateChurnCounts(currentPairs: Set<string>): void {
+    // Increment for pairs present in this call.
+    for (const key of currentPairs) {
+      this.churnCounts.set(key, (this.churnCounts.get(key) ?? 0) + 1);
+    }
+    // Reset to 0 for tracked pairs absent from this call.
+    for (const [key, count] of this.churnCounts) {
+      if (count > 0 && !currentPairs.has(key)) {
+        this.churnCounts.set(key, 0);
+      }
+    }
+    this.activeFileRulePairs = currentPairs;
   }
 
   private async appendLog(entry: SessionLogEntry): Promise<void> {
@@ -212,12 +271,15 @@ function parseSessionReplayEntry(parsed: ParsedSessionLogEntry): SessionReplayEn
   return {
     timestamp: parsed.timestamp,
     activeSignatures: parsed.activeSignatures,
+    activeFileRulePairs: parsed.activeFileRulePairs ?? [],
   };
 }
 
 function restoreSessionState(entries: readonly SessionReplayEntry[]): RestoredSessionState {
   const appearanceTimestamps = new Map<string, number[]>();
+  const churnCounts = new Map<string, number>();
   let previousSignatures = new Set<string>();
+  let previousFileRulePairs = new Set<string>();
   for (const entry of entries) {
     const currentSignatures = new Set(entry.activeSignatures);
     for (const signature of currentSignatures) {
@@ -228,8 +290,28 @@ function restoreSessionState(entries: readonly SessionReplayEntry[]): RestoredSe
       }
     }
     previousSignatures = currentSignatures;
+
+    // Replay churn counts from activeFileRulePairs entries.
+    // Only entries that recorded file-rule pairs (source=files) will have non-empty arrays.
+    if (entry.activeFileRulePairs.length > 0 || previousFileRulePairs.size > 0) {
+      const currentPairs = new Set(entry.activeFileRulePairs);
+      for (const key of currentPairs) {
+        churnCounts.set(key, (churnCounts.get(key) ?? 0) + 1);
+      }
+      for (const [key, count] of churnCounts) {
+        if (count > 0 && !currentPairs.has(key)) {
+          churnCounts.set(key, 0);
+        }
+      }
+      previousFileRulePairs = currentPairs;
+    }
   }
-  return { appearanceTimestamps, activeSignatures: previousSignatures };
+  return {
+    appearanceTimestamps,
+    activeSignatures: previousSignatures,
+    churnCounts,
+    activeFileRulePairs: previousFileRulePairs,
+  };
 }
 
 function createLogMetrics(
@@ -259,6 +341,11 @@ export function createIssueSignature(issue: NormalizedIssue): string {
   return `${issue.rule}:${normalizeSignatureMessage(issue.message)}`;
 }
 
+/** Creates the file-rule pair key used for churn detection. Uses \0 as separator to prevent collisions. */
+export function createFileRuleKey(issue: NormalizedIssue): string {
+  return `${issue.file}\0${issue.rule}`;
+}
+
 /** Removes changing identifier and numeric details from a diagnostic message. */
 export function normalizeSignatureMessage(message: string): string {
   return message
@@ -279,6 +366,18 @@ function createLoopWarning(signature: string, occurrences: number): LoopWarning 
     signature,
     occurrences,
     hint: `This issue was fixed and reappeared ${String(occurrences)} times — consider a different approach`,
+  };
+}
+
+function createFileRuleChurnWarning(key: string, checkCount: number): FileRuleChurnWarning {
+  const separatorIndex = key.indexOf("\0");
+  const file = key.slice(0, separatorIndex);
+  const rule = key.slice(separatorIndex + 1);
+  return {
+    file,
+    rule,
+    checkCount,
+    hint: `${file} has re-triggered ${rule} across ${String(checkCount)} separate checks — the agent may be stuck on this file, not just this exact issue`,
   };
 }
 

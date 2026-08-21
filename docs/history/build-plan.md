@@ -246,6 +246,49 @@ As defense in depth (not a substitute for the filter above), the tsc adapter sho
 
 **Restart persistence (implemented after external review, Phase 6):** `.signalint/session.jsonl` records each check's timestamp and full `activeSignatures` list in addition to aggregate stats, which is sufficient to reconstruct inactive-to-active appearances without changing the log schema. On startup, replay at most the 5,000 most recent entries into the in-memory map and restore the last valid active-signature set; read only the bounded file tail rather than loading the full lifetime log. Skip malformed entries, including a crash-truncated final line, and preserve a line boundary before the next append so later valid history remains readable. Before an append would take the active log above 10 MiB, rotate it while retaining the newest replay tail and one bounded `.1` backup. `signalint stats` reads both files and removes their retained overlap so the first rotation does not silently discard measured launch history.
 
+### 11.1 File-Rule Churn Detection (second warning kind, schemaVersion 1.2)
+
+**Motivation:** the exact-signature mechanism only fires when a diagnostic *disappears then reappears* at least twice. An agent that re-checks the same file on every iteration without ever clearing the issue produces no oscillation signal, but it is equally stuck. Tracking the (file, rule) pair directly — regardless of message variation — catches this case.
+
+**New types added to `schema.ts`:**
+
+```typescript
+interface FileRuleChurnWarning {
+  file: string;
+  rule: string;
+  checkCount: number;   // number of check_files calls that saw this pair
+  hint: string;
+}
+```
+
+`LoopStatus` gains two new independent fields:
+```typescript
+interface LoopStatus {
+  looping: boolean;              // unchanged: exact-signature oscillation only
+  signatures: LoopWarning[];     // unchanged
+  fileChurning: boolean;         // NEW: true when fileRuleChurns is non-empty
+  fileRuleChurns: FileRuleChurnWarning[];
+}
+```
+
+`CheckResponse` gains `fileRuleChurnWarning: FileRuleChurnWarning | null` and bumps to `schemaVersion: "1.2"`. The version bump is required because `fileRuleChurnWarning` is a new mandatory field on the response shape; a client checking `schemaVersion === "1.1"` would not know to read it.
+
+**`looping` vs `fileChurning` are fully independent.** A pre-existing client reading only `looping + signatures` sees `looping: false, signatures: []` when the only active warning is a file-rule churn — the existing signal is not corrupted. This was a deliberate design choice over a merged boolean.
+
+**Counter lifecycle:**
+
+| Event | Effect on counter for `(file, rule)` pair |
+|:--|:--|
+| `check_files` result includes this pair | Increment by 1 |
+| `check_files` result does **not** include this pair (pair currently tracked) | Reset to 0 |
+| `check_project` call (any result) | No effect — churn counter not touched |
+| Counter reaches 3 | `FileRuleChurnWarning` emitted; continues emitting on subsequent checks as long as pair remains active |
+| Counter resets to 0 | Warning clears immediately on next `check_files`; counter restarts fresh from 0 on next appearance |
+
+**Reset-to-0, not delete:** resetting to 0 rather than removing the key means the map always contains every pair ever seen. On re-emergence the counter increments from 0 (i.e., fresh count starts at 1), so the warning only reappears after a full new 3-call run. This avoids the "stale warning persists indefinitely" problem noted as a backlog item for the exact-signature mechanism (Section 15).
+
+**Session log extension:** each `SessionLogEntry` gains `activeFileRulePairs: string[]`, recording the sorted list of `"${file}\0${rule}"` keys observed in that check call (empty array for `check_project` calls). On startup replay, churn counts are rebuilt by the same incremental logic used for `appearanceTimestamps`: each entry's pairs increment their counter, and any pair in the in-memory map that is absent from an entry resets to 0. The `\0` separator is the same convention as `createIssueId` to prevent file-path/rule-name collisions.
+
 ## 12. Repository Structure
 
 ```

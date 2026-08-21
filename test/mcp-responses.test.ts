@@ -47,7 +47,7 @@ describe("MCP response amendments", () => {
     if (!isCheckResponse(firstCheck)) {
       throw new Error("Expected a Check Response.");
     }
-    expect(firstCheck.schemaVersion).toBe("1.1");
+    expect(firstCheck.schemaVersion).toBe("1.2");
     const clusterId = firstCheck.clusters[0]?.clusterId;
     if (clusterId === undefined) {
       throw new Error("Expected a clustered fixture issue.");
@@ -163,8 +163,8 @@ describe("MCP response amendments", () => {
       name: "get_loop_status",
       arguments: {},
     });
-    expect(loopResult.structuredContent).toEqual({ looping: false, signatures: [] });
-    expect(parseText(loopResult.content)).toEqual({ looping: false, signatures: [] });
+    expect(loopResult.structuredContent).toEqual({ looping: false, signatures: [], fileChurning: false, fileRuleChurns: [] });
+    expect(parseText(loopResult.content)).toEqual({ looping: false, signatures: [], fileChurning: false, fileRuleChurns: [] });
   });
 
   it("delivers structuredContent on timeout, output-limit, and invalid argument errors", async () => {

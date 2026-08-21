@@ -18,7 +18,7 @@ describe("Cluster Engine", () => {
     const result = clusterIssues(rawIssues);
 
     expect(result.response.clusters).toHaveLength(4);
-    expect(result.response.schemaVersion).toBe("1.1");
+    expect(result.response.schemaVersion).toBe("1.2");
     expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([1, 2, 5, 5]);
     expect(result.issues.every((issue) => issue.clusterId !== undefined)).toBe(true);
     expect(result.response.clusters.every((cluster) => cluster.issueCount === 10)).toBe(true);

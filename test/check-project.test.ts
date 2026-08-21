@@ -33,7 +33,7 @@ describe("check_project MCP integration", () => {
     const response = readResponse(result.content);
 
     expect(response.status).toBe("issues_found");
-    expect(response.schemaVersion).toBe("1.1");
+    expect(response.schemaVersion).toBe("1.2");
     expect(response.engines).toEqual({
       oxlint: { status: "ok" },
       tsc: { status: "ok" },

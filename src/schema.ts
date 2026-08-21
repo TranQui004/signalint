@@ -33,9 +33,18 @@ export interface LoopWarning {
   hint: string;
 }
 
+export interface FileRuleChurnWarning {
+  file: string;
+  rule: string;
+  checkCount: number;
+  hint: string;
+}
+
 export interface LoopStatus {
   looping: boolean;
   signatures: LoopWarning[];
+  fileChurning: boolean;
+  fileRuleChurns: FileRuleChurnWarning[];
 }
 
 export type EngineStatusKind = "ok" | "error" | "disabled";
@@ -54,15 +63,21 @@ export type EngineStatuses = Record<IssueEngine, EngineStatus>;
  * `engines` now reports `ok | error | disabled` per engine so completed
  * results survive a sibling engine's failure or timeout. See
  * docs/history/README.md for the pre-publish review that triggered this.
+ *
+ * `schemaVersion` moved from "1.1" to "1.2" to add `fileRuleChurnWarning`.
+ * This field tracks (file, rule) pairs that have triggered across 3+ separate
+ * `check_files` calls in a session, providing a distinct signal when an agent
+ * is stuck on a particular file even if the exact diagnostic message varies.
  */
 export interface CheckResponse {
-  schemaVersion: "1.1";
+  schemaVersion: "1.2";
   status: "clean" | "issues_found";
   engines: EngineStatuses;
   totalIssues: number;
   clusters: Cluster[];
   truncated: boolean;
   loopWarning: LoopWarning | null;
+  fileRuleChurnWarning: FileRuleChurnWarning | null;
 }
 
 export interface TimeoutResponse {
@@ -145,14 +160,15 @@ export function isCheckResponse(value: unknown): value is CheckResponse {
     return false;
   }
   return (
-    value.schemaVersion === "1.1" &&
+    value.schemaVersion === "1.2" &&
     (value.status === "clean" || value.status === "issues_found") &&
     isEngineStatuses(value.engines) &&
     Number.isInteger(value.totalIssues) &&
     Array.isArray(value.clusters) &&
     value.clusters.every(isCluster) &&
     typeof value.truncated === "boolean" &&
-    (value.loopWarning === null || isLoopWarning(value.loopWarning))
+    (value.loopWarning === null || isLoopWarning(value.loopWarning)) &&
+    (value.fileRuleChurnWarning === null || isFileRuleChurnWarning(value.fileRuleChurnWarning))
   );
 }
 
@@ -163,6 +179,18 @@ export function createSuccessfulEngineStatuses(): EngineStatuses {
     tsc: { status: "ok" },
     biome: { status: "ok" },
   };
+}
+
+/** Returns whether an unknown value satisfies the FileRuleChurnWarning shape. */
+export function isFileRuleChurnWarning(value: unknown): value is FileRuleChurnWarning {
+  return (
+    isRecord(value) &&
+    typeof value.file === "string" &&
+    typeof value.rule === "string" &&
+    Number.isInteger(value.checkCount) &&
+    (value.checkCount as number) >= 1 &&
+    typeof value.hint === "string"
+  );
 }
 
 /** Returns whether an unknown value is the Section 8.1 engine-timeout response. */
@@ -203,7 +231,10 @@ export function isLoopStatus(value: unknown): value is LoopStatus {
     isRecord(value) &&
     typeof value.looping === "boolean" &&
     Array.isArray(value.signatures) &&
-    value.signatures.every(isLoopWarning)
+    value.signatures.every(isLoopWarning) &&
+    typeof value.fileChurning === "boolean" &&
+    Array.isArray(value.fileRuleChurns) &&
+    value.fileRuleChurns.every(isFileRuleChurnWarning)
   );
 }
 

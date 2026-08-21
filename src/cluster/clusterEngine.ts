@@ -45,13 +45,14 @@ export function clusterIssues(
   return {
     issues,
     response: {
-      schemaVersion: "1.1",
+      schemaVersion: "1.2",
       status: rawIssues.length === 0 ? "clean" : "issues_found",
       engines,
       totalIssues: rawIssues.length,
       clusters: allClusters.slice(0, maxClusters),
       truncated: allClusters.length > maxClusters,
       loopWarning: null,
+      fileRuleChurnWarning: null,
     },
   };
 }

@@ -4,6 +4,31 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.4.0
+
+- Added file-rule churn detection as a second, independent loop warning kind.
+  When the same `(file, rule)` pair appears in 3+ separate `check_files` calls
+  in a session — even if the exact message or line varies — a distinct
+  `fileRuleChurnWarning` is surfaced: `"src/auth.ts has re-triggered TS2345
+  across 3 separate checks — the agent may be stuck on this file, not just
+  this exact issue"`.
+- Added `fileChurning: boolean` and `fileRuleChurns: FileRuleChurnWarning[]` to
+  `LoopStatus`. These fields are independent of `looping` and `signatures`
+  (exact-signature oscillation), which are unchanged. A pre-existing client
+  reading only `looping + signatures` is unaffected.
+- Added `fileRuleChurnWarning: FileRuleChurnWarning | null` to `CheckResponse`.
+- Bumped `schemaVersion` from `"1.1"` to `"1.2"` to signal the new mandatory
+  response field.
+- Churn counters reset to 0 when a `(file, rule)` pair is absent from a
+  `check_files` result; warnings clear immediately on the next clean check.
+- `check_project` calls do not increment or reset churn counters.
+- Churn state is persisted to `.signalint/session.jsonl` via a new
+  `activeFileRulePairs` field and replayed on startup.
+- Updated `outputSchema` declarations for `check_files`, `check_project`, and
+  `get_loop_status` to include the new fields.
+- Updated `docs/history/build-plan.md` Section 11.1 with counter lifecycle
+  table, `fileChurning` separation rationale, and schemaVersion 1.2 justification.
+
 ## 0.3.7
 
 - Added explicit `outputSchema` declarations across all five MCP tools (`ping`,

@@ -85,6 +85,36 @@ Stop and ask a maintainer when:
 Do not stop and ask for routine implementation choices, or for anything reversible
 and low-risk that is clearly within the scope of the change you were asked to make.
 
+## Release workflow
+
+Releases are triggered by pushing a version tag (`v*`). The following rules govern
+how tags and branch pushes interact with the release pipeline.
+
+**Tag and branch push ordering.** Never push a tag in the same operation as, or
+before confirming success of, the corresponding branch push. The correct sequence
+is:
+
+1. Open a PR and merge it through the normal protected-branch process.
+2. Confirm the merge commit is on `main` (via `gh pr view --json state,mergeCommit`
+   or equivalent).
+3. Pull `main` locally so HEAD matches the merge commit.
+4. Create and push the tag pointing at that commit.
+
+If a branch push to `main` is rejected by branch protection, treat any paired tag
+push as invalid even if GitHub technically accepted it — do not push the tag until
+the commit is on `main` through a merged PR.
+
+**Tag that has touched the release pipeline.** If a tag has been pushed and has
+triggered any part of the release workflow — even a partial or failed run — treat
+it as being in the same "do not bypass" category as a merged commit on a protected
+branch. Do not delete, move, or force-push that tag without stopping and asking a
+maintainer first. The fact that `git push --force` on a tag succeeds does not make
+it safe to use unilaterally once the release pipeline has started.
+
+**Retrying a normal merge is almost always the right move.** If CI passes but the
+branch push is rejected for a transient reason, wait a few seconds and retry
+`gh pr merge` rather than reaching for any bypass mechanism.
+
 ## Style for commits, docs, and user-facing copy
 
 - Use `type(scope): message`. Common types: `feat`, `fix`, `test`, `docs`,

@@ -121,6 +121,24 @@ describe("MCP response amendments", () => {
     });
   });
 
+  it("declares annotations with all four explicit boolean hints for every tool", async () => {
+    const client = await connectServer(() => Promise.resolve([]));
+
+    const toolsList = await client.listTools();
+    expect(toolsList.tools).toHaveLength(5);
+    for (const tool of toolsList.tools) {
+      expect(tool.annotations, `${tool.name} missing annotations`).toBeDefined();
+      expect(typeof tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint`).toBe("boolean");
+      expect(typeof tool.annotations?.destructiveHint, `${tool.name}.destructiveHint`).toBe("boolean");
+      expect(typeof tool.annotations?.idempotentHint, `${tool.name}.idempotentHint`).toBe("boolean");
+      expect(typeof tool.annotations?.openWorldHint, `${tool.name}.openWorldHint`).toBe("boolean");
+      expect(tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint value`).toBe(true);
+      expect(tool.annotations?.destructiveHint, `${tool.name}.destructiveHint value`).toBe(false);
+      expect(tool.annotations?.idempotentHint, `${tool.name}.idempotentHint value`).toBe(true);
+      expect(tool.annotations?.openWorldHint, `${tool.name}.openWorldHint value`).toBe(false);
+    }
+  });
+
   it("declares outputSchema for all five tools and returns matching structuredContent", async () => {
     const issue = makeIssue();
     const client = await connectServer(() => Promise.resolve([issue]));

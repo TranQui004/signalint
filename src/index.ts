@@ -293,6 +293,14 @@ const getLoopStatusOutputSchema = {
   additionalProperties: false,
 };
 
+/** Hints applied uniformly to every tool: local-only reads, no external writes or network. */
+const TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+
 const tools = [
   {
     name: "ping",
@@ -302,6 +310,7 @@ const tools = [
       additionalProperties: false,
     },
     outputSchema: pingOutputSchema,
+    annotations: TOOL_ANNOTATIONS,
   },
   {
     name: "check_project",
@@ -318,6 +327,7 @@ const tools = [
       additionalProperties: false,
     },
     outputSchema: checkOutputSchema,
+    annotations: TOOL_ANNOTATIONS,
   },
   {
     name: "check_files",
@@ -335,6 +345,7 @@ const tools = [
       additionalProperties: false,
     },
     outputSchema: checkOutputSchema,
+    annotations: TOOL_ANNOTATIONS,
   },
   {
     name: "get_issue_detail",
@@ -352,6 +363,7 @@ const tools = [
       additionalProperties: false,
     },
     outputSchema: getIssueDetailOutputSchema,
+    annotations: TOOL_ANNOTATIONS,
   },
   {
     name: "get_loop_status",
@@ -361,6 +373,7 @@ const tools = [
       additionalProperties: false,
     },
     outputSchema: getLoopStatusOutputSchema,
+    annotations: TOOL_ANNOTATIONS,
   },
 ];
 

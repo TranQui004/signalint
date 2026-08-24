@@ -4,6 +4,17 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.4.1
+
+- Added MCP tool annotations (`readOnlyHint`, `destructiveHint`,
+  `idempotentHint`, `openWorldHint`) to all five tools via a shared
+  `TOOL_ANNOTATIONS` constant. Values: `true`, `false`, `true`, `false`.
+  All four hints are set explicitly as booleans so that directory
+  validation tools and distribution channels (e.g. OpenAI MCP directory)
+  that require every hint to be present and boolean do not reject the tools.
+  No behavioral change; no `schemaVersion` change — annotations are
+  transport-level `tools/list` metadata, not response shape fields.
+
 ## 0.4.0
 
 - Added file-rule churn detection as a second, independent loop warning kind.

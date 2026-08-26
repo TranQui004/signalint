@@ -2,6 +2,7 @@
 
 [![CI](https://github.com/TranQui004/signalint/actions/workflows/ci.yml/badge.svg)](https://github.com/TranQui004/signalint/actions/workflows/ci.yml)
 [![npm version](https://img.shields.io/npm/v/signalint-mcp.svg)](https://www.npmjs.com/package/signalint-mcp)
+[![M8ven Score](https://m8ven.ai/badge/mcp/tranqui004-signalint-1u4yke)](https://m8ven.ai/mcp/tranqui004-signalint-1u4yke)
 
 Signalint is a local MCP server for JavaScript and TypeScript diagnostics. It runs
 Oxlint, TypeScript, and optionally Biome; caches unchanged checks; clusters repeated
@@ -12,6 +13,7 @@ server restarts; malformed or crash-truncated lines are skipped.
 **Listed on:**
 - [![TranQui004/signalint MCP server](https://glama.ai/mcp/servers/TranQui004/signalint/badges/score.svg)](https://glama.ai/mcp/servers/TranQui004/signalint)
 - [mcpservers.org](https://mcpservers.org/servers/tranqui004/signalint)
+- [![M8ven Score](https://m8ven.ai/badge/mcp/tranqui004-signalint-1u4yke)](https://m8ven.ai/mcp/tranqui004-signalint-1u4yke)
 - Official MCP Registry ([API listing](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.TranQui004%2Fsignalint/versions/latest))
 
 ## Diagnostic compression example

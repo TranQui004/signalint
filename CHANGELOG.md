@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## 0.4.2
+
+- Widened tsc config hash to follow `extends` and `references` chains
+  recursively. Previously only `tsconfig.json` at the project root was
+  hashed; changes to `tsconfig.base.json` or any referenced project
+  tsconfig would not invalidate the whole-program cache. Now all reachable
+  config files (bounded to 50 unique paths) are discovered, sorted, and
+  hashed together so a branch switch or base config edit forces a fresh
+  tsc run. No change to the cache key shape or `engine_state` table schema.
+- Added a process-lifetime cache for `tsc --showConfig` inspection results,
+  keyed by SHA-256 of the root tsconfig file content. Eliminates the
+  redundant `--showConfig` spawn that preceded every `tsc --noEmit` check
+  when the config had not changed.
+
 ## 0.4.1
 
 - Added MCP tool annotations (`readOnlyHint`, `destructiveHint`,

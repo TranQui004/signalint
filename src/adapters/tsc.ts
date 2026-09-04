@@ -1,4 +1,5 @@
-import { mkdir, stat } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
@@ -34,6 +35,19 @@ interface PendingDiagnostic {
 interface EffectiveProjectConfig {
   hasReferences: boolean;
   skipLibCheck: boolean | undefined;
+}
+
+/** Process-lifetime cache of tsc --showConfig results, keyed by SHA-256 of the tsconfig file content. */
+const configInspectionCache = new Map<string, EffectiveProjectConfig>();
+
+/** Clears the --showConfig inspection cache; call between tests that write different tsconfig content. */
+export function clearConfigInspectionCache(): void {
+  configInspectionCache.clear();
+}
+
+/** Returns the current number of entries in the --showConfig inspection cache; for test verification only. */
+export function configInspectionCacheSize(): number {
+  return configInspectionCache.size;
 }
 
 const DIAGNOSTIC_START =
@@ -182,6 +196,12 @@ async function readEffectiveProjectConfig(
   cwd: string,
   options: Omit<TscRunOptions, "cwd">,
 ): Promise<EffectiveProjectConfig> {
+  const content = await readFile(projectFile, "utf8").catch(() => "");
+  const contentHash = createHash("sha256").update(content).digest("hex");
+  const cached = configInspectionCache.get(contentHash);
+  if (cached !== undefined) {
+    return cached;
+  }
   const result = await runTscProcess(["--showConfig", "--project", projectFile], cwd, options);
   if (result.exitCode !== 0) {
     throw new Error(`tsc --showConfig failed: ${[result.stdout, result.stderr].join("\n").trim()}`);
@@ -197,10 +217,12 @@ async function readEffectiveProjectConfig(
   if (parsed.references !== undefined && !Array.isArray(parsed.references)) {
     throw new Error("tsc --showConfig returned a non-array references value.");
   }
-  return {
+  const config: EffectiveProjectConfig = {
     hasReferences: Object.hasOwn(parsed, "references"),
     skipLibCheck,
   };
+  configInspectionCache.set(contentHash, config);
+  return config;
 }
 
 async function resolveProjectFile(path: string, cwd: string): Promise<string> {

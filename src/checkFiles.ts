@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import { runOxlint } from "./adapters/oxlint.js";
 import { runBiome } from "./adapters/biome.js";
@@ -176,17 +176,27 @@ export async function checkFilesWithStats(
   }
 }
 
-/** Hashes all recognized root config files for one engine, including missing-file markers. */
+/** Hashes all config files for one engine, following tsc extends/references chains. */
 export async function computeEngineConfigHash(
   engine: CacheEngine,
   cwd: string,
 ): Promise<string> {
   const hash = createHash("sha256");
-  for (const configFile of ENGINE_CONFIG_FILES[engine]) {
-    hash.update(configFile);
-    hash.update("\0");
-    hash.update(await readConfig(configFile, cwd));
-    hash.update("\0");
+  if (engine === "tsc") {
+    const configFiles = await collectTscConfigFiles(resolve(cwd, "tsconfig.json"), new Set());
+    for (const absolutePath of Array.from(configFiles).sort()) {
+      hash.update(absolutePath);
+      hash.update("\0");
+      hash.update(await readConfigAbsolute(absolutePath));
+      hash.update("\0");
+    }
+  } else {
+    for (const configFile of ENGINE_CONFIG_FILES[engine]) {
+      hash.update(configFile);
+      hash.update("\0");
+      hash.update(await readConfig(configFile, cwd));
+      hash.update("\0");
+    }
   }
   return hash.digest("hex");
 }
@@ -301,6 +311,89 @@ async function readConfig(configFile: string, cwd: string): Promise<string> {
     }
     throw error;
   }
+}
+
+async function readConfigAbsolute(absolutePath: string): Promise<string> {
+  try {
+    return await readFile(absolutePath, "utf8");
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      return "<missing>";
+    }
+    throw error;
+  }
+}
+
+/**
+ * Recursively collects all tsconfig files reachable via extends and references
+ * chains starting from rootPath. Bounded to 50 unique files to prevent cycles.
+ */
+async function collectTscConfigFiles(
+  rootPath: string,
+  visited: Set<string>,
+): Promise<Set<string>> {
+  if (visited.has(rootPath) || visited.size >= 50) {
+    return visited;
+  }
+  visited.add(rootPath);
+
+  const raw = await readConfigAbsolute(rootPath);
+  if (raw === "<missing>") {
+    return visited;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return visited;
+  }
+
+  if (!isPlainObject(parsed)) {
+    return visited;
+  }
+
+  const baseDir = dirname(rootPath);
+  const paths: string[] = [];
+
+  if (typeof parsed.extends === "string") {
+    paths.push(resolveExtends(parsed.extends, baseDir));
+  } else if (Array.isArray(parsed.extends)) {
+    for (const ext of parsed.extends) {
+      if (typeof ext === "string") {
+        paths.push(resolveExtends(ext, baseDir));
+      }
+    }
+  }
+
+  if (Array.isArray(parsed.references)) {
+    for (const ref of parsed.references) {
+      if (isPlainObject(ref) && typeof ref.path === "string") {
+        const refPath = join(baseDir, ref.path);
+        const candidate = refPath.endsWith(".json") ? refPath : join(refPath, "tsconfig.json");
+        paths.push(candidate);
+      }
+    }
+  }
+
+  for (const childPath of paths) {
+    await collectTscConfigFiles(childPath, visited);
+  }
+  return visited;
+}
+
+function resolveExtends(ext: string, baseDir: string): string {
+  if (ext.startsWith(".")) {
+    const joined = join(baseDir, ext);
+    return joined.endsWith(".json") ? joined : `${joined}.json`;
+  }
+  // node_modules package reference — treat as opaque, include the literal string
+  // as a stable sentinel so a package version change still invalidates the hash.
+  return join(baseDir, "node_modules", ext, "tsconfig.json");
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function relocateIssues(

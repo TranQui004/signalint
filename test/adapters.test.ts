@@ -1,10 +1,12 @@
 import { resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { createBiomeCliArgs, parseBiomeOutput } from "../src/adapters/biome.js";
 import { createOxlintCliArgs, parseOxlintOutput } from "../src/adapters/oxlint.js";
 import {
+  clearConfigInspectionCache,
+  configInspectionCacheSize,
   createTscArgs,
   parseTscOutput,
   runTsc,
@@ -235,6 +237,32 @@ describe("tsc adapter", () => {
     });
     await expect(createTscArgs(["../tsconfig.json"], solutionStyleFixture)).rejects.toMatchObject({
       code: "path_outside_project",
+    });
+  });
+
+  describe("--showConfig inspection cache", () => {
+    beforeEach(() => {
+      clearConfigInspectionCache();
+    });
+
+    afterEach(() => {
+      clearConfigInspectionCache();
+    });
+
+    it("caches --showConfig results so repeated createTscArgs calls with an unchanged tsconfig do not add entries", async () => {
+      expect(configInspectionCacheSize()).toBe(0);
+
+      await createTscArgs(["."], declarationFixture);
+      expect(configInspectionCacheSize()).toBe(1);
+
+      await createTscArgs(["."], declarationFixture);
+      expect(configInspectionCacheSize()).toBe(1);
+    });
+
+    it("adds a new cache entry when the tsconfig path differs", async () => {
+      await createTscArgs(["."], declarationFixture);
+      await createTscArgs(["."], solutionStyleFixture);
+      expect(configInspectionCacheSize()).toBe(2);
     });
   });
 });

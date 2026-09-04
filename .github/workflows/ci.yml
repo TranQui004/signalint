@@ -84,10 +84,10 @@ jobs:
 
       - name: Test
         if: matrix.runtime-node == matrix.install-node
-        run: pnpm test
+        run: pnpm run build && pnpm exec vitest run --coverage
 
       - name: Test on compatibility Node.js
         if: matrix.runtime-node != matrix.install-node
         run: |
           node node_modules/typescript/bin/tsc -p tsconfig.json
-          node node_modules/vitest/vitest.mjs run
+          node node_modules/vitest/vitest.mjs run --coverage

@@ -62,8 +62,9 @@ describe("engine fan-out", () => {
 
     const response = await checkProject(["."], partialProjectRoot);
 
-    expect(response.schemaVersion).toBe("1.2");
-    expect(response.status).toBe("issues_found");
+    expect(response.schemaVersion).toBe("1.3");
+    expect(response.status).toBe("error");
+    expect(response.code).toBe("engine_failed");
     expect(response.totalIssues).toBeGreaterThan(0);
     expect(response.engines.oxlint).toEqual({ status: "ok" });
     expect(response.engines.tsc.status).toBe("error");

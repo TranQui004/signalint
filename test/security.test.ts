@@ -36,6 +36,7 @@ beforeAll(async () => {
   await rm(securityRoot, { force: true, recursive: true });
   await mkdir(resolve(projectRoot, "src"), { recursive: true });
   await mkdir(outsideRoot, { recursive: true });
+  await writeFile(resolve(projectRoot, "signalint.config.json"), "{}\n", "utf8");
   await writeFile(resolve(projectRoot, "src/safe.ts"), "export const safe = true;\n", "utf8");
   await writeFile(resolve(outsideRoot, "secret.ts"), "export const secret = true;\n", "utf8");
   await symlink(

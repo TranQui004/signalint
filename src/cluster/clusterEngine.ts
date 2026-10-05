@@ -1,7 +1,9 @@
 import type {
   CheckResponse,
   Cluster,
+  EngineStatus,
   EngineStatuses,
+  IssueEngine,
   NormalizedIssue,
 } from "../schema.js";
 import { createSuccessfulEngineStatuses } from "../schema.js";
@@ -23,6 +25,7 @@ export function clusterIssues(
   rawIssues: readonly NormalizedIssue[],
   maxClusters: number = 10,
   engines: EngineStatuses = createSuccessfulEngineStatuses(),
+  projectRoot: string = process.cwd(),
 ): ClusterResult {
   if (!Number.isInteger(maxClusters) || maxClusters < 1) {
     throw new Error("maxClusters must be a positive integer.");
@@ -42,17 +45,46 @@ export function clusterIssues(
     clusterId: requireClusterId(issueClusterIds.get(issue)),
   }));
 
+  const engineEntries = Object.entries(engines) as [IssueEngine, EngineStatus][];
+  const failedEngines = engineEntries
+    .filter(([_, s]) => s.status === "error")
+    .map(([e]) => e);
+
+  let status: "clean" | "issues_found" | "error";
+  let code: string | undefined;
+  let message: string | undefined;
+
+  if (failedEngines.length > 0) {
+    status = "error";
+    code = "engine_failed";
+    message = `Engine check failed: ${failedEngines.join(", ")}`;
+  } else {
+    const hasOkEngine = engineEntries.some(([_, s]) => s.status === "ok");
+    if (!hasOkEngine) {
+      status = "error";
+      code = "nothing_checked";
+      message = "No paths were checked; nothing can be reported clean.";
+    } else if (rawIssues.length === 0) {
+      status = "clean";
+    } else {
+      status = "issues_found";
+    }
+  }
+
   return {
     issues,
     response: {
-      schemaVersion: "1.2",
-      status: rawIssues.length === 0 ? "clean" : "issues_found",
+      schemaVersion: "1.3",
+      status,
+      projectRoot,
       engines,
       totalIssues: rawIssues.length,
       clusters: allClusters.slice(0, maxClusters),
       truncated: allClusters.length > maxClusters,
       loopWarning: null,
       fileRuleChurnWarning: null,
+      ...(code !== undefined ? { code } : {}),
+      ...(message !== undefined ? { message } : {}),
     },
   };
 }

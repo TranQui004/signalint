@@ -43,8 +43,9 @@ When a coding agent requests diagnostics on a project, raw compiler and linter o
 
 ```json
 {
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.3",
   "status": "issues_found",
+  "projectRoot": "/path/to/project",
   "engines": {
     "oxlint": { "status": "ok" },
     "tsc": { "status": "ok" },

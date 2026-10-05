@@ -70,14 +70,17 @@ export type EngineStatuses = Record<IssueEngine, EngineStatus>;
  * is stuck on a particular file even if the exact diagnostic message varies.
  */
 export interface CheckResponse {
-  schemaVersion: "1.2";
-  status: "clean" | "issues_found";
+  schemaVersion: "1.3";
+  status: "clean" | "issues_found" | "error";
+  projectRoot: string;
   engines: EngineStatuses;
   totalIssues: number;
   clusters: Cluster[];
   truncated: boolean;
   loopWarning: LoopWarning | null;
   fileRuleChurnWarning: FileRuleChurnWarning | null;
+  code?: string;
+  message?: string;
 }
 
 export interface TimeoutResponse {
@@ -160,15 +163,18 @@ export function isCheckResponse(value: unknown): value is CheckResponse {
     return false;
   }
   return (
-    value.schemaVersion === "1.2" &&
-    (value.status === "clean" || value.status === "issues_found") &&
+    value.schemaVersion === "1.3" &&
+    (value.status === "clean" || value.status === "issues_found" || value.status === "error") &&
+    typeof value.projectRoot === "string" &&
     isEngineStatuses(value.engines) &&
     Number.isInteger(value.totalIssues) &&
     Array.isArray(value.clusters) &&
     value.clusters.every(isCluster) &&
     typeof value.truncated === "boolean" &&
     (value.loopWarning === null || isLoopWarning(value.loopWarning)) &&
-    (value.fileRuleChurnWarning === null || isFileRuleChurnWarning(value.fileRuleChurnWarning))
+    (value.fileRuleChurnWarning === null || isFileRuleChurnWarning(value.fileRuleChurnWarning)) &&
+    (value.code === undefined || typeof value.code === "string") &&
+    (value.message === undefined || typeof value.message === "string")
   );
 }
 

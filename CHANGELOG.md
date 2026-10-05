@@ -4,6 +4,21 @@ All notable changes to this project are documented in this file. Entries are
 grouped by release and summarize the actual commit history; see `git log` for
 full detail.
 
+## Unreleased
+
+- Bumped `schemaVersion` from `"1.2"` to `"1.3"`.
+- Added required `projectRoot` (canonical absolute path) to `CheckResponse` and `ping` tool response (`pingOutputSchema`).
+- Added optional `code` and `message` fields to `CheckResponse`.
+- In `clusterIssues`, top-level `status` now reflects engine outcomes:
+  - Enabled engine failure maps to `status: "error"`, `code: "engine_failed"` with the failing engines named.
+  - No enabled engine running or zero paths checked maps to `status: "error"`, `code: "nothing_checked"`.
+  - `status: "clean"` is only returned when at least one enabled engine reported `ok` and `totalIssues === 0`.
+- `createIdleEngineStatuses` now reports `{ status: "disabled", message: "no paths to check" }` for enabled engines when no paths were checked.
+- On server creation, write exactly once to stderr: `[signalint] project root: <root>`.
+- Require `signalint.config.json` before running `check_project` or `check_files` (returns `code: "project_not_initialized"`, with `SIGNALINT_ALLOW_UNINITIALIZED=1` escape hatch).
+- Sanity check JS/TS project markers (reject non-JS projects with `code: "not_a_js_project"`).
+- Added `SIGNALINT_PROJECT_ROOT` environment override with containment verification and stderr fallback.
+
 ## 0.4.2
 
 - Widened tsc config hash to follow `extends` and `references` chains

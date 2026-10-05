@@ -47,7 +47,7 @@ describe("MCP response amendments", () => {
     if (!isCheckResponse(firstCheck)) {
       throw new Error("Expected a Check Response.");
     }
-    expect(firstCheck.schemaVersion).toBe("1.2");
+    expect(firstCheck.schemaVersion).toBe("1.3");
     const clusterId = firstCheck.clusters[0]?.clusterId;
     if (clusterId === undefined) {
       throw new Error("Expected a clustered fixture issue.");
@@ -151,7 +151,7 @@ describe("MCP response amendments", () => {
     }
 
     const pingResult = await client.callTool({ name: "ping", arguments: {} });
-    expect(pingResult.structuredContent).toEqual({ pong: true });
+    expect(pingResult.structuredContent).toEqual({ pong: true, projectRoot: expect.any(String) });
     expect(pingResult.content).toEqual([{ type: "text", text: "pong" }]);
 
     const checkResult = await client.callTool({

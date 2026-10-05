@@ -1,5 +1,7 @@
 #!/usr/bin/env node
 
+import { readdir, stat } from "node:fs/promises";
+import { resolve } from "node:path";
 import { performance } from "node:perf_hooks";
 
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
@@ -42,13 +44,16 @@ import { SessionMemory } from "./memory/sessionMemory.js";
 import {
   MAX_TOOL_PATHS,
   ProjectPathError,
+  readCanonicalProjectRoot,
+  readCanonicalProjectRootSync,
   resolveProjectPaths,
 } from "./projectPaths.js";
-import type {
-  CheckResponse,
-  EngineStatuses,
-  NormalizedIssue,
-  StaleReferenceResponse,
+import {
+  createSuccessfulEngineStatuses,
+  type CheckResponse,
+  type EngineStatuses,
+  type NormalizedIssue,
+  type StaleReferenceResponse,
 } from "./schema.js";
 import {
   EngineOutputLimitError,
@@ -174,19 +179,24 @@ const pingOutputSchema = {
       type: "boolean" as const,
       description: "True when the server is responsive.",
     },
+    projectRoot: {
+      type: "string" as const,
+      description: "Canonical absolute project root path.",
+    },
   },
-  required: ["pong"],
+  required: ["pong", "projectRoot"],
   additionalProperties: false,
 };
 
 const checkOutputSchema = {
   type: "object" as const,
   properties: {
-    schemaVersion: { type: "string" as const, enum: ["1.2"] as const },
+    schemaVersion: { type: "string" as const, enum: ["1.3"] as const },
     status: {
       type: "string" as const,
       enum: ["clean", "issues_found", "timeout", "error"] as const,
     },
+    projectRoot: { type: "string" as const },
     engines: {
       type: "object" as const,
       properties: {
@@ -391,8 +401,41 @@ export function createServer(options: SignalintServerOptions = {}): Server {
     },
   );
 
-  const cwd = options.cwd ?? process.cwd();
-  const sessionMemory = options.sessionMemory ?? new SessionMemory();
+  let projectRoot: string;
+  const envRoot = process.env.SIGNALINT_PROJECT_ROOT;
+  if (options.cwd !== undefined) {
+    try {
+      projectRoot = readCanonicalProjectRootSync(options.cwd);
+    } catch {
+      projectRoot = resolve(options.cwd);
+    }
+  } else if (envRoot !== undefined && envRoot.trim() !== "") {
+    try {
+      projectRoot = readCanonicalProjectRootSync(envRoot);
+    } catch (error: unknown) {
+      process.stderr.write(
+        `[signalint] Invalid SIGNALINT_PROJECT_ROOT: ${error instanceof Error ? error.message : String(error)}. Falling back to process.cwd().\n`,
+      );
+      try {
+        projectRoot = readCanonicalProjectRootSync(process.cwd());
+      } catch {
+        projectRoot = resolve(process.cwd());
+      }
+    }
+  } else {
+    try {
+      projectRoot = readCanonicalProjectRootSync(process.cwd());
+    } catch {
+      projectRoot = resolve(process.cwd());
+    }
+  }
+
+  process.stderr.write(`[signalint] project root: ${projectRoot}\n`);
+
+  const cwd = projectRoot;
+  const sessionMemory = options.sessionMemory ?? new SessionMemory({
+    logPath: resolve(cwd, ".signalint", "session.jsonl"),
+  });
   const projectIssueProvider = options.projectIssueProvider === undefined
     ? (paths: readonly string[], signal?: AbortSignal) =>
         collectProjectIssueResult(paths, cwd, signal)
@@ -435,7 +478,8 @@ export async function checkProjectWithIssues(
   cwd: string = process.cwd(),
 ): Promise<ClusterResult> {
   const result = await collectProjectIssueResult(paths, cwd);
-  return clusterIssues(result.issues, 10, result.engines);
+  const projectRoot = await readCanonicalProjectRoot(cwd);
+  return clusterIssues(result.issues, 10, result.engines, projectRoot);
 }
 
 /** Runs enabled project adapters and excludes diagnostics matching configured ignore globs. */
@@ -574,7 +618,7 @@ function registerToolHandlers(
       );
     } catch (error: unknown) {
       if (error instanceof ZodError || error instanceof ProjectPathError) {
-        return createInputRefusal(error);
+        return createInputRefusal(error, context.cwd);
       }
       throw error;
     }
@@ -591,7 +635,7 @@ async function dispatchToolCall(
     parsePingArguments(argumentsValue);
     return {
       content: [{ type: "text", text: "pong" }],
-      structuredContent: { pong: true },
+      structuredContent: { pong: true, projectRoot: context.cwd },
     };
   }
   if (name === "check_project") {
@@ -645,6 +689,10 @@ async function runContextCheck(
   context: ToolHandlerContext,
   source: "project" | "files" = "project",
 ): Promise<CallToolResult> {
+  const safetyRefusal = await checkProjectSafety(context.cwd);
+  if (safetyRefusal !== undefined) {
+    return safetyRefusal;
+  }
   return await runCheck(
     paths,
     signal,
@@ -654,7 +702,99 @@ async function runContextCheck(
       context.latestIssues = issues;
     },
     source,
+    context.cwd,
   );
+}
+
+async function checkProjectSafety(projectRoot: string): Promise<CallToolResult | undefined> {
+  let hasConfigFile = false;
+  try {
+    await stat(resolve(projectRoot, "signalint.config.json"));
+    hasConfigFile = true;
+  } catch {
+    hasConfigFile = false;
+  }
+
+  if (!hasConfigFile && process.env.SIGNALINT_ALLOW_UNINITIALIZED !== "1") {
+    return {
+      ...createTextResult({
+        status: "error",
+        code: "project_not_initialized",
+        message: `Run 'npx signalint-mcp init' in ${projectRoot} before checking it.`,
+        projectRoot,
+      }),
+      isError: true,
+    };
+  }
+
+  const isJs = await hasJsProjectMarkers(projectRoot);
+  if (!isJs) {
+    return {
+      ...createTextResult({
+        status: "error",
+        code: "not_a_js_project",
+        message: `No JavaScript or TypeScript project markers found in ${projectRoot}.`,
+        projectRoot,
+      }),
+      isError: true,
+    };
+  }
+
+  return undefined;
+}
+
+async function hasJsProjectMarkers(projectRoot: string): Promise<boolean> {
+  try {
+    const rootEntries = await readdir(projectRoot, { withFileTypes: true });
+    for (const entry of rootEntries) {
+      if (entry.isFile()) {
+        const name = entry.name.toLowerCase();
+        if (name === "package.json" || name === "tsconfig.json") {
+          return true;
+        }
+        if (/\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/i.test(name)) {
+          return true;
+        }
+      }
+    }
+
+    let count = rootEntries.length;
+    const queue: string[] = [];
+    for (const entry of rootEntries) {
+      if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== ".git") {
+        queue.push(resolve(projectRoot, entry.name));
+      }
+    }
+
+    while (queue.length > 0 && count < 2000) {
+      const currentDir = queue.shift();
+      if (!currentDir) {
+        break;
+      }
+      let subEntries;
+      try {
+        subEntries = await readdir(currentDir, { withFileTypes: true });
+      } catch {
+        continue;
+      }
+      for (const entry of subEntries) {
+        count++;
+        if (entry.isFile()) {
+          if (/\.(?:[cm]?js|[cm]?ts|jsx|tsx)$/i.test(entry.name)) {
+            return true;
+          }
+        } else if (entry.isDirectory() && entry.name !== "node_modules" && entry.name !== ".git") {
+          queue.push(resolve(currentDir, entry.name));
+        }
+        if (count >= 2000) {
+          break;
+        }
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
 }
 
 function wrapIssueProvider(
@@ -663,7 +803,7 @@ function wrapIssueProvider(
   return async (paths, signal) => ({
     issues: await provider(paths, signal),
     cache: { hits: 0, misses: 0 },
-    engines: createIdleEngineStatuses({ oxlint: true, tsc: true, biome: true }),
+    engines: createSuccessfulEngineStatuses(),
   });
 }
 
@@ -674,6 +814,7 @@ async function runCheck(
   sessionMemory: SessionMemory,
   saveIssues: (issues: NormalizedIssue[]) => void,
   source: "project" | "files" = "project",
+  projectRoot: string = process.cwd(),
 ): Promise<CallToolResult> {
   const startedAt = performance.now();
   try {
@@ -682,6 +823,7 @@ async function runCheck(
       filterDefaultExcludedIssues(result.issues),
       10,
       result.engines,
+      projectRoot,
     );
     const response = await sessionMemory.recordCheck(
       clustered.issues,
@@ -702,7 +844,7 @@ async function runCheck(
     }
     if (error instanceof ProjectPathError) {
       return {
-        ...createTextResult({ status: "error", code: error.code, message: error.message }),
+        ...createTextResult({ status: "error", code: error.code, message: error.message, projectRoot }),
         isError: true,
       };
     }
@@ -750,11 +892,16 @@ async function resolveToolPaths(paths: readonly string[], cwd: string): Promise<
   return (await resolveProjectPaths(paths, cwd)).map((path) => path.relativePath);
 }
 
-function createInputRefusal(error: ZodError | ProjectPathError): CallToolResult {
+function createInputRefusal(error: ZodError | ProjectPathError, projectRoot?: string): CallToolResult {
   const code = error instanceof ProjectPathError ? error.code : "invalid_arguments";
   const message = error instanceof ZodError ? formatZodError(error) : error.message;
   return {
-    ...createTextResult({ status: "error", code, message }),
+    ...createTextResult({
+      status: "error",
+      code,
+      message,
+      ...(projectRoot !== undefined ? { projectRoot } : {}),
+    }),
     isError: true,
   };
 }

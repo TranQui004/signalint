@@ -52,9 +52,15 @@ export function createIdleEngineStatuses(
   enabled: Readonly<Record<IssueEngine, boolean>>,
 ): EngineStatuses {
   return {
-    oxlint: { status: enabled.oxlint ? "ok" : "disabled" },
-    tsc: { status: enabled.tsc ? "ok" : "disabled" },
-    biome: { status: enabled.biome ? "ok" : "disabled" },
+    oxlint: enabled.oxlint
+      ? { status: "disabled", message: "no paths to check" }
+      : { status: "disabled" },
+    tsc: enabled.tsc
+      ? { status: "disabled", message: "no paths to check" }
+      : { status: "disabled" },
+    biome: enabled.biome
+      ? { status: "disabled", message: "no paths to check" }
+      : { status: "disabled" },
   };
 }
 

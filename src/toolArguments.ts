@@ -11,8 +11,14 @@ const checkFilesArgumentsSchema = z.strictObject({
   files: projectPathsSchema,
 });
 const issueReferenceSchema = z.union([
-  z.strictObject({ clusterId: z.string().min(1) }),
-  z.strictObject({ issueId: z.string().min(1) }),
+  z.strictObject({
+    clusterId: z.string().min(1),
+    checkId: z.string().min(1).optional(),
+  }),
+  z.strictObject({
+    issueId: z.string().min(1),
+    checkId: z.string().min(1).optional(),
+  }),
 ]);
 
 export type IssueReference = z.infer<typeof issueReferenceSchema>;

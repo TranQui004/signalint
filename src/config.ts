@@ -5,10 +5,22 @@ export const ENGINE_NAMES = ["oxlint", "tsc", "biome"] as const;
 
 export type EngineName = (typeof ENGINE_NAMES)[number];
 
+export type BiomeEngineConfig = boolean | { includeFormatter: boolean };
+
 export interface EngineSelection {
   oxlint: boolean;
   tsc: boolean;
-  biome: boolean;
+  biome: BiomeEngineConfig;
+}
+
+/** Returns whether an engine selection is enabled. */
+export function isEngineEnabled(selection: boolean | { includeFormatter: boolean }): boolean {
+  return typeof selection === "boolean" ? selection : true;
+}
+
+/** Returns whether Biome formatter diagnostics should be retained. */
+export function shouldIncludeBiomeFormatter(selection: BiomeEngineConfig): boolean {
+  return typeof selection === "object" && selection !== null && Boolean(selection.includeFormatter);
 }
 
 export interface EngineTimeouts {
@@ -94,8 +106,25 @@ function parseEngineSelection(value: unknown): EngineSelection {
   return {
     oxlint: readOptionalBoolean(value, "oxlint", DEFAULT_CONFIG.engines.oxlint),
     tsc: readOptionalBoolean(value, "tsc", DEFAULT_CONFIG.engines.tsc),
-    biome: readOptionalBoolean(value, "biome", DEFAULT_CONFIG.engines.biome),
+    biome: parseBiomeOption(value.biome),
   };
+}
+
+function parseBiomeOption(value: unknown): BiomeEngineConfig {
+  if (value === undefined) {
+    return DEFAULT_CONFIG.engines.biome;
+  }
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (isRecord(value)) {
+    assertKnownKeys(value, new Set(["includeFormatter"]), '"engines.biome"');
+    if (typeof value.includeFormatter !== "boolean") {
+      throw new Error('signalint.config.json engine "biome.includeFormatter" must be a boolean.');
+    }
+    return { includeFormatter: value.includeFormatter };
+  }
+  throw new Error('signalint.config.json engine "biome" must be a boolean or an object with "includeFormatter".');
 }
 
 function parseIgnoreGlobs(value: unknown): string[] {

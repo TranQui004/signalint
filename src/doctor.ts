@@ -1,7 +1,7 @@
 import { readFile, readdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve } from "node:path";
 
 import { CLIENT_REGISTRY, getLegacyAntigravityConfigPath, type McpClientSpec } from "./clients/registry.js";
 import { readCanonicalProjectRoot } from "./projectPaths.js";

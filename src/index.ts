@@ -25,8 +25,10 @@ import {
 import { clusterIssues, type ClusterResult } from "./cluster/clusterEngine.js";
 import {
   filterIgnoredPaths,
+  isEngineEnabled,
   isIgnoredPath,
   loadSignalintConfig,
+  shouldIncludeBiomeFormatter,
 } from "./config.js";
 import { filterDefaultExcludedIssues } from "./defaultExclusions.js";
 import {
@@ -96,6 +98,7 @@ interface ToolHandlerContext {
   cwd: string;
   fileIssueProvider: IssueProvider;
   latestIssues: NormalizedIssue[];
+  latestCheckId?: string | undefined;
   projectIssueProvider: IssueProvider;
   sessionMemory: SessionMemory;
 }
@@ -229,6 +232,7 @@ const checkOutputSchema = {
       type: "string" as const,
       enum: ["oxlint", "tsc", "biome"] as const,
     },
+    checkId: { type: "string" as const },
     code: { type: "string" as const },
     message: { type: "string" as const },
   },
@@ -365,6 +369,7 @@ const tools = [
       properties: {
         clusterId: { type: "string" as const },
         issueId: { type: "string" as const },
+        checkId: { type: "string" as const },
       },
       oneOf: [
         { required: ["clusterId"] },
@@ -530,9 +535,10 @@ async function collectProjectIssueResult(
       },
       {
         engine: "biome",
-        enabled: config.engines.biome,
+        enabled: isEngineEnabled(config.engines.biome),
         run: () => runBiome(includedPaths, {
           cwd,
+          includeFormatter: shouldIncludeBiomeFormatter(config.engines.biome),
           signal: linkedAbort.controller.signal,
           timeoutMs: config.timeoutsMs.biome,
         }),
@@ -646,6 +652,12 @@ async function dispatchToolCall(
   }
   if (name === "get_issue_detail") {
     const reference = parseIssueReference(argumentsValue);
+    if (
+      reference.checkId !== undefined &&
+      (context.latestCheckId === undefined || reference.checkId !== context.latestCheckId)
+    ) {
+      return createTextResult(STALE_REFERENCE_RESPONSE);
+    }
     return createTextResult(resolveIssueDetail(context.latestIssues, reference));
   }
   if (name === "get_loop_status") {
@@ -698,8 +710,9 @@ async function runContextCheck(
     signal,
     provider,
     context.sessionMemory,
-    (issues) => {
+    (issues, checkId) => {
       context.latestIssues = issues;
+      context.latestCheckId = checkId;
     },
     source,
     context.cwd,
@@ -812,7 +825,7 @@ async function runCheck(
   signal: AbortSignal,
   provider: IssueProvider,
   sessionMemory: SessionMemory,
-  saveIssues: (issues: NormalizedIssue[]) => void,
+  saveIssues: (issues: NormalizedIssue[], checkId?: string) => void,
   source: "project" | "files" = "project",
   projectRoot: string = process.cwd(),
 ): Promise<CallToolResult> {
@@ -832,7 +845,7 @@ async function runCheck(
       startedAt,
       source,
     );
-    saveIssues(clustered.issues);
+    saveIssues(clustered.issues, clustered.response.checkId);
     return createTextResult(response);
   } catch (error: unknown) {
     if (error instanceof EngineTimeoutError) {

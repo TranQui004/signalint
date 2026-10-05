@@ -15,9 +15,9 @@ import {
 } from "../subprocess.js";
 
 interface OxlintRunOptions {
-  cwd?: string;
+  cwd?: string | undefined;
   signal?: AbortSignal | undefined;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /** Parses Oxlint JSON output and assumes filenames are relative to the supplied working directory. */

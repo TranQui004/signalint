@@ -9,6 +9,8 @@ import { createLinkedAbortController } from "./abort.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
 import {
   DEFAULT_CONFIG,
+  isEngineEnabled,
+  shouldIncludeBiomeFormatter,
   type EngineSelection,
   type EngineTimeouts,
 } from "./config.js";
@@ -24,9 +26,10 @@ import { resolveProjectPaths, type ResolvedProjectPath } from "./projectPaths.js
 export type CacheEngine = IssueEngine;
 
 export interface EngineRunOptions {
-  cwd?: string;
+  cwd?: string | undefined;
+  includeFormatter?: boolean | undefined;
   signal?: AbortSignal | undefined;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 export type EngineRunner = (
@@ -148,13 +151,16 @@ export async function checkFilesWithStats(
       },
       {
         engine: "biome",
-        enabled: engines.biome,
+        enabled: isEngineEnabled(engines.biome),
         run: () => checkFileLocalEngine(
           "biome",
           snapshots.filter((snapshot) => isBiomeRelevant(snapshot.file)),
           cwd,
           cache,
-          runners.biome,
+          (paths, opts) => (runners.biome ?? runBiome)(paths, {
+            ...opts,
+            includeFormatter: shouldIncludeBiomeFormatter(engines.biome),
+          }),
           timeoutsMs.biome,
           linkedAbort.controller.signal,
         ),

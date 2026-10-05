@@ -42,8 +42,8 @@ describe("check_project MCP integration", () => {
     });
     expect(response.totalIssues).toBe(2);
     expect(response.clusters).toHaveLength(2);
-    expect(response.clusters.map((cluster) => cluster.priority)).toEqual([1, 2]);
-    expect(response.clusters.every((cluster) => cluster.clusterId !== "")).toBe(true);
+    expect(response.clusters.map((cluster) => cluster.priority)).toEqual([2, 4]);
+    expect(response.clusters.every((cluster) => cluster.clusterId.startsWith("c"))).toBe(true);
   });
 });
 

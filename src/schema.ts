@@ -79,6 +79,7 @@ export interface CheckResponse {
   truncated: boolean;
   loopWarning: LoopWarning | null;
   fileRuleChurnWarning: FileRuleChurnWarning | null;
+  checkId?: string;
   code?: string;
   message?: string;
 }
@@ -173,6 +174,7 @@ export function isCheckResponse(value: unknown): value is CheckResponse {
     typeof value.truncated === "boolean" &&
     (value.loopWarning === null || isLoopWarning(value.loopWarning)) &&
     (value.fileRuleChurnWarning === null || isFileRuleChurnWarning(value.fileRuleChurnWarning)) &&
+    (value.checkId === undefined || typeof value.checkId === "string") &&
     (value.code === undefined || typeof value.code === "string") &&
     (value.message === undefined || typeof value.message === "string")
   );

@@ -18,9 +18,9 @@ import {
 import { containProjectPath, resolveProjectPath } from "../projectPaths.js";
 
 interface TscRunOptions {
-  cwd?: string;
+  cwd?: string | undefined;
   signal?: AbortSignal | undefined;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 interface PendingDiagnostic {

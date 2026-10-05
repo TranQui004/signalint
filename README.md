@@ -407,6 +407,33 @@ run:
 node node_modules/signalint-mcp/examples/check-project.mjs .
 ```
 
+## Priority ladder
+
+Signalint orders diagnostic clusters by priority ascending (1 is most urgent, 5 is least urgent).
+The priority ladder evaluates severity, systemic scope across multiple files, rule frequency, and
+fix availability:
+
+| Priority | Meaning |
+|---|---|
+| **1** | Error, systemic (many issues across multiple files) |
+| **2** | Error, local, no structured fix known |
+| **3** | Error, structured fix available |
+| **4** | Warning, local, no structured fix known |
+| **5** | Warning, structured fix available or systemic-but-cosmetic |
+
+## Compression benchmark
+
+Measured against realistic multi-engine fixture suites (`pnpm bench`):
+
+| Representation | Size | Notes |
+|---|---|---|
+| (a) Raw engine output | 7,370 bytes | Compact CLI output (`oxlint --format agent` + `tsc --pretty false`) |
+| (b) Signalint normalized | 19,103 bytes | Complete structured JSON diagnostics with per-issue metadata |
+| (c) Signalint clustered | 1,427 bytes | High-density agent summary response with root causes and priorities |
+
+- **Reduction vs raw engine output:** 80.6%
+- **Reduction vs normalized diagnostics:** 92.5%
+
 ## GitHub Actions
 
 `action.yml` at the repository root wraps `signalint check` as a composite
@@ -422,10 +449,10 @@ the pull request diff:
 
 `fail-on-priority` defaults to `5`, which fails the job on any issue found,
 matching `signalint check`'s default behavior without the flag. Lower values
-only fail the job when a cluster is at least that urgent: priority 1 is an
-error with no structured fix, and priority increases toward 5 as issues
-become more fixable or more systemic (see `scorePriority` in
-`src/cluster/clusterEngine.ts`).
+only fail the job when a cluster is at least that urgent: priority 1 is a
+systemic error, priority 2 is a local error with no fix, priority 3 is an
+error with a structured fix, priority 4 is a local warning, and priority 5
+is a fixable or systemic-cosmetic warning (see the Priority ladder table above).
 
 ## Development
 

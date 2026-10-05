@@ -56,6 +56,7 @@
     "node": "^20.19.0 || >=22.12.0"
   },
   "scripts": {
+    "bench": "node scripts/bench.mjs",
     "build": "tsc -p tsconfig.json",
     "lint": "oxlint src test --ignore-pattern test/fixtures",
     "start": "node dist/src/index.js",

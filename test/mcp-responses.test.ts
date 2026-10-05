@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -168,14 +168,34 @@ describe("MCP response amendments", () => {
       throw new Error("Expected clustered fixture issue.");
     }
 
+    const checkId = (checkResult.structuredContent as CheckResponse).checkId;
+    expect(typeof checkId).toBe("string");
+
+    const detailWithValidCheckId = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { clusterId, checkId },
+    });
+    expect(detailWithValidCheckId.structuredContent).toEqual({
+      issues: [{ ...issue, clusterId }],
+    });
+
+    const detailWithStaleCheckId = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { clusterId, checkId: "stale-check-id" },
+    });
+    expect(detailWithStaleCheckId.structuredContent).toEqual({
+      status: "stale",
+      message: "This cluster/issue no longer exists; run check_project again.",
+    });
+
     const detailResult = await client.callTool({
       name: "get_issue_detail",
       arguments: { clusterId },
     });
     expect(detailResult.structuredContent).toEqual({
-      issues: [{ ...issue, clusterId: "c1" }],
+      issues: [{ ...issue, clusterId }],
     });
-    expect(parseText(detailResult.content)).toEqual([{ ...issue, clusterId: "c1" }]);
+    expect(parseText(detailResult.content)).toEqual([{ ...issue, clusterId }]);
 
     const loopResult = await client.callTool({
       name: "get_loop_status",
@@ -183,6 +203,26 @@ describe("MCP response amendments", () => {
     });
     expect(loopResult.structuredContent).toEqual({ looping: false, signatures: [], fileChurning: false, fileRuleChurns: [] });
     expect(parseText(loopResult.content)).toEqual({ looping: false, signatures: [], fileChurning: false, fileRuleChurns: [] });
+  });
+
+  it("safely handles concurrent check calls without corrupting session state or JSONL logs", async () => {
+    const memory = new SessionMemory({ logPath });
+    const client = await connectServer(() => Promise.resolve([makeIssue()]), memory);
+
+    const [res1, res2] = await Promise.all([
+      client.callTool({ name: "check_project", arguments: { paths: ["."] } }),
+      client.callTool({ name: "check_project", arguments: { paths: ["."] } }),
+    ]);
+
+    expect(isCheckResponse(res1.structuredContent)).toBe(true);
+    expect(isCheckResponse(res2.structuredContent)).toBe(true);
+
+    const content = await readFile(logPath, "utf8");
+    const lines = content.trim().split("\n").filter((line) => line.trim().length > 0);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (const line of lines) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
   });
 
   it("delivers structuredContent on timeout, output-limit, and invalid argument errors", async () => {
@@ -231,10 +271,11 @@ describe("MCP response amendments", () => {
 
 async function connectServer(
   provider: () => Promise<NormalizedIssue[]>,
+  memory?: SessionMemory | undefined,
 ): Promise<Client> {
   const server = createServer({
     projectIssueProvider: provider,
-    sessionMemory: new SessionMemory({ logPath }),
+    sessionMemory: memory ?? new SessionMemory({ logPath }),
   });
   servers.push(server);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

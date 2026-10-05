@@ -10,7 +10,9 @@ import {
 } from "./clients/registry.js";
 import {
   DEFAULT_CONFIG,
+  isEngineEnabled,
   loadSignalintConfig,
+  type BiomeEngineConfig,
   type SignalintConfig,
 } from "./config.js";
 
@@ -510,8 +512,8 @@ function formatCopyableSnippets(
   return `MCP client configuration was not written. Copy the appropriate snippet:\n\n${snippets.join("\n\n")}\n`;
 }
 
-function formatEnabled(enabled: boolean): string {
-  return enabled ? "on" : "off";
+function formatEnabled(enabled: boolean | BiomeEngineConfig): string {
+  return isEngineEnabled(enabled) ? "on" : "off";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

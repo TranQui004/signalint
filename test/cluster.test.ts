@@ -19,7 +19,7 @@ describe("Cluster Engine", () => {
 
     expect(result.response.clusters).toHaveLength(4);
     expect(result.response.schemaVersion).toBe("1.3");
-    expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([1, 2, 5, 5]);
+    expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([1, 1, 5, 5]);
     expect(result.issues.every((issue) => issue.clusterId !== undefined)).toBe(true);
     expect(result.response.clusters.every((cluster) => cluster.issueCount === 10)).toBe(true);
     expect(isCheckResponse(result.response)).toBe(true);
@@ -36,12 +36,38 @@ describe("Cluster Engine", () => {
 
     expect(result.response.clusters).toHaveLength(3);
     expect(new Set(result.issues.map((issue) => issue.clusterId)).size).toBe(3);
-    expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([1, 2, 4]);
+    expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([2, 4, 5]);
     expect(result.response.clusters.map((cluster) => cluster.rootCauseSummary)).toEqual([
       "1 single-rule issue across 1 file",
       "1 single-rule issue across 1 file",
       "1 single-rule issue across 1 file",
     ]);
+  });
+
+  it("produces more than two distinct priorities covering the 1-5 priority ladder", () => {
+    const issues = [
+      // Systemic error across multiple files -> priority 1
+      makeIssue("sys-1", "src/a.ts", "systemic-err", "error", false),
+      makeIssue("sys-2", "src/b.ts", "systemic-err", "error", false),
+      makeIssue("sys-3", "src/c.ts", "systemic-err", "error", false),
+      makeIssue("sys-4", "src/d.ts", "systemic-err", "error", false),
+      makeIssue("sys-5", "src/e.ts", "systemic-err", "error", false),
+      // Local error without fix -> priority 2
+      makeIssue("loc-err", "src/loc.ts", "local-err", "error", false),
+      // Local error with structured fix -> priority 3
+      makeIssue("loc-fix-err", "src/loc-fix.ts", "fix-err", "error", true),
+      // Local warning without fix -> priority 4
+      makeIssue("loc-warn", "src/warn.ts", "local-warn", "warning", false),
+      // Local warning with structured fix -> priority 5
+      makeIssue("loc-fix-warn", "src/warn-fix.ts", "fix-warn", "warning", true),
+    ];
+
+    const result = clusterIssues(issues);
+    const priorities = result.response.clusters.map((cluster) => cluster.priority);
+    const uniquePriorities = Array.from(new Set(priorities)).sort((a, b) => a - b);
+
+    expect(uniquePriorities.length).toBeGreaterThan(2);
+    expect(uniquePriorities).toEqual([1, 2, 3, 4, 5]);
   });
 
   it("meets the 40-issue compactness acceptance criterion", async () => {

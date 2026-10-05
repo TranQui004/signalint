@@ -17,6 +17,13 @@ full detail.
 - On server creation, write exactly once to stderr: `[signalint] project root: <root>`.
 - Require `signalint.config.json` before running `check_project` or `check_files` (returns `code: "project_not_initialized"`, with `SIGNALINT_ALLOW_UNINITIALIZED=1` escape hatch).
 - Sanity check JS/TS project markers (reject non-JS projects with `code: "not_a_js_project"`).
+- Rewrote `scorePriority()` with a reliable 1–5 priority ladder based on severity, systemic scope across files, file count, and issue count, with `fixable` as a tie-breaker.
+- Hardened Biome adapter: tolerantly maps severities (`info` -> warning, `fatal` -> error, unknown string -> error with preserved name) without throwing; suppresses formatter noise by default and drops `category === "format"` diagnostics; detects safe fixes in `advices` matching `/safe fix/i` to set `fixable: true`; accepts `engines.biome` as `boolean | { includeFormatter: boolean }`.
+- Replaced positional cluster IDs (`c1`, `c2`) with stable content-derived IDs (`c` + SHA-1 prefix of `sorted(ruleIds)|severity|systemic`).
+- Keyed cluster assignment by `issueId` rather than object identity.
+- Added additive `checkId` to `CheckResponse` and `checkOutputSchema`; `get_issue_detail` now supports freshness validation via optional `checkId` parameter, returning `status: "stale"` on mismatch.
+- Added `pnpm bench` (`scripts/bench.mjs`) measuring payload reduction against real multi-engine output.
+- Ensured concurrent tool call safety by serializing `SessionMemory.recordCheck` through an internal promise queue and eliminating the file read-to-write await gap in session logging.
 - Added `McpClientSpec` client registry in `src/clients/registry.ts` defining specs for Claude Code, Cursor, Codex CLI, Antigravity, VS Code, Windsurf, and Zed across project and user scopes.
 - Client candidate detection now prioritizes project-scoped configurations over user/global configurations.
 - Enforced safe `cwd` emission: `init` omits `cwd` when configuring user/global paths and emits a prominent warning with project-scoped configuration snippet alternatives.

@@ -395,7 +395,13 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 
 ## 14. Success Metrics (v1)
 
-- ≥70% reduction in diagnostic payload size vs. raw tool output (measured, not estimated)
+- ≥70% reduction in diagnostic payload size vs. raw tool output (measured, not estimated):
+  - **Verified benchmark (2026-10-06 via `scripts/bench.mjs`):**
+    - Raw engine output (`oxlint --format agent` + `tsc --pretty false`): 7,370 bytes
+    - Signalint normalized issues: 19,103 bytes
+    - Signalint clustered response: 1,427 bytes
+    - **Reduction vs raw engine output: 80.6%**
+    - **Reduction vs normalized issues: 92.5%**
 - <300ms incremental check latency on a mid-size repo (≤500 files) for a 1-3 file change
 - At least 1 real loop-breaking event demonstrated in a dogfooding session
 - Successful install + first use by at least 5 external users within 30 days of publishing
@@ -427,7 +433,7 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 | Cache and session history grow without bounds (final pre-launch reviews, 2026-08-01) | Resolved pre-launch: 10,000-row LRU cache cap plus bounded 5,000-entry session replay and 10 MiB rotation |
 | Engine config discovery is narrower than README claims: `.oxlintrc.jsonc`, `extends` chains, nested/monorepo configs, and Biome config in `package.json` are missed (final CL1 review, 2026-08-01) | Backlog: widen the literal discovery list or soften the README claim that changing engine config always invalidates cache |
 | `engine_state` is keyed by engine alone rather than engine plus config hash, so alternating configs or branches never hit whole-program cache (final CL1 review, 2026-08-01) | Backlog: include `config_hash` in the engine-state key |
-| Biome hardcodes `fixable: false` while Oxlint derives structured fixability, under-claiming fixes and skewing cluster priority (final CL1 review, 2026-08-01) | **Investigated, closed (2026-09):** `--reporter=json` (Biome 2.5.8) returns no per-diagnostic fix data — `advices: []` even for rules Biome can auto-fix; the `suggestedFixesSkipped` field in the `summary` block is aggregate, not per-diagnostic. Fix-span and replacement text are only surfaced through `biome check --write`, which applies edits and is outside the read-only adapter contract. `fixable: false` is accurate, not under-claiming. Revisit if Biome adds per-diagnostic fix metadata to the JSON reporter. |
+| Biome hardcodes `fixable: false` while Oxlint derives structured fixability, under-claiming fixes and skewing cluster priority (final CL1 review, 2026-08-01) | **Revised (2026-10-06):** revises the earlier "Biome has no per-diagnostic fix data" conclusion — the fix data is in `advices`, matching `/safe fix/i`, rather than a top-level `fix` field. The Biome adapter now inspects `advices` to report `fixable: true`. |
 | Cluster assignment maps by object identity rather than `issueId`, so a future clone between grouping and mapping would fail `requireClusterId` (final CL1 review, 2026-08-01) | Backlog: key cluster assignments by stable `issueId` |
 | `isNormalizedIssue` rejects long cached messages even though normalization should own the length invariant (final CL1 review, 2026-08-01) | Backlog: truncate on the write/normalization path and keep cache reads tolerant |
 | Timeout failures have top-level `status: timeout` and per-engine `status: error` variants with inconsistent MCP `isError` flags (final CL1 review, 2026-08-01) | Backlog: standardize on the per-engine response shape used by normal checks |

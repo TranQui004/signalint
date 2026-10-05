@@ -14,22 +14,33 @@ import {
   type CommandResult,
 } from "../subprocess.js";
 
-interface BiomeRunOptions {
-  cwd?: string;
+export interface BiomeRunOptions {
+  cwd?: string | undefined;
+  includeFormatter?: boolean | undefined;
   signal?: AbortSignal | undefined;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /** Parses pinned Biome JSON reporter output into exact Normalized Issue objects. */
 export function parseBiomeOutput(
   output: string,
   cwd: string = process.cwd(),
+  includeFormatter: boolean = false,
 ): NormalizedIssue[] {
   const parsed: unknown = JSON.parse(output);
   if (!isRecord(parsed) || !Array.isArray(parsed.diagnostics)) {
     throw new Error("Biome output did not contain a diagnostics array.");
   }
-  return parsed.diagnostics.map((diagnostic) => normalizeBiomeDiagnostic(diagnostic, cwd));
+  const filtered = parsed.diagnostics.filter((diagnostic) => {
+    if (!isRecord(diagnostic)) {
+      return false;
+    }
+    if (!includeFormatter && diagnostic.category === "format") {
+      return false;
+    }
+    return true;
+  });
+  return filtered.map((diagnostic) => normalizeBiomeDiagnostic(diagnostic, cwd));
 }
 
 /** Runs the pinned Biome check command for supplied paths and returns normalized diagnostics. */
@@ -40,7 +51,9 @@ export async function runBiome(
   try {
     const cwd = options.cwd ?? process.cwd();
     const result = await runBiomeProcess(paths, cwd, options);
-    const issues = result.stdout.trim() === "" ? [] : parseBiomeOutput(result.stdout, cwd);
+    const issues = result.stdout.trim() === ""
+      ? []
+      : parseBiomeOutput(result.stdout, cwd, options.includeFormatter ?? false);
     if (result.exitCode !== 0 && issues.length === 0) {
       throw new Error(
         `Biome failed with exit code ${String(result.exitCode)}: ${result.stderr.trim()}`,
@@ -53,20 +66,18 @@ export async function runBiome(
 }
 
 function normalizeBiomeDiagnostic(diagnostic: unknown, cwd: string): NormalizedIssue {
-  if (!isRecord(diagnostic) || !isRecord(diagnostic.location)) {
-    throw new Error("Biome returned a diagnostic without a location object.");
+  if (!isRecord(diagnostic)) {
+    throw new Error("Biome returned a diagnostic that was not an object.");
   }
-  const location = diagnostic.location;
-  const start = location.start;
-  if (!isRecord(start)) {
-    throw new Error("Biome diagnostic location did not contain a start position.");
-  }
-
-  const file = normalizeFile(readString(location, "path"), cwd);
-  const line = readInteger(start, "line");
-  const col = readInteger(start, "column");
-  const rule = readString(diagnostic, "category");
-  const message = normalizeIssueMessage(readString(diagnostic, "message"));
+  const location = isRecord(diagnostic.location) ? diagnostic.location : {};
+  const start = isRecord(location.start) ? location.start : {};
+  const file = typeof location.path === "string" ? normalizeFile(location.path, cwd) : "";
+  const line = typeof start.line === "number" && Number.isInteger(start.line) ? start.line : 1;
+  const col = typeof start.column === "number" && Number.isInteger(start.column) ? start.column : 1;
+  const rule = typeof diagnostic.category === "string" ? diagnostic.category : "unknown";
+  const rawMessage = typeof diagnostic.message === "string" ? diagnostic.message : "";
+  const { severity, message } = readSeverityAndMessage(diagnostic.severity, rawMessage);
+  const fixable = isBiomeDiagnosticFixable(diagnostic);
 
   return {
     issueId: createIssueId(file, rule, line, message),
@@ -75,33 +86,52 @@ function normalizeBiomeDiagnostic(diagnostic: unknown, cwd: string): NormalizedI
     col,
     engine: "biome",
     rule,
-    severity: readSeverity(diagnostic.severity),
+    severity,
     message,
-    fixable: false,
+    fixable,
   };
 }
 
-function readSeverity(value: unknown): IssueSeverity {
-  if (value === "error" || value === "warning") {
-    return value;
+function readSeverityAndMessage(
+  value: unknown,
+  rawMessage: string,
+): { severity: IssueSeverity; message: string } {
+  if (value === "error") {
+    return { severity: "error", message: normalizeIssueMessage(rawMessage) };
   }
-  throw new Error(`Unsupported Biome severity: ${String(value)}`);
+  if (value === "warning" || value === "info") {
+    return { severity: "warning", message: normalizeIssueMessage(rawMessage) };
+  }
+  if (value === "fatal") {
+    return { severity: "error", message: normalizeIssueMessage(rawMessage) };
+  }
+  const prefix = `[${String(value)}] `;
+  return {
+    severity: "error",
+    message: normalizeIssueMessage(`${prefix}${rawMessage}`),
+  };
 }
 
-function readString(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  if (typeof value !== "string") {
-    throw new Error(`Biome diagnostic field "${key}" was not a string.`);
-  }
-  return value;
-}
+function isBiomeDiagnosticFixable(diagnostic: Record<string, unknown>): boolean {
+  const advicesValue = diagnostic.advices;
+  const list: unknown[] = Array.isArray(advicesValue)
+    ? advicesValue
+    : isRecord(advicesValue) && Array.isArray(advicesValue.advices)
+      ? advicesValue.advices
+      : [];
 
-function readInteger(record: Record<string, unknown>, key: string): number {
-  const value = record[key];
-  if (typeof value !== "number" || !Number.isInteger(value)) {
-    throw new Error(`Biome diagnostic field "${key}" was not an integer.`);
-  }
-  return value;
+  return list.some((advice) => {
+    if (!isRecord(advice)) {
+      return false;
+    }
+    if (typeof advice.text === "string" && /safe fix/i.test(advice.text)) {
+      return true;
+    }
+    if (typeof advice.message === "string" && /safe fix/i.test(advice.message)) {
+      return true;
+    }
+    return false;
+  });
 }
 
 function normalizeFile(file: string, cwd: string): string {
@@ -117,20 +147,35 @@ async function runBiomeProcess(
   const require = createRequire(import.meta.url);
   const packagePath = require.resolve("@biomejs/biome/package.json");
   const cliPath = resolve(dirname(packagePath), "bin", "biome");
-  return runEngineCommand(process.execPath, createBiomeCliArgs(cliPath, paths), {
-    cwd,
-    engine: "biome",
-    signal: options.signal,
-    timeoutMs: options.timeoutMs ?? DEFAULT_CONFIG.timeoutsMs.biome,
-  });
+  return runEngineCommand(
+    process.execPath,
+    createBiomeCliArgs(cliPath, paths, options.includeFormatter ?? false),
+    {
+      cwd,
+      engine: "biome",
+      signal: options.signal,
+      timeoutMs: options.timeoutMs ?? DEFAULT_CONFIG.timeoutsMs.biome,
+    },
+  );
 }
 
-/** Builds Biome argv with an end-of-options separator before all file paths. */
+/** Builds Biome argv with optional formatter suppression flags and an end-of-options separator. */
 export function createBiomeCliArgs(
   cliPath: string,
   paths: readonly string[],
+  includeFormatter: boolean = false,
 ): string[] {
-  return [cliPath, "check", "--reporter=json", "--", ...paths];
+  const args = [cliPath, "check", "--reporter=json"];
+  if (!includeFormatter) {
+    args.push(
+      "--javascript-formatter-enabled=false",
+      "--json-formatter-enabled=false",
+      "--css-formatter-enabled=false",
+      "--graphql-formatter-enabled=false",
+    );
+  }
+  args.push("--", ...paths);
+  return args;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

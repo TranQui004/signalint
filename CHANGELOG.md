@@ -17,7 +17,13 @@ full detail.
 - On server creation, write exactly once to stderr: `[signalint] project root: <root>`.
 - Require `signalint.config.json` before running `check_project` or `check_files` (returns `code: "project_not_initialized"`, with `SIGNALINT_ALLOW_UNINITIALIZED=1` escape hatch).
 - Sanity check JS/TS project markers (reject non-JS projects with `code: "not_a_js_project"`).
-- Added `SIGNALINT_PROJECT_ROOT` environment override with containment verification and stderr fallback.
+- Added `McpClientSpec` client registry in `src/clients/registry.ts` defining specs for Claude Code, Cursor, Codex CLI, Antigravity, VS Code, Windsurf, and Zed across project and user scopes.
+- Client candidate detection now prioritizes project-scoped configurations over user/global configurations.
+- Enforced safe `cwd` emission: `init` omits `cwd` when configuring user/global paths and emits a prominent warning with project-scoped configuration snippet alternatives.
+- Corrected Antigravity configuration paths: project-scoped `<root>/.agents/mcp_config.json` and user-scoped `~/.gemini/config/mcp_config.json`. Added migration check for legacy `~/.gemini/antigravity/mcp_config.json`.
+- Added Codex CLI TOML block emitter (`[mcp_servers.signalint]`) with `startup_timeout_sec = 20` and conditional `cwd`.
+- Added `signalint doctor` CLI command to check project root, `signalint.config.json`, JS markers, engine versions, and detect stale `cwd` references across active MCP configs.
+- Rewrote MCP client documentation in `README.md`, added Supported Clients table, and added "Multiple projects" section explaining the global config trap.
 
 ## 0.4.2
 

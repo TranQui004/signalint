@@ -2,6 +2,7 @@
 
 import { resolve } from "node:path";
 
+import { runDoctorCommand } from "./doctor.js";
 import { runInitCommand } from "./init.js";
 import { checkProjectWithIssues } from "./index.js";
 import { isMainModule } from "./mainModule.js";
@@ -21,10 +22,11 @@ interface ParsedCheckArgs {
 export async function runCli(
   args: readonly string[],
   cwd: string = process.cwd(),
+  homeDir?: string,
 ): Promise<number> {
   const [command, ...rest] = args;
   if (command === "--help" || command === "-h" || command === undefined) {
-    process.stdout.write("Usage: signalint <init | check [path ...] | stats>\n");
+    process.stdout.write("Usage: signalint <init | check [path ...] | stats | doctor>\n");
     return 0;
   }
   if (command === "init") {
@@ -32,7 +34,7 @@ export async function runCli(
       process.stderr.write("Usage: signalint init\n");
       return 2;
     }
-    return await runInitCommand({ cwd });
+    return await runInitCommand({ cwd, homeDir });
   }
   if (command === "stats") {
     if (rest.length > 0) {
@@ -44,9 +46,16 @@ export async function runCli(
     );
     return 0;
   }
+  if (command === "doctor") {
+    if (rest.length > 0) {
+      process.stderr.write("Usage: signalint doctor\n");
+      return 2;
+    }
+    return await runDoctorCommand({ cwd, homeDir });
+  }
   if (command !== "check") {
     process.stderr.write(
-      `Unknown command: ${command}\nUsage: signalint <init | check [path ...] | stats>\n`,
+      `Unknown command: ${command}\nUsage: signalint <init | check [path ...] | stats | doctor>\n`,
     );
     return 2;
   }

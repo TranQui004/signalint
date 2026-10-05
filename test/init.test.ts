@@ -132,10 +132,10 @@ describe("signalint init", () => {
     });
   });
 
-  it("detects and merges the standard Antigravity user configuration", async () => {
+  it("detects and merges the standard Antigravity user configuration without pinning cwd", async () => {
     const root = await createTemporaryProject();
     const homeDirectory = join(root, "home");
-    const antigravityDirectory = join(homeDirectory, ".gemini", "antigravity");
+    const antigravityDirectory = join(homeDirectory, ".gemini", "config");
     const configPath = join(antigravityDirectory, "mcp_config.json");
     await mkdir(antigravityDirectory, { recursive: true });
     await writeFile(configPath, '{"mcpServers":{"other":{"command":"other"}}}\n', "utf8");
@@ -158,7 +158,6 @@ describe("signalint init", () => {
         signalint: {
           command: "npx",
           args: ["--no-install", "signalint-mcp"],
-          cwd: root,
         },
       },
     });

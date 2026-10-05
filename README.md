@@ -144,9 +144,21 @@ linter is detected. To configure Signalint manually, create `signalint.config.js
 }
 ```
 
+## Supported clients
+
+| Client | Project-scoped (preferred) | User/global (fallback) | Config format / key | Working directory (`cwd`) |
+|---|---|---|---|---|
+| **Claude Code** | `<root>/.mcp.json` | `~/.claude.json` | JSON (`mcpServers`) | Automatic (Claude sets `cwd` to project root) |
+| **Cursor** | `<root>/.cursor/mcp.json` | `~/.cursor/mcp.json` | JSON (`mcpServers`) | Supported (emitted for project scope only) |
+| **Codex CLI** | `<root>/.codex/config.toml` | `~/.codex/config.toml` | TOML (`[mcp_servers.<name>]`) | Supported (emitted for project scope only) |
+| **Antigravity** | `<root>/.agents/mcp_config.json` | `~/.gemini/config/mcp_config.json` | JSON (`mcpServers`) | Not emitted (runs in active workspace) |
+| **VS Code** | `<root>/.vscode/mcp.json` | User settings (`chat.mcp.servers`) | JSON (`servers`) | Not supported |
+| **Windsurf** | — | `~/.codeium/windsurf/mcp_config.json` | JSON (`mcpServers`) | Not emitted |
+| **Zed** | — | `~/.config/zed/settings.json` | JSON (`context_servers`) | Not supported |
+
 ## Claude Code setup
 
-Run this from the checked project. Project scope writes a shareable `.mcp.json`:
+Run this from the checked project. Project scope writes a shareable `<root>/.mcp.json`:
 
 ```sh
 claude mcp add --scope project signalint -- npx --no-install signalint-mcp
@@ -168,7 +180,66 @@ for scope and troubleshooting details.
 
 ## Cursor setup
 
-Create `.cursor/mcp.json` in the checked project:
+Create `<root>/.cursor/mcp.json` in the checked project:
+
+```json
+{
+  "mcpServers": {
+    "signalint": {
+      "command": "npx",
+      "args": ["--no-install", "signalint-mcp"],
+      "cwd": "/path/to/project"
+    }
+  }
+}
+```
+
+On native Windows, use `"command": "cmd"` and
+`"args": ["/c", "npx", "--no-install", "signalint-mcp"]`. Open Cursor's MCP
+settings, enable `signalint`, and call `ping` followed by `check_project`.
+
+See the [Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol)
+for configuration locations and status controls.
+
+## Codex CLI setup
+
+The Codex CLI supports both project-scoped and user-scoped TOML configuration.
+For project-scoped configuration (trusted projects only), write `<root>/.codex/config.toml`:
+
+```toml
+[mcp_servers.signalint]
+command = "npx"
+args = ["--no-install", "signalint-mcp"]
+startup_timeout_sec = 20
+cwd = "/path/to/project"
+```
+
+On native Windows, use `cmd` with arguments:
+
+```toml
+[mcp_servers.signalint]
+command = "cmd"
+args = ["/c", "npx", "--no-install", "signalint-mcp"]
+startup_timeout_sec = 20
+cwd = "C:\\path\\to\\project"
+```
+
+To configure Codex CLI globally (without pinning a working directory):
+
+```sh
+codex mcp add signalint -- npx --no-install signalint-mcp
+```
+
+See the [Codex MCP documentation](https://developers.openai.com/codex/mcp)
+for configuration options including timeouts, `env`, and tool approvals.
+
+## Antigravity setup
+
+Antigravity supports two verified configuration locations:
+- **Project-scoped (preferred):** `<root>/.agents/mcp_config.json`
+- **User-scoped (global fallback):** `~/.gemini/config/mcp_config.json`
+
+Project configuration in `<root>/.agents/mcp_config.json`:
 
 ```json
 {
@@ -181,75 +252,52 @@ Create `.cursor/mcp.json` in the checked project:
 }
 ```
 
-On native Windows use `"command": "cmd"` and
-`"args": ["/c", "npx", "--no-install", "signalint-mcp"]`. Open Cursor's MCP
-settings, enable `signalint`, and call `ping` followed by `check_project`.
+On native Windows, use `"command": "cmd"` and `"args": ["/c", "npx", "--no-install", "signalint-mcp"]`.
 
-See the [Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol)
-for configuration locations and status controls.
+> **Migration note:** Earlier versions wrote to `~/.gemini/antigravity/mcp_config.json`. If you have a legacy `signalint` entry in that file, delete it to avoid configuration shadowing. Run `npx signalint-mcp doctor` to check for and report legacy entries.
 
-## Codex CLI setup
+See [antigravity.google/docs/mcp](https://antigravity.google/docs/mcp) for documentation.
 
-The ChatGPT desktop app, Codex CLI, and IDE extension share a single
-configuration file. The quick-add command writes to `~/.codex/config.toml`
-(global) automatically:
+## VS Code setup
 
-```sh
-codex mcp add signalint -- npx --no-install signalint-mcp
-```
-
-For project-scoped configuration (trusted projects only), add to
-`.codex/config.toml` in the project root:
-
-```toml
-[mcp_servers.signalint]
-command = "npx"
-args = ["--no-install", "signalint-mcp"]
-```
-
-On native Windows, use `cmd` and pass `npx` as an argument:
-
-```toml
-[mcp_servers.signalint]
-command = "cmd"
-args = ["/c", "npx", "--no-install", "signalint-mcp"]
-```
-
-See the [Codex MCP documentation](https://developers.openai.com/codex/mcp)
-for all configuration options including `cwd`, `env`, and per-tool approval
-settings.
-
-## Setting up with Antigravity
-
-Antigravity uses its own MCP configuration file. The path that has been
-verified through dogfooding on Windows is:
-`%USERPROFILE%\.gemini\antigravity\mcp_config.json`.
-
-The `init` command can update this file after confirmation. The equivalent
-Windows configuration is:
+Add Signalint to `<root>/.vscode/mcp.json` using the `servers` key:
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "signalint": {
-      "command": "cmd",
-      "args": ["/c", "npx", "--no-install", "signalint-mcp"],
-      "cwd": "<absolute-path-to-your-project>"
+      "command": "npx",
+      "args": ["--no-install", "signalint-mcp"]
     }
   }
 }
 ```
 
-On macOS or Linux, use `"command": "npx"` and
-`"args": ["--no-install", "signalint-mcp"]`. Restart or reconnect Antigravity
-after updating the configuration.
+## Multiple projects & troubleshooting
 
-**Note on Antigravity product variants:** Antigravity has split into separate
-products (IDE, CLI, SDK). Each variant may use a different config path — the
-IDE path above is the one confirmed working; other variants may use
-`~/.gemini/config/mcp_config.json` or a project-scoped `.agents/mcp_config.json`.
-See [antigravity.google/docs/mcp](https://antigravity.google/docs/mcp) for
-the authoritative list per product.
+### The global configuration trap
+When an MCP server is configured in a global user configuration file (`~/.claude.json`, `~/.cursor/mcp.json`, `~/.gemini/config/mcp_config.json`, or `~/.codex/config.toml`) with an absolute `cwd` path, the MCP server will **always** check the hardcoded project directory—regardless of which project or workspace is currently active. This causes silent false-positives or checking the wrong code.
+
+To prevent this:
+1. **Prefer project-scoped configuration:** Always keep the MCP config inside the project root (`.mcp.json`, `.cursor/mcp.json`, `.agents/mcp_config.json`, `.vscode/mcp.json`, or `.codex/config.toml`).
+2. **Never pin `cwd` in user configs:** Signalint `init` will never emit a `cwd` key when writing to a user-scoped configuration.
+3. **Environment variable override:** Set `SIGNALINT_PROJECT_ROOT=/path/to/project` to force Signalint to target a specific project directory when an MCP client does not launch from the project root.
+4. **Uninitialized projects:** By default, Signalint requires running `signalint init` so `signalint.config.json` exists. If you need to check an uninitialized project, set `SIGNALINT_ALLOW_UNINITIALIZED=1`.
+
+### Diagnosing configuration with `signalint doctor`
+
+Run `doctor` to inspect your project and detect common configuration issues:
+
+```sh
+npx signalint-mcp doctor
+```
+
+`doctor` checks:
+- Project root resolution and `signalint.config.json` presence.
+- JavaScript / TypeScript project markers.
+- Diagnostic engine availability (project-local vs. bundled copies) and versions.
+- Active MCP client configs, flagging any stale `cwd` entries that point to a different repository.
+- Legacy configuration files (such as `~/.gemini/antigravity/mcp_config.json`).
 
 ## Windows troubleshooting
 

@@ -1,7 +1,5 @@
-import { createRequire } from "node:module";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
-
 import { DEFAULT_CONFIG } from "../config.js";
+import { EngineDisabledError } from "../engineFanout.js";
 import { resolveEngine } from "../engineResolution.js";
 import {
   createIssueId,
@@ -14,6 +12,7 @@ import {
   runEngineCommand,
   type CommandResult,
 } from "../subprocess.js";
+import { isRecord, normalizeFile } from "../util/index.js";
 
 export interface BiomeRunOptions {
   cwd?: string | undefined;
@@ -49,9 +48,17 @@ export async function runBiome(
   paths: readonly string[],
   options: BiomeRunOptions = {},
 ): Promise<NormalizedIssue[]> {
+  const cwd = options.cwd ?? process.cwd();
+  const resolved = resolveEngine("biome", cwd);
+  if (resolved === undefined) {
+    throw new EngineDisabledError(
+      "biome",
+      "Biome is not installed in this project. Install @biomejs/biome to enable it.",
+    );
+  }
+
   try {
-    const cwd = options.cwd ?? process.cwd();
-    const result = await runBiomeProcess(paths, cwd, options);
+    const result = await runBiomeProcess(resolved.binPath, paths, cwd, options);
     const issues = result.stdout.trim() === ""
       ? []
       : parseBiomeOutput(result.stdout, cwd, options.includeFormatter ?? false);
@@ -62,6 +69,9 @@ export async function runBiome(
     }
     return issues;
   } catch (error: unknown) {
+    if (error instanceof EngineDisabledError) {
+      throw error;
+    }
     throw attributeEngineError("biome", error);
   }
 }
@@ -135,18 +145,12 @@ function isBiomeDiagnosticFixable(diagnostic: Record<string, unknown>): boolean 
   });
 }
 
-function normalizeFile(file: string, cwd: string): string {
-  const absoluteFile = isAbsolute(file) ? file : resolve(cwd, file);
-  return relative(cwd, absoluteFile).replaceAll("\\", "/");
-}
-
 async function runBiomeProcess(
+  cliPath: string,
   paths: readonly string[],
   cwd: string,
   options: BiomeRunOptions,
 ): Promise<CommandResult> {
-  const resolved = resolveEngine("biome", cwd);
-  const cliPath = resolved?.binPath ?? resolve(dirname(createRequire(import.meta.url).resolve("@biomejs/biome/package.json")), "bin", "biome");
   return runEngineCommand(
     process.execPath,
     createBiomeCliArgs(cliPath, paths, options.includeFormatter ?? false),
@@ -176,8 +180,4 @@ export function createBiomeCliArgs(
   }
   args.push("--", ...paths);
   return args;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

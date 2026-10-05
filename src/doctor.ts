@@ -5,6 +5,7 @@ import { isAbsolute, relative, resolve } from "node:path";
 
 import { CLIENT_REGISTRY, getLegacyAntigravityConfigPath, type McpClientSpec } from "./clients/registry.js";
 import { readCanonicalProjectRoot } from "./projectPaths.js";
+import { isRecord } from "./util/index.js";
 
 export interface DoctorOptions {
   cwd?: string | undefined;
@@ -281,8 +282,4 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

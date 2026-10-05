@@ -16,6 +16,7 @@ import {
   type BiomeEngineConfig,
   type SignalintConfig,
 } from "./config.js";
+import { isRecord } from "./util/index.js";
 
 export type McpClientName = string;
 
@@ -584,10 +585,6 @@ function formatCopyableSnippets(
 
 function formatEnabled(enabled: boolean | BiomeEngineConfig): string {
   return isEngineEnabled(enabled) ? "on" : "off";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

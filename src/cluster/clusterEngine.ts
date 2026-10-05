@@ -9,6 +9,7 @@ import type {
   NormalizedIssue,
 } from "../schema.js";
 import { createSuccessfulEngineStatuses } from "../schema.js";
+import { compareIssues } from "../util/index.js";
 
 export interface ClusterResult {
   issues: NormalizedIssue[];
@@ -224,21 +225,6 @@ function comparePendingClusters(left: PendingCluster, right: PendingCluster): nu
     right.issues.length - left.issues.length ||
     left.rule.localeCompare(right.rule) ||
     compareIssues(left.issues[0], right.issues[0])
-  );
-}
-
-function compareIssues(
-  left: NormalizedIssue | undefined,
-  right: NormalizedIssue | undefined,
-): number {
-  if (left === undefined || right === undefined) {
-    return left === right ? 0 : left === undefined ? 1 : -1;
-  }
-  return (
-    left.file.localeCompare(right.file) ||
-    left.line - right.line ||
-    left.col - right.col ||
-    left.issueId.localeCompare(right.issueId)
   );
 }
 

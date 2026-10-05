@@ -2,6 +2,8 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import { isRecord } from "./util/index.js";
+
 export const ENGINE_NAMES = ["oxlint", "tsc", "biome", "eslint"] as const;
 
 export type EngineName = (typeof ENGINE_NAMES)[number];
@@ -269,8 +271,4 @@ function cloneDefaultConfig(cwd?: string): SignalintConfig {
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

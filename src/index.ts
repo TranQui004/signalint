@@ -53,7 +53,6 @@ import {
 } from "./schema.js";
 import {
   EngineOutputLimitError,
-  EngineTimeoutError,
   readErrorEngine,
 } from "./subprocess.js";
 import {
@@ -64,29 +63,35 @@ import {
   parsePingArguments,
   type IssueReference,
 } from "./toolArguments.js";
+import { compareIssues, isRecord } from "./util/index.js";
 
-type RawIssueProvider = (
+export type RawIssueProvider = (
   paths: readonly string[],
   signal?: AbortSignal,
 ) => Promise<NormalizedIssue[]>;
 
-export interface SignalintServerOptions {
-  cwd?: string;
-  fileIssueProvider?: RawIssueProvider;
-  projectIssueProvider?: RawIssueProvider;
-  sessionMemory?: SessionMemory;
-}
-
-interface IssueProviderResult {
+export interface IssueProviderResult {
   issues: NormalizedIssue[];
   cache: CacheStats;
   engines: EngineStatuses;
 }
 
-type IssueProvider = (
+export type IssueProvider = (
   paths: readonly string[],
   signal?: AbortSignal,
 ) => Promise<IssueProviderResult>;
+
+export type TestIssueProvider = (
+  paths: readonly string[],
+  signal?: AbortSignal,
+) => Promise<NormalizedIssue[] | IssueProviderResult>;
+
+export interface SignalintServerOptions {
+  cwd?: string;
+  fileIssueProvider?: TestIssueProvider;
+  projectIssueProvider?: TestIssueProvider;
+  sessionMemory?: SessionMemory;
+}
 
 interface ToolHandlerContext {
   cwd: string;
@@ -191,7 +196,7 @@ const checkOutputSchema = {
     schemaVersion: { type: "string" as const, enum: ["1.3"] as const },
     status: {
       type: "string" as const,
-      enum: ["clean", "issues_found", "timeout", "error"] as const,
+      enum: ["clean", "issues_found", "error"] as const,
     },
     projectRoot: { type: "string" as const },
     engines: {
@@ -858,13 +863,19 @@ async function hasJsProjectMarkers(projectRoot: string): Promise<boolean> {
 }
 
 function wrapIssueProvider(
-  provider: RawIssueProvider,
+  provider: TestIssueProvider,
 ): IssueProvider {
-  return async (paths, signal) => ({
-    issues: await provider(paths, signal),
-    cache: { hits: 0, misses: 0 },
-    engines: createSuccessfulEngineStatuses(),
-  });
+  return async (paths, signal) => {
+    const result = await provider(paths, signal);
+    if (isRecord(result) && "engines" in result && "issues" in result) {
+      return result as IssueProviderResult;
+    }
+    return {
+      issues: result as NormalizedIssue[],
+      cache: { hits: 0, misses: 0 },
+      engines: createSuccessfulEngineStatuses(),
+    };
+  };
 }
 
 async function runCheck(
@@ -895,9 +906,6 @@ async function runCheck(
     saveIssues(clustered.issues, clustered.response.checkId);
     return createTextResult(response);
   } catch (error: unknown) {
-    if (error instanceof EngineTimeoutError) {
-      return createTextResult(error.response);
-    }
     if (error instanceof EngineOutputLimitError) {
       logCheckFailure(error);
       return { ...createTextResult(error.response), isError: true };
@@ -973,15 +981,6 @@ function formatZodError(error: ZodError): string {
       return `${path}: ${issue.message}`;
     })
     .join("; ");
-}
-
-function compareIssues(left: NormalizedIssue, right: NormalizedIssue): number {
-  return (
-    left.file.localeCompare(right.file) ||
-    left.line - right.line ||
-    left.col - right.col ||
-    left.engine.localeCompare(right.engine)
-  );
 }
 
 if (isMainModule(import.meta.url)) {

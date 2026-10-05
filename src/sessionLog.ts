@@ -1,3 +1,5 @@
+import { isRecord } from "./util/index.js";
+
 export interface SessionLogMetrics {
   rawPayloadBytes: number;
   clusteredPayloadBytes: number;
@@ -147,8 +149,4 @@ function readNonNegativeInteger(value: unknown): number | undefined {
   return typeof value === "number" && Number.isInteger(value) && value >= 0
     ? value
     : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

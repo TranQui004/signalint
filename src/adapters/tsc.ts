@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
 import { resolveEngine } from "../engineResolution.js";
@@ -17,6 +17,7 @@ import {
   type CommandResult,
 } from "../subprocess.js";
 import { containProjectPath, resolveProjectPath } from "../projectPaths.js";
+import { isRecord, normalizeFile } from "../util/index.js";
 
 interface TscRunOptions {
   cwd?: string | undefined;
@@ -265,17 +266,8 @@ async function findClosestProjectFile(directory: string, boundary: string): Prom
   }
 }
 
-function normalizeFile(file: string, cwd: string): string {
-  const absoluteFile = isAbsolute(file) ? file : resolve(cwd, file);
-  return relative(cwd, absoluteFile).replaceAll("\\", "/");
-}
-
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function runTscProcess(

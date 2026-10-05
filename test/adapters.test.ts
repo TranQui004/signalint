@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBiomeCliArgs, parseBiomeOutput } from "../src/adapters/biome.js";
+import { createBiomeCliArgs, parseBiomeOutput, runBiome } from "../src/adapters/biome.js";
 import { createOxlintCliArgs, parseOxlintOutput } from "../src/adapters/oxlint.js";
 import {
   clearConfigInspectionCache,
@@ -11,7 +11,10 @@ import {
   parseTscOutput,
   runTsc,
 } from "../src/adapters/tsc.js";
+import { EngineDisabledError } from "../src/engineFanout.js";
+import * as engineResolution from "../src/engineResolution.js";
 import { isNormalizedIssue } from "../src/schema.js";
+import { isRecord } from "../src/util/index.js";
 
 const OXLINT_OUTPUT = JSON.stringify({
   diagnostics: [
@@ -386,8 +389,14 @@ describe("Biome adapter", () => {
     const withFormatter = parseBiomeOutput(raw, process.cwd(), true);
     expect(withFormatter).toHaveLength(2);
   });
-});
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+  it("throws EngineDisabledError with an actionable message when Biome is not installed", async () => {
+    const spy = vi.spyOn(engineResolution, "resolveEngine").mockReturnValue(undefined);
+    try {
+      await expect(runBiome(["src/a.ts"])).rejects.toThrow(EngineDisabledError);
+      await expect(runBiome(["src/a.ts"])).rejects.toThrow(/Install @biomejs\/biome to enable it/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

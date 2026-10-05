@@ -24,6 +24,7 @@ import {
   type NormalizedIssue,
 } from "./schema.js";
 import { resolveProjectPaths, type ResolvedProjectPath } from "./projectPaths.js";
+import { compareIssues, isRecord } from "./util/index.js";
 
 export type CacheEngine = IssueEngine;
 
@@ -126,7 +127,7 @@ export async function checkFilesWithStats(
 
   try {
     const resolvedFiles = await resolveProjectPaths(files, cwd);
-    const snapshots = await Promise.all(resolvedFiles.map(readSnapshot));
+    const snapshots = await mapConcurrent(resolvedFiles, 32, readSnapshot);
     const runners = { ...DEFAULT_RUNNERS, ...options.runners };
     const engines = options.engines ?? DEFAULT_ENGINES;
     const timeoutsMs = options.timeoutsMs ?? DEFAULT_CONFIG.timeoutsMs;
@@ -388,7 +389,7 @@ async function collectTscConfigFiles(
     return visited;
   }
 
-  if (!isPlainObject(parsed)) {
+  if (!isRecord(parsed)) {
     return visited;
   }
 
@@ -407,7 +408,7 @@ async function collectTscConfigFiles(
 
   if (Array.isArray(parsed.references)) {
     for (const ref of parsed.references) {
-      if (isPlainObject(ref) && typeof ref.path === "string") {
+      if (isRecord(ref) && typeof ref.path === "string") {
         const refPath = join(baseDir, ref.path);
         const candidate = refPath.endsWith(".json") ? refPath : join(refPath, "tsconfig.json");
         paths.push(candidate);
@@ -431,10 +432,6 @@ function resolveExtends(ext: string, baseDir: string): string {
   return join(baseDir, "node_modules", ext, "tsconfig.json");
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function relocateIssues(
   issues: readonly NormalizedIssue[],
   file: string,
@@ -450,13 +447,25 @@ function relocateIssues(
   );
 }
 
-function compareIssues(left: NormalizedIssue, right: NormalizedIssue): number {
-  return (
-    left.file.localeCompare(right.file) ||
-    left.line - right.line ||
-    left.col - right.col ||
-    left.engine.localeCompare(right.engine)
+async function mapConcurrent<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await fn(items[index]!);
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker(),
   );
+  await Promise.all(workers);
+  return results;
 }
 
 function isTypeScriptRelevant(file: string): boolean {

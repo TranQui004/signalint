@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 import type { IssueEngine } from "./schema.js";
+import { isRecord } from "./util/index.js";
 
 export interface ResolvedEngine {
   engine: IssueEngine;
@@ -197,8 +198,4 @@ function fileExists(path: string): boolean {
   } catch {
     return false;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

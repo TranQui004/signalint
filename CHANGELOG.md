@@ -36,6 +36,15 @@ full detail.
 - Enabled SQLite caching for `check_project`, reusing whole-program tsc results when config hash is unchanged and per-file entries for local linters, reporting real hit/miss stats.
 - Added `.signalint/` entry appending to `.gitignore` during `signalint init`, and added detection of flat ESLint and Prettier configurations.
 - Reduced default `tsc` timeout from 120,000ms to 60,000ms.
+- Removed dead top-level `TimeoutResponse` and `isTimeoutResponse` paths; per-engine timeout errors are reported as structured `status: "error"` in `engines.<name>`.
+- Dropped Node 20 support and updated node engine requirement to `>=22.12.0`.
+- Migrated cache backend from native `better-sqlite3` to built-in `node:sqlite` (`DatabaseSync`), eliminating native C++ build scripts and external dependencies while preserving cache LRU semantics and public API.
+- Moved `@biomejs/biome` to optional peer dependencies (`peerDependenciesMeta.optional = true`); reports `engines.biome = { status: "disabled" }` with an actionable install message when Biome is not present in the project.
+- Deduplicated `compareIssues`, `isRecord`, `normalizeFile`, and `readString` into `src/util/index.ts`.
+- Sanitized cached issue messages with `normalizeIssueMessage` before validation with `isNormalizedIssue`.
+- Bounded file-read fanout in `checkFilesWithStats` to 32 concurrent reads.
+- Bumped dependencies: `oxlint` to 1.87.0, `@biomejs/biome` to 2.5.15, `@modelcontextprotocol/sdk` to 1.32.1, `zod` to 4.6.5.
+
 
 ## 0.4.2
 

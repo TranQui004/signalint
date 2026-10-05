@@ -4,14 +4,16 @@ import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 
 import {
   isNormalizedIssue,
+  normalizeIssueMessage,
   type IssueEngine,
   type NormalizedIssue,
 } from "../schema.js";
 import { resolveEngineVersion } from "../engineResolution.js";
+import { isRecord } from "../util/index.js";
 
 interface CacheRow {
   result: string;
@@ -88,7 +90,7 @@ export function resolveCacheVersionInfo(
 }
 
 export class SqliteCache {
-  private readonly database: Database.Database;
+  private readonly database: DatabaseSync;
   private readonly maxRows: number;
   private lastAccessTimestamp: number;
   private closed = false;
@@ -104,7 +106,7 @@ export class SqliteCache {
     if (databasePath !== ":memory:") {
       mkdirSync(dirname(databasePath), { recursive: true });
     }
-    this.database = new Database(databasePath);
+    this.database = new DatabaseSync(databasePath);
     this.maxRows = maxRows;
     this.database.exec(`
       CREATE TABLE IF NOT EXISTS cache (
@@ -174,7 +176,7 @@ export class SqliteCache {
     this.database
       .prepare("DELETE FROM engine_state WHERE engine = ? AND config_hash != ?")
       .run(engine, createEngineStateHash(currentConfigHash, versions));
-    return result.changes;
+    return Number(result.changes);
   }
 
   /** Returns the latest whole-program result when its engine config hash is current. */
@@ -295,10 +297,19 @@ function isTimestampRow(value: unknown): value is TimestampRow {
 
 function parseIssues(serialized: string, source: string): NormalizedIssue[] {
   const parsed: unknown = JSON.parse(serialized);
-  if (!Array.isArray(parsed) || !parsed.every(isNormalizedIssue)) {
+  if (!Array.isArray(parsed)) {
     throw new Error(`SQLite cache contained an invalid ${source} Normalized Issue array.`);
   }
-  return parsed;
+  const sanitized = parsed.map((item) => {
+    if (isRecord(item) && typeof item.message === "string" && item.message.length > 120) {
+      return { ...item, message: normalizeIssueMessage(item.message) };
+    }
+    return item;
+  });
+  if (!sanitized.every(isNormalizedIssue)) {
+    throw new Error(`SQLite cache contained an invalid ${source} Normalized Issue array.`);
+  }
+  return sanitized;
 }
 
 function createVersionedKey(
@@ -377,8 +388,4 @@ function readPackageMetadata(packagePath: string): PackageMetadata {
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

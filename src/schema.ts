@@ -84,12 +84,6 @@ export interface CheckResponse {
   message?: string;
 }
 
-export interface TimeoutResponse {
-  status: "timeout";
-  engine: IssueEngine;
-  message: string;
-}
-
 export interface EngineOutputLimitResponse {
   status: "error";
   code: "engine_output_exceeded";
@@ -199,16 +193,6 @@ export function isFileRuleChurnWarning(value: unknown): value is FileRuleChurnWa
     Number.isInteger(value.checkCount) &&
     (value.checkCount as number) >= 1 &&
     typeof value.hint === "string"
-  );
-}
-
-/** Returns whether an unknown value is the Section 8.1 engine-timeout response. */
-export function isTimeoutResponse(value: unknown): value is TimeoutResponse {
-  return (
-    isRecord(value) &&
-    value.status === "timeout" &&
-    isIssueEngine(value.engine) &&
-    typeof value.message === "string"
   );
 }
 

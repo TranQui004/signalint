@@ -1,5 +1,5 @@
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
 import { resolveEngine } from "../engineResolution.js";
@@ -14,6 +14,7 @@ import {
   runEngineCommand,
   type CommandResult,
 } from "../subprocess.js";
+import { isRecord, normalizeFile, readString } from "../util/index.js";
 
 interface OxlintRunOptions {
   cwd?: string | undefined;
@@ -136,25 +137,8 @@ function normalizeSeverity(severity: string): IssueSeverity {
   throw new Error(`Unsupported Oxlint severity: ${severity}`);
 }
 
-function normalizeFile(file: string, cwd: string): string {
-  const absoluteFile = isAbsolute(file) ? file : resolve(cwd, file);
-  return relative(cwd, absoluteFile).replaceAll("\\", "/");
-}
-
-function readString(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  if (typeof value !== "string") {
-    throw new Error(`Oxlint diagnostic field "${key}" was not a string.`);
-  }
-  return value;
-}
-
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function runOxlintProcess(

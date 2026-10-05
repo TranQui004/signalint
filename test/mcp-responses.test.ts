@@ -13,8 +13,8 @@ import {
   isEngineOutputLimitResponse,
   isNormalizedIssue,
   isStaleReferenceResponse,
-  isTimeoutResponse,
   type CheckResponse,
+  type EngineStatuses,
   type NormalizedIssue,
 } from "../src/schema.js";
 import {
@@ -71,19 +71,31 @@ describe("MCP response amendments", () => {
     }
   });
 
-  it("returns the exact structured timeout response from check_project", async () => {
-    const client = await connectServer(() =>
-      Promise.reject(new EngineTimeoutError("tsc", 120_000)),
-    );
+  it("returns the exact per-engine error status on engine timeout", async () => {
+    const timeoutError = new EngineTimeoutError("tsc", 120_000);
+    const client = await connectServer(async () => ({
+      issues: [],
+      cache: { hits: 0, misses: 0 },
+      engines: {
+        oxlint: { status: "ok" },
+        tsc: { status: "error", message: timeoutError.message },
+        biome: { status: "disabled" },
+        eslint: { status: "disabled" },
+      },
+    }));
 
     const response = parseText(
       await callTool(client, "check_project", { paths: ["."] }),
     );
 
-    expect(isTimeoutResponse(response)).toBe(true);
-    expect(response).toEqual({
-      status: "timeout",
-      engine: "tsc",
+    expect(isCheckResponse(response)).toBe(true);
+    if (!isCheckResponse(response)) {
+      throw new Error("Expected CheckResponse");
+    }
+    expect(response.status).toBe("error");
+    expect(response.code).toBe("engine_failed");
+    expect(response.engines.tsc).toEqual({
+      status: "error",
       message: "tsc did not complete within 120s",
     });
   });
@@ -225,20 +237,7 @@ describe("MCP response amendments", () => {
     }
   });
 
-  it("delivers structuredContent on timeout, output-limit, and invalid argument errors", async () => {
-    const timeoutClient = await connectServer(() =>
-      Promise.reject(new EngineTimeoutError("tsc", 120_000)),
-    );
-    const timeoutResult = await timeoutClient.callTool({
-      name: "check_project",
-      arguments: { paths: ["."] },
-    });
-    expect(timeoutResult.structuredContent).toEqual({
-      status: "timeout",
-      engine: "tsc",
-      message: "tsc did not complete within 120s",
-    });
-
+  it("delivers structuredContent on output-limit and invalid argument errors", async () => {
     vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const limitClient = await connectServer(() =>
       Promise.reject(new EngineOutputLimitError("oxlint", 256)),
@@ -255,7 +254,8 @@ describe("MCP response amendments", () => {
       message: "oxlint output exceeded the 256 bytes limit",
     });
 
-    const errorResult = await timeoutClient.callTool({
+    const errorClient = await connectServer(() => Promise.resolve([]));
+    const errorResult = await errorClient.callTool({
       name: "check_files",
       arguments: { files: ["../outside.ts"] },
     });
@@ -270,7 +270,14 @@ describe("MCP response amendments", () => {
 });
 
 async function connectServer(
-  provider: () => Promise<NormalizedIssue[]>,
+  provider: () => Promise<
+    | NormalizedIssue[]
+    | {
+        issues: NormalizedIssue[];
+        cache: { hits: number; misses: number };
+        engines: EngineStatuses;
+      }
+  >,
   memory?: SessionMemory | undefined,
 ): Promise<Client> {
   const server = createServer({

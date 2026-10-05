@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
+import { resolveEngine } from "../engineResolution.js";
 import {
   createIssueId,
   normalizeIssueMessage,
@@ -225,7 +226,8 @@ async function readEffectiveProjectConfig(
   return config;
 }
 
-async function resolveProjectFile(path: string, cwd: string): Promise<string> {
+/** Resolves the effective tsconfig.json project file for a given target path within boundary. */
+export async function resolveProjectFile(path: string, cwd: string): Promise<string> {
   const projectRoot = (await resolveProjectPath(".", cwd)).absolutePath;
   const target = (await resolveProjectPath(path, cwd)).absolutePath;
   const targetStat = await stat(target);
@@ -281,9 +283,8 @@ async function runTscProcess(
   cwd: string,
   options: Omit<TscRunOptions, "cwd">,
 ): Promise<CommandResult> {
-  const require = createRequire(import.meta.url);
-  const packagePath = require.resolve("typescript/package.json");
-  const cliPath = resolve(dirname(packagePath), "bin", "tsc");
+  const resolved = resolveEngine("tsc", cwd);
+  const cliPath = resolved?.binPath ?? resolve(dirname(createRequire(import.meta.url).resolve("typescript/package.json")), "bin", "tsc");
   return runEngineCommand(process.execPath, [cliPath, ...args], {
     cwd,
     engine: "tsc",

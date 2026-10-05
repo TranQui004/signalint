@@ -17,20 +17,20 @@ describe("Signalint configuration", () => {
     const config = await loadSignalintConfig(fixtureRoot);
 
     expect(config).toEqual({
-      engines: { oxlint: false, tsc: false, biome: true },
+      engines: { oxlint: false, tsc: false, biome: true, eslint: false },
       ignore: ["src/ignored.ts"],
-      timeoutsMs: { oxlint: 10_000, tsc: 20_000, biome: 15_000 },
+      timeoutsMs: { oxlint: 10_000, tsc: 20_000, biome: 15_000, eslint: 30_000 },
     });
   });
 
   it("fills omitted fields and rejects unknown engine names", () => {
     expect(parseSignalintConfig('{"engines":{"biome":true}}')).toEqual({
-      engines: { oxlint: true, tsc: true, biome: true },
+      engines: { oxlint: true, tsc: true, biome: true, eslint: false },
       ignore: ["node_modules/**", "dist/**", ".signalint/**"],
-      timeoutsMs: { oxlint: 30_000, tsc: 120_000, biome: 30_000 },
+      timeoutsMs: { oxlint: 30_000, tsc: 60_000, biome: 30_000, eslint: 30_000 },
     });
-    expect(() => parseSignalintConfig('{"engines":{"eslint":true}}')).toThrow(
-      'Unknown "engines" field "eslint".',
+    expect(() => parseSignalintConfig('{"engines":{"unknownEngine":true}}')).toThrow(
+      'Unknown "engines" field "unknownEngine".',
     );
   });
 
@@ -39,6 +39,7 @@ describe("Signalint configuration", () => {
       oxlint: 30_000,
       tsc: 2_500,
       biome: 30_000,
+      eslint: 30_000,
     });
     expect(() => parseSignalintConfig('{"timeoutsMs":{"oxlint":0}}')).toThrow(
       'timeout "oxlint" must be a positive integer in milliseconds',

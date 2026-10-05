@@ -115,8 +115,9 @@ Install Signalint in the project it should check:
 npm install --save-dev signalint-mcp
 ```
 
-Run the setup command from that project root. It detects TypeScript, Oxlint, and
-Biome configuration, writes `signalint.config.json`, and offers to update a nearby
+Run the setup command from that project root. It detects TypeScript, Oxlint,
+Biome, flat ESLint, and Prettier configuration, writes `signalint.config.json`,
+appends `.signalint/` to `.gitignore`, and offers to update a nearby
 Claude Code, Cursor, Codex CLI, or Antigravity MCP configuration:
 
 ```sh
@@ -125,24 +126,37 @@ npx signalint-mcp init
 
 If no MCP client can be selected safely, the command prints exact configuration
 snippets to copy. TypeScript is enabled only when a root `tsconfig.json` exists;
-Biome is enabled when its config exists; Oxlint is the fallback when no configured
-linter is detected. To configure Signalint manually, create `signalint.config.json`:
+ESLint is enabled when a flat config (`eslint.config.*`) exists; Biome is enabled
+when its config exists; Oxlint is the fallback when no other configured linter is detected.
+To configure Signalint manually, create `signalint.config.json`:
 
 ```json
 {
   "engines": {
     "oxlint": true,
     "tsc": true,
-    "biome": false
+    "biome": false,
+    "eslint": false
   },
   "ignore": ["node_modules/**", "dist/**", ".signalint/**"],
   "timeoutsMs": {
     "oxlint": 30000,
-    "tsc": 120000,
-    "biome": 30000
+    "tsc": 60000,
+    "biome": 30000,
+    "eslint": 30000
   }
 }
 ```
+
+### Engines and resolution
+
+Signalint supports four diagnostic engines:
+- **TypeScript (`tsc`)**: Whole-project type checking using `tsconfig.json`. Timeout default is 60s.
+- **Oxlint (`oxlint`)**: Ultra-fast file-local linter.
+- **Biome (`biome`)**: Fast linter and formatter. Suppresses formatter diagnostics by default and captures safe fix recommendations from advices.
+- **ESLint (`eslint`)**: Flat config (`eslint.config.*`) linter. Signalint does not bundle ESLint — it resolves your project's local ESLint installation without extra dependencies and reports true fixable diagnostics (`fixable: true`).
+
+**Resolution order:** For each engine, Signalint checks the target project's `node_modules` first (`require.resolve` / `node_modules/.bin`), ensuring diagnostics match the project's own tool versions. If the project does not have the engine installed, Signalint falls back to its bundled copy (for `oxlint`, `tsc`, `biome`) or marks it disabled with an actionable message (for `eslint`). The resolved engine version is hashed into cache keys to ensure cache invalidation across tool upgrades.
 
 ## Supported clients
 

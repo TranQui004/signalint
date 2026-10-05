@@ -10,6 +10,7 @@ import {
 } from "./clients/registry.js";
 import {
   DEFAULT_CONFIG,
+  FLAT_ESLINT_CONFIG_FILES,
   isEngineEnabled,
   loadSignalintConfig,
   type BiomeEngineConfig,
@@ -20,7 +21,9 @@ export type McpClientName = string;
 
 export interface ProjectToolDetection {
   biomeConfig: string | undefined;
+  eslintConfig: string | undefined;
   oxlintConfigs: string[];
+  prettierConfig: string | undefined;
   tsconfig: boolean;
 }
 
@@ -33,6 +36,7 @@ export interface McpClientCandidate {
 export interface InitPrompts {
   chooseClient(candidates: readonly McpClientCandidate[]): Promise<McpClientCandidate | undefined>;
   confirmWrite(candidate: McpClientCandidate): Promise<boolean>;
+  confirmGitignore?(path: string): Promise<boolean>;
 }
 
 export interface InitCommandOptions {
@@ -50,7 +54,21 @@ interface McpServerEntry {
   cwd?: string;
 }
 
-/** Detects root TypeScript, Oxlint, and Biome configuration files in a target project. */
+const PRETTIER_CONFIG_NAMES = [
+  ".prettierrc",
+  ".prettierrc.json",
+  ".prettierrc.yml",
+  ".prettierrc.yaml",
+  ".prettierrc.json5",
+  ".prettierrc.js",
+  ".prettierrc.cjs",
+  ".prettierrc.mjs",
+  "prettier.config.js",
+  "prettier.config.cjs",
+  "prettier.config.mjs",
+];
+
+/** Detects root TypeScript, Oxlint, Biome, ESLint, and Prettier configuration files in a target project. */
 export async function detectProjectTools(cwd: string): Promise<ProjectToolDetection> {
   const entries = await readdir(cwd, { withFileTypes: true });
   const fileNames = entries.filter((entry) => entry.isFile()).map((entry) => entry.name);
@@ -58,9 +76,14 @@ export async function detectProjectTools(cwd: string): Promise<ProjectToolDetect
     .filter((name) => name === ".oxlintrc" || name.startsWith(".oxlintrc."))
     .sort();
   const biomeConfig = ["biome.json", "biome.jsonc"].find((name) => fileNames.includes(name));
+  const eslintConfig = FLAT_ESLINT_CONFIG_FILES.find((name) => fileNames.includes(name));
+  const prettierConfig = PRETTIER_CONFIG_NAMES.find((name) => fileNames.includes(name));
+
   return {
     biomeConfig,
+    eslintConfig,
     oxlintConfigs,
+    prettierConfig,
     tsconfig: fileNames.includes("tsconfig.json"),
   };
 }
@@ -68,11 +91,13 @@ export async function detectProjectTools(cwd: string): Promise<ProjectToolDetect
 /** Creates a schema-valid config that follows detected project tooling and defaults to Oxlint. */
 export function createDetectedConfig(detection: ProjectToolDetection): SignalintConfig {
   const hasBiome = detection.biomeConfig !== undefined;
+  const hasEslint = detection.eslintConfig !== undefined;
   return {
     engines: {
       oxlint: detection.oxlintConfigs.length > 0 || !hasBiome,
       tsc: detection.tsconfig,
       biome: hasBiome,
+      eslint: hasEslint,
     },
     ignore: [...DEFAULT_CONFIG.ignore],
     timeoutsMs: { ...DEFAULT_CONFIG.timeoutsMs },
@@ -131,6 +156,9 @@ export async function runInitCommand(options: InitCommandOptions = {}): Promise<
   const effectiveConfig = configCreated ? detectedConfig : await loadSignalintConfig(cwd);
   writeOutput(formatDetectionSummary(detection, effectiveConfig, configCreated));
 
+  const interactive = options.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+  await ensureGitignore(cwd, options.prompts, interactive, writeOutput);
+
   // Migration warning for legacy Antigravity configuration
   const legacyAntigravity = getLegacyAntigravityConfigPath(homeDirectory);
   if (await exists(legacyAntigravity)) {
@@ -149,7 +177,6 @@ export async function runInitCommand(options: InitCommandOptions = {}): Promise<
 
   const candidates = await detectMcpClients(cwd, homeDirectory);
   const defaultCandidates = getDefaultCandidates(cwd, homeDirectory);
-  const interactive = options.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
   if (!interactive) {
     const printable = candidates.length === 0 ? defaultCandidates : candidates;
     writeOutput(formatCopyableSnippets(printable, cwd, platform));
@@ -280,6 +307,12 @@ function createTerminalPrompts(): { close: () => void; prompts: InitPrompts } {
       confirmWrite: async (candidate) => {
         const answer = await readline.question(
           `Write the Signalint entry to ${candidate.configPath}? [Y/n] `,
+        );
+        return answer.trim() === "" || /^(?:y|yes)$/i.test(answer.trim());
+      },
+      confirmGitignore: async (path: string) => {
+        const answer = await readline.question(
+          `Append .signalint/ to ${path}? [Y/n] `,
         );
         return answer.trim() === "" || /^(?:y|yes)$/i.test(answer.trim());
       },
@@ -440,6 +473,40 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+async function ensureGitignore(
+  cwd: string,
+  prompts: InitPrompts | undefined,
+  interactive: boolean,
+  writeOutput: (message: string) => void,
+): Promise<void> {
+  const gitignorePath = resolve(cwd, ".gitignore");
+  let content = "";
+  try {
+    content = await readFile(gitignorePath, "utf8");
+  } catch (error: unknown) {
+    if (!isMissingFileError(error)) {
+      throw error;
+    }
+  }
+
+  const lines = content.split(/\r?\n/).map((l) => l.trim());
+  if (lines.includes(".signalint") || lines.includes(".signalint/")) {
+    return;
+  }
+
+  let shouldAppend = true;
+  if (interactive && prompts?.confirmGitignore !== undefined) {
+    shouldAppend = await prompts.confirmGitignore(gitignorePath);
+  }
+
+  if (shouldAppend) {
+    const trailingNewline = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+    const updated = `${content}${trailingNewline}.signalint/\n`;
+    await writeFile(gitignorePath, updated, "utf8");
+    writeOutput(`Appended .signalint/ to ${gitignorePath}\n`);
+  }
+}
+
 function formatDetectionSummary(
   detection: ProjectToolDetection,
   config: SignalintConfig,
@@ -449,13 +516,16 @@ function formatDetectionSummary(
     detection.tsconfig ? "tsconfig.json" : undefined,
     ...detection.oxlintConfigs,
     detection.biomeConfig,
+    detection.eslintConfig,
+    detection.prettierConfig,
   ].filter((value): value is string => value !== undefined);
   const action = configCreated ? "Created" : "Kept existing";
   return [
     `${action} signalint.config.json.`,
     `Detected project tooling: ${tools.length === 0 ? "none" : tools.join(", ")}.`,
     `Configured engines: oxlint=${formatEnabled(config.engines.oxlint)}, ` +
-      `tsc=${formatEnabled(config.engines.tsc)}, biome=${formatEnabled(config.engines.biome)}.`,
+      `tsc=${formatEnabled(config.engines.tsc)}, biome=${formatEnabled(config.engines.biome)}, ` +
+      `eslint=${formatEnabled(config.engines.eslint)}.`,
     "",
   ].join("\n");
 }

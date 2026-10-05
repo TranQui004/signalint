@@ -11,6 +11,7 @@ import {
   type IssueEngine,
   type NormalizedIssue,
 } from "../schema.js";
+import { resolveEngineVersion } from "../engineResolution.js";
 
 interface CacheRow {
   result: string;
@@ -38,11 +39,12 @@ const ENGINE_PACKAGES: Record<IssueEngine, string> = {
   oxlint: "oxlint",
   tsc: "typescript",
   biome: "@biomejs/biome",
+  eslint: "eslint",
 };
 
 const openCaches = new Set<SqliteCache>();
 const require = createRequire(import.meta.url);
-const resolvedVersionInfo = new Map<IssueEngine, CacheVersionInfo>();
+const resolvedVersionInfo = new Map<string, CacheVersionInfo>();
 let installedSignalintVersion: string | undefined;
 
 /** Maximum number of file-result rows retained by the default SQLite cache. */
@@ -60,16 +62,28 @@ export function createCacheKey(
 }
 
 /** Resolves installed package versions used to invalidate cache entries after upgrades. */
-export function resolveCacheVersionInfo(engine: IssueEngine): CacheVersionInfo {
-  const cached = resolvedVersionInfo.get(engine);
+export function resolveCacheVersionInfo(
+  engine: IssueEngine,
+  cwd: string = process.cwd(),
+): CacheVersionInfo {
+  const cacheKey = `${engine}:${cwd}`;
+  const cached = resolvedVersionInfo.get(cacheKey);
   if (cached !== undefined) {
     return cached;
   }
+  let engineVersion = resolveEngineVersion(engine, cwd);
+  if (engineVersion === "0.0.0" && ENGINE_PACKAGES[engine] !== undefined) {
+    try {
+      engineVersion = readPackageVersion(require.resolve(`${ENGINE_PACKAGES[engine]}/package.json`));
+    } catch {
+      // ignore
+    }
+  }
   const versions = {
     signalintVersion: resolveSignalintVersion(),
-    engineVersion: readPackageVersion(require.resolve(`${ENGINE_PACKAGES[engine]}/package.json`)),
+    engineVersion,
   };
-  resolvedVersionInfo.set(engine, versions);
+  resolvedVersionInfo.set(cacheKey, versions);
   return versions;
 }
 

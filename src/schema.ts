@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export type IssueEngine = "oxlint" | "tsc" | "biome";
+export type IssueEngine = "oxlint" | "tsc" | "biome" | "eslint";
 export type IssueSeverity = "error" | "warning";
 
 export interface NormalizedIssue {
@@ -186,6 +186,7 @@ export function createSuccessfulEngineStatuses(): EngineStatuses {
     oxlint: { status: "ok" },
     tsc: { status: "ok" },
     biome: { status: "ok" },
+    eslint: { status: "ok" },
   };
 }
 
@@ -274,14 +275,15 @@ function isLoopWarning(value: unknown): value is LoopWarning {
 }
 
 function isEngineStatuses(value: unknown): value is EngineStatuses {
-  const expectedKeys = ["oxlint", "tsc", "biome"];
+  const expectedKeys = ["oxlint", "tsc", "biome", "eslint"];
   return (
     isRecord(value) &&
     Object.keys(value).length === expectedKeys.length &&
     Object.keys(value).every((key) => expectedKeys.includes(key)) &&
     isEngineStatus(value.oxlint) &&
     isEngineStatus(value.tsc) &&
-    isEngineStatus(value.biome)
+    isEngineStatus(value.biome) &&
+    isEngineStatus(value.eslint)
   );
 }
 
@@ -298,7 +300,7 @@ function isEngineStatus(value: unknown): value is EngineStatus {
 }
 
 function isIssueEngine(value: unknown): value is IssueEngine {
-  return value === "oxlint" || value === "tsc" || value === "biome";
+  return value === "oxlint" || value === "tsc" || value === "biome" || value === "eslint";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

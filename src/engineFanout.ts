@@ -40,6 +40,10 @@ export async function settleEngineTasks<T>(
       engines[task.engine] = { status: "ok" };
       continue;
     }
+    if (isEngineDisabledError(settlement.reason)) {
+      engines[task.engine] = { status: "disabled", message: settlement.reason.message };
+      continue;
+    }
     logEngineFailure(task.engine, settlement.reason);
     engines[task.engine] = createErrorStatus(settlement.reason);
   }
@@ -61,6 +65,9 @@ export function createIdleEngineStatuses(
     biome: enabled.biome
       ? { status: "disabled", message: "no paths to check" }
       : { status: "disabled" },
+    eslint: enabled.eslint
+      ? { status: "disabled", message: "no paths to check" }
+      : { status: "disabled" },
   };
 }
 
@@ -69,6 +76,7 @@ function createDisabledStatuses(): EngineStatuses {
     oxlint: { status: "disabled" },
     tsc: { status: "disabled" },
     biome: { status: "disabled" },
+    eslint: { status: "disabled" },
   };
 }
 
@@ -80,4 +88,15 @@ function createErrorStatus(error: unknown): EngineStatus {
 function logEngineFailure(engine: IssueEngine, error: unknown): void {
   const detail = error instanceof Error ? (error.stack ?? error.message) : String(error);
   process.stderr.write(`[signalint] engine=${engine} check failed: ${detail}\n`);
+}
+
+export class EngineDisabledError extends Error {
+  public constructor(public readonly engine: IssueEngine, message: string) {
+    super(message);
+    this.name = "EngineDisabledError";
+  }
+}
+
+function isEngineDisabledError(error: unknown): error is EngineDisabledError {
+  return error instanceof Error && error.name === "EngineDisabledError";
 }

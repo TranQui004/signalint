@@ -1,16 +1,32 @@
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-export const ENGINE_NAMES = ["oxlint", "tsc", "biome"] as const;
+export const ENGINE_NAMES = ["oxlint", "tsc", "biome", "eslint"] as const;
 
 export type EngineName = (typeof ENGINE_NAMES)[number];
 
 export type BiomeEngineConfig = boolean | { includeFormatter: boolean };
 
+export const FLAT_ESLINT_CONFIG_FILES = [
+  "eslint.config.js",
+  "eslint.config.mjs",
+  "eslint.config.cjs",
+  "eslint.config.ts",
+  "eslint.config.mts",
+  "eslint.config.cts",
+] as const;
+
+/** Checks whether a project contains an ESLint flat configuration file. */
+export function hasFlatEslintConfig(cwd: string = process.cwd()): boolean {
+  return FLAT_ESLINT_CONFIG_FILES.some((name) => existsSync(resolve(cwd, name)));
+}
+
 export interface EngineSelection {
   oxlint: boolean;
   tsc: boolean;
   biome: BiomeEngineConfig;
+  eslint: boolean;
 }
 
 /** Returns whether an engine selection is enabled. */
@@ -27,6 +43,7 @@ export interface EngineTimeouts {
   oxlint: number;
   tsc: number;
   biome: number;
+  eslint: number;
 }
 
 export interface SignalintConfig {
@@ -40,12 +57,14 @@ export const DEFAULT_CONFIG: Readonly<SignalintConfig> = {
     oxlint: true,
     tsc: true,
     biome: false,
+    eslint: false,
   },
   ignore: ["node_modules/**", "dist/**", ".signalint/**"],
   timeoutsMs: {
     oxlint: 30_000,
-    tsc: 120_000,
+    tsc: 60_000,
     biome: 30_000,
+    eslint: 30_000,
   },
 };
 
@@ -57,16 +76,16 @@ export async function loadSignalintConfig(cwd: string = process.cwd()): Promise<
     serialized = await readFile(configPath, "utf8");
   } catch (error: unknown) {
     if (isMissingFileError(error)) {
-      return cloneDefaultConfig();
+      return cloneDefaultConfig(cwd);
     }
     throw error;
   }
 
-  return parseSignalintConfig(serialized);
+  return parseSignalintConfig(serialized, cwd);
 }
 
 /** Parses a Signalint config document and rejects unknown or incorrectly typed settings. */
-export function parseSignalintConfig(serialized: string): SignalintConfig {
+export function parseSignalintConfig(serialized: string, cwd?: string): SignalintConfig {
   const parsed: unknown = JSON.parse(serialized);
   if (!isRecord(parsed)) {
     throw new Error("signalint.config.json must contain a JSON object.");
@@ -74,7 +93,7 @@ export function parseSignalintConfig(serialized: string): SignalintConfig {
   assertKnownKeys(parsed, new Set(["engines", "ignore", "timeoutsMs"]), "configuration");
 
   return {
-    engines: parseEngineSelection(parsed.engines),
+    engines: parseEngineSelection(parsed.engines, cwd),
     ignore: parseIgnoreGlobs(parsed.ignore),
     timeoutsMs: parseEngineTimeouts(parsed.timeoutsMs),
   };
@@ -94,9 +113,10 @@ export function filterIgnoredPaths(
   return paths.filter((path) => !isIgnoredPath(path, ignoreGlobs));
 }
 
-function parseEngineSelection(value: unknown): EngineSelection {
+function parseEngineSelection(value: unknown, cwd?: string): EngineSelection {
+  const defaultEslint = cwd !== undefined ? hasFlatEslintConfig(cwd) : false;
   if (value === undefined) {
-    return { ...DEFAULT_CONFIG.engines };
+    return { ...DEFAULT_CONFIG.engines, eslint: defaultEslint };
   }
   if (!isRecord(value)) {
     throw new Error('signalint.config.json field "engines" must be an object.');
@@ -107,6 +127,7 @@ function parseEngineSelection(value: unknown): EngineSelection {
     oxlint: readOptionalBoolean(value, "oxlint", DEFAULT_CONFIG.engines.oxlint),
     tsc: readOptionalBoolean(value, "tsc", DEFAULT_CONFIG.engines.tsc),
     biome: parseBiomeOption(value.biome),
+    eslint: readOptionalBoolean(value, "eslint", defaultEslint),
   };
 }
 
@@ -149,6 +170,7 @@ function parseEngineTimeouts(value: unknown): EngineTimeouts {
     oxlint: readOptionalTimeout(value, "oxlint", DEFAULT_CONFIG.timeoutsMs.oxlint),
     tsc: readOptionalTimeout(value, "tsc", DEFAULT_CONFIG.timeoutsMs.tsc),
     biome: readOptionalTimeout(value, "biome", DEFAULT_CONFIG.timeoutsMs.biome),
+    eslint: readOptionalTimeout(value, "eslint", DEFAULT_CONFIG.timeoutsMs.eslint),
   };
 }
 
@@ -236,9 +258,10 @@ function escapePattern(value: string): string {
   return [...value].map(escapeRegExp).join("");
 }
 
-function cloneDefaultConfig(): SignalintConfig {
+function cloneDefaultConfig(cwd?: string): SignalintConfig {
+  const defaultEslint = cwd !== undefined ? hasFlatEslintConfig(cwd) : false;
   return {
-    engines: { ...DEFAULT_CONFIG.engines },
+    engines: { ...DEFAULT_CONFIG.engines, eslint: defaultEslint },
     ignore: [...DEFAULT_CONFIG.ignore],
     timeoutsMs: { ...DEFAULT_CONFIG.timeoutsMs },
   };

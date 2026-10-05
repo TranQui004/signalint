@@ -24,7 +24,7 @@ describe("engine fan-out", () => {
       const result = await checkFilesWithStats(["src/generated/file01.ts"], {
         cwd: cacheFixtureRoot,
         cache,
-        engines: { oxlint: true, tsc: true, biome: false },
+        engines: { oxlint: true, tsc: true, biome: false, eslint: false },
         runners: {
           oxlint: async (files) => files.map(makeOxlintIssue),
           tsc: () => Promise.reject(new Error("fixture tsc failure")),
@@ -37,6 +37,7 @@ describe("engine fan-out", () => {
         oxlint: { status: "ok" },
         tsc: { status: "error", message: "fixture tsc failure" },
         biome: { status: "disabled" },
+        eslint: { status: "disabled" },
       });
     } finally {
       cache.close();
@@ -48,7 +49,7 @@ describe("engine fan-out", () => {
     await writeFile(
       resolve(partialProjectRoot, "signalint.config.json"),
       JSON.stringify({
-        engines: { oxlint: true, tsc: true, biome: false },
+        engines: { oxlint: true, tsc: true, biome: false, eslint: false },
         ignore: [],
       }),
       "utf8",
@@ -70,6 +71,7 @@ describe("engine fan-out", () => {
     expect(response.engines.tsc.status).toBe("error");
     expect(response.engines.tsc.message).toBeTruthy();
     expect(response.engines.biome).toEqual({ status: "disabled" });
+    expect(response.engines.eslint).toEqual({ status: "disabled" });
   });
 });
 

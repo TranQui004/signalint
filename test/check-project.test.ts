@@ -39,11 +39,42 @@ describe("check_project MCP integration", () => {
       oxlint: { status: "ok" },
       tsc: { status: "ok" },
       biome: { status: "disabled" },
+      eslint: { status: "disabled" },
     });
     expect(response.totalIssues).toBe(2);
     expect(response.clusters).toHaveLength(2);
     expect(response.clusters.map((cluster) => cluster.priority)).toEqual([2, 4]);
     expect(response.clusters.every((cluster) => cluster.clusterId.startsWith("c"))).toBe(true);
+  });
+
+  it("reuses SQLite cache across consecutive check_project calls", async () => {
+    const transport = new StdioClientTransport({
+      command: process.execPath,
+      args: [resolve("dist/src/index.js")],
+    });
+    const client = new Client({
+      name: "signalint-phase-1-cache-test",
+      version: "1.0.0",
+    });
+    clients.push(client);
+
+    await client.connect(transport);
+    const firstResult = await client.callTool({
+      name: "check_project",
+      arguments: { paths: ["test/fixtures/sample-project"] },
+    });
+    const first = readResponse(firstResult.content);
+
+    const secondResult = await client.callTool({
+      name: "check_project",
+      arguments: { paths: ["test/fixtures/sample-project"] },
+    });
+    const second = readResponse(secondResult.content);
+
+    expect(second.status).toBe(first.status);
+    expect(second.totalIssues).toBe(first.totalIssues);
+    expect(second.checkId).toBe(first.checkId);
+    expect(second.clusters).toEqual(first.clusters);
   });
 });
 

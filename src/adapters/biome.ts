@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
+import { resolveEngine } from "../engineResolution.js";
 import {
   createIssueId,
   normalizeIssueMessage,
@@ -144,9 +145,8 @@ async function runBiomeProcess(
   cwd: string,
   options: BiomeRunOptions,
 ): Promise<CommandResult> {
-  const require = createRequire(import.meta.url);
-  const packagePath = require.resolve("@biomejs/biome/package.json");
-  const cliPath = resolve(dirname(packagePath), "bin", "biome");
+  const resolved = resolveEngine("biome", cwd);
+  const cliPath = resolved?.binPath ?? resolve(dirname(createRequire(import.meta.url).resolve("@biomejs/biome/package.json")), "bin", "biome");
   return runEngineCommand(
     process.execPath,
     createBiomeCliArgs(cliPath, paths, options.includeFormatter ?? false),

@@ -13,10 +13,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { ZodError } from "zod";
 
-import { runBiome } from "./adapters/biome.js";
-import { runOxlint } from "./adapters/oxlint.js";
 import { runTsc } from "./adapters/tsc.js";
-import { createLinkedAbortController } from "./abort.js";
 import {
   checkFilesWithStats,
   type CacheStats,
@@ -25,15 +22,12 @@ import {
 import { clusterIssues, type ClusterResult } from "./cluster/clusterEngine.js";
 import {
   filterIgnoredPaths,
-  isEngineEnabled,
   isIgnoredPath,
   loadSignalintConfig,
-  shouldIncludeBiomeFormatter,
 } from "./config.js";
 import { filterDefaultExcludedIssues } from "./defaultExclusions.js";
 import {
   createIdleEngineStatuses,
-  settleEngineTasks,
 } from "./engineFanout.js";
 import {
   closeRuntimeResources,
@@ -206,8 +200,9 @@ const checkOutputSchema = {
         oxlint: engineStatusOutputSchema,
         tsc: engineStatusOutputSchema,
         biome: engineStatusOutputSchema,
+        eslint: engineStatusOutputSchema,
       },
-      required: ["oxlint", "tsc", "biome"],
+      required: ["oxlint", "tsc", "biome", "eslint"],
       additionalProperties: false,
     },
     totalIssues: { type: "integer" as const },
@@ -230,7 +225,7 @@ const checkOutputSchema = {
     },
     engine: {
       type: "string" as const,
-      enum: ["oxlint", "tsc", "biome"] as const,
+      enum: ["oxlint", "tsc", "biome", "eslint"] as const,
     },
     checkId: { type: "string" as const },
     code: { type: "string" as const },
@@ -248,7 +243,7 @@ const normalizedIssueOutputSchema = {
     col: { type: "integer" as const },
     engine: {
       type: "string" as const,
-      enum: ["oxlint", "tsc", "biome"] as const,
+      enum: ["oxlint", "tsc", "biome", "eslint"] as const,
     },
     rule: { type: "string" as const },
     severity: {
@@ -512,51 +507,103 @@ async function collectProjectIssueResult(
     };
   }
 
-  const linkedAbort = createLinkedAbortController(signal);
-  try {
-    const fanout = await settleEngineTasks<NormalizedIssue[]>([
-      {
-        engine: "oxlint",
-        enabled: config.engines.oxlint,
-        run: () => runOxlint(includedPaths, {
-          cwd,
-          signal: linkedAbort.controller.signal,
-          timeoutMs: config.timeoutsMs.oxlint,
-        }),
-      },
-      {
-        engine: "tsc",
-        enabled: config.engines.tsc,
-        run: () => runTsc(includedPaths, {
-          cwd,
-          signal: linkedAbort.controller.signal,
-          timeoutMs: config.timeoutsMs.tsc,
-        }),
-      },
-      {
-        engine: "biome",
-        enabled: isEngineEnabled(config.engines.biome),
-        run: () => runBiome(includedPaths, {
-          cwd,
-          includeFormatter: shouldIncludeBiomeFormatter(config.engines.biome),
-          signal: linkedAbort.controller.signal,
-          timeoutMs: config.timeoutsMs.biome,
-        }),
-      },
-    ]);
+  const files = await expandPathsToFiles(includedPaths, cwd, config.ignore);
+  if (files.length === 0) {
     return {
-      issues: filterDefaultExcludedIssues(fanout.results.flat())
-        .filter((issue) => !isIgnoredPath(issue.file, config.ignore))
-        .sort(compareIssues),
+      issues: [],
       cache: { hits: 0, misses: 0 },
-      engines: fanout.engines,
+      engines: createIdleEngineStatuses(config.engines),
     };
-  } catch (error: unknown) {
-    linkedAbort.controller.abort();
-    throw error;
-  } finally {
-    linkedAbort.dispose();
   }
+
+  const checkResult = await checkFilesWithStats(files, {
+    cwd,
+    engines: config.engines,
+    timeoutsMs: config.timeoutsMs,
+    signal,
+    targetPath: includedPaths[0],
+    runners: {
+      tsc: (options) => runTsc(includedPaths, options),
+    },
+  });
+
+  return {
+    issues: filterDefaultExcludedIssues(checkResult.issues)
+      .filter((issue) => !isIgnoredPath(issue.file, config.ignore))
+      .sort(compareIssues),
+    cache: checkResult.cache,
+    engines: checkResult.engines,
+  };
+}
+
+async function expandPathsToFiles(
+  paths: readonly string[],
+  cwd: string,
+  ignoreGlobs: readonly string[],
+): Promise<string[]> {
+  const fileSet = new Set<string>();
+  const visitedDirs = new Set<string>();
+
+  async function walk(relativeTarget: string): Promise<void> {
+    const absoluteTarget = resolve(cwd, relativeTarget);
+    let targetStat;
+    try {
+      targetStat = await stat(absoluteTarget);
+    } catch {
+      return;
+    }
+
+    if (targetStat.isFile()) {
+      if (!isIgnoredPath(relativeTarget, ignoreGlobs)) {
+        fileSet.add(relativeTarget);
+      }
+      return;
+    }
+
+    if (!targetStat.isDirectory()) {
+      return;
+    }
+
+    if (visitedDirs.has(absoluteTarget) || fileSet.size >= 2000) {
+      return;
+    }
+    visitedDirs.add(absoluteTarget);
+
+    let entries;
+    try {
+      entries = await readdir(absoluteTarget, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      if (
+        entry.name === "node_modules" ||
+        entry.name === ".git" ||
+        entry.name === ".signalint" ||
+        entry.name === "dist"
+      ) {
+        continue;
+      }
+      const childRelative = relativeTarget === "."
+        ? entry.name
+        : `${relativeTarget.replace(/\/$/, "")}/${entry.name}`;
+      if (isIgnoredPath(childRelative, ignoreGlobs)) {
+        continue;
+      }
+      if (entry.isDirectory()) {
+        await walk(childRelative);
+      } else if (entry.isFile()) {
+        fileSet.add(childRelative);
+      }
+    }
+  }
+
+  for (const p of paths) {
+    await walk(p);
+  }
+
+  return Array.from(fileSet);
 }
 
 /** Runs enabled incremental adapters and excludes requested or returned ignored paths. */

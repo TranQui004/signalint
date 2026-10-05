@@ -37,9 +37,9 @@ describe("signalint init", () => {
     })).resolves.toBe(0);
 
     expect(await readJson(join(root, "signalint.config.json"))).toEqual({
-      engines: { oxlint: false, tsc: true, biome: true },
+      engines: { oxlint: false, tsc: true, biome: true, eslint: false },
       ignore: ["node_modules/**", "dist/**", ".signalint/**"],
-      timeoutsMs: { oxlint: 30_000, tsc: 120_000, biome: 30_000 },
+      timeoutsMs: { oxlint: 30_000, tsc: 60_000, biome: 30_000, eslint: 30_000 },
     });
     expect(output.join("")).toContain("Detected project tooling: tsconfig.json, biome.json.");
     expect(output.join("")).toContain("Claude Code");
@@ -61,7 +61,7 @@ describe("signalint init", () => {
     });
 
     const config = await readJson(join(root, "signalint.config.json"));
-    expect(config.engines).toEqual({ oxlint: true, tsc: false, biome: false });
+    expect(config.engines).toEqual({ oxlint: true, tsc: false, biome: false, eslint: false });
   });
 
   it("asks which client when multiple configs are present and preserves other servers", async () => {
@@ -177,7 +177,7 @@ describe("signalint init", () => {
     expect(result.stdout).toContain("Created signalint.config.json.");
     expect(result.stdout).toContain("MCP client configuration was not written.");
     const config = await readJson(join(root, "signalint.config.json"));
-    expect(config.engines).toEqual({ oxlint: true, tsc: true, biome: false });
+    expect(config.engines).toEqual({ oxlint: true, tsc: true, biome: false, eslint: false });
   });
 });
 

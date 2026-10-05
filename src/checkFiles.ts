@@ -4,11 +4,13 @@ import { dirname, join, resolve } from "node:path";
 
 import { runOxlint } from "./adapters/oxlint.js";
 import { runBiome } from "./adapters/biome.js";
-import { runTsc } from "./adapters/tsc.js";
+import { resolveProjectFile, runTsc } from "./adapters/tsc.js";
+import { runEslint } from "./adapters/eslint.js";
 import { createLinkedAbortController } from "./abort.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
 import {
   DEFAULT_CONFIG,
+  FLAT_ESLINT_CONFIG_FILES,
   isEngineEnabled,
   shouldIncludeBiomeFormatter,
   type EngineSelection,
@@ -45,6 +47,7 @@ export interface EngineRunners {
   oxlint: EngineRunner;
   tsc: WholeProgramRunner;
   biome: EngineRunner;
+  eslint: EngineRunner;
 }
 
 export interface CheckFilesOptions {
@@ -54,6 +57,7 @@ export interface CheckFilesOptions {
   engines?: EngineSelection;
   signal?: AbortSignal | undefined;
   timeoutsMs?: EngineTimeouts;
+  targetPath?: string | undefined;
 }
 
 export interface CacheStats {
@@ -85,18 +89,21 @@ const ENGINE_CONFIG_FILES: Record<CacheEngine, readonly string[]> = {
   oxlint: [".oxlintrc", ".oxlintrc.json", "oxlint.json"],
   tsc: ["tsconfig.json"],
   biome: ["biome.json", "biome.jsonc"],
+  eslint: FLAT_ESLINT_CONFIG_FILES,
 };
 
 const DEFAULT_RUNNERS: EngineRunners = {
   oxlint: runOxlint,
   tsc: (options) => runTsc(["."], options),
   biome: runBiome,
+  eslint: runEslint,
 };
 
 const DEFAULT_ENGINES: EngineSelection = {
   oxlint: true,
   tsc: true,
   biome: false,
+  eslint: false,
 };
 
 /** Checks files through enabled engines and returns normalized issues without instrumentation. */
@@ -147,6 +154,7 @@ export async function checkFilesWithStats(
           runners.tsc,
           timeoutsMs.tsc,
           linkedAbort.controller.signal,
+          options.targetPath,
         ),
       },
       {
@@ -162,6 +170,19 @@ export async function checkFilesWithStats(
             includeFormatter: shouldIncludeBiomeFormatter(engines.biome),
           }),
           timeoutsMs.biome,
+          linkedAbort.controller.signal,
+        ),
+      },
+      {
+        engine: "eslint",
+        enabled: engines.eslint,
+        run: () => checkFileLocalEngine(
+          "eslint",
+          snapshots.filter((snapshot) => isEslintRelevant(snapshot.file)),
+          cwd,
+          cache,
+          runners.eslint,
+          timeoutsMs.eslint,
           linkedAbort.controller.signal,
         ),
       },
@@ -186,10 +207,12 @@ export async function checkFilesWithStats(
 export async function computeEngineConfigHash(
   engine: CacheEngine,
   cwd: string,
+  targetTsconfigPath?: string,
 ): Promise<string> {
   const hash = createHash("sha256");
   if (engine === "tsc") {
-    const configFiles = await collectTscConfigFiles(resolve(cwd, "tsconfig.json"), new Set());
+    const projectFile = targetTsconfigPath ?? resolve(cwd, "tsconfig.json");
+    const configFiles = await collectTscConfigFiles(projectFile, new Set());
     for (const absolutePath of Array.from(configFiles).sort()) {
       hash.update(absolutePath);
       hash.update("\0");
@@ -259,8 +282,18 @@ async function checkWholeProgramTsc(
   runner: WholeProgramRunner,
   timeoutMs: number,
   signal: AbortSignal,
+  targetPath?: string | undefined,
 ): Promise<EngineCheckResult> {
-  const configHash = await computeEngineConfigHash("tsc", cwd);
+  let targetTsconfigPath: string | undefined;
+  const probePath = targetPath ?? snapshots[0]?.file;
+  if (probePath !== undefined) {
+    try {
+      targetTsconfigPath = await resolveProjectFile(probePath, cwd);
+    } catch {
+      // fallback to cwd tsconfig
+    }
+  }
+  const configHash = await computeEngineConfigHash("tsc", cwd, targetTsconfigPath);
   cache.invalidateEngine("tsc", configHash);
   const latestResult = cache.getEngineResult("tsc", configHash);
   const relevantSnapshots = snapshots.filter((snapshot) => isTypeScriptRelevant(snapshot.file));
@@ -440,6 +473,10 @@ function isOxlintRelevant(file: string): boolean {
 
 function isBiomeRelevant(file: string): boolean {
   return /\.(?:[cm]?[jt]sx?|jsonc?|css|g(?:raph)?ql)$/.test(file);
+}
+
+function isEslintRelevant(file: string): boolean {
+  return /\.[cm]?[jt]sx?$/.test(file);
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

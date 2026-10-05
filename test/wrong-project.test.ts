@@ -27,6 +27,7 @@ describe("Phase 0 acceptance tests (wrong project and safety nets)", () => {
       oxlint: { status: "error", message: "oxlint crashed" },
       tsc: { status: "ok" },
       biome: { status: "disabled" },
+      eslint: { status: "disabled" },
     });
 
     expect(result.response.status).toBe("error");
@@ -44,6 +45,7 @@ describe("Phase 0 acceptance tests (wrong project and safety nets)", () => {
     expect(response.engines.oxlint.status).toBe("disabled");
     expect(response.engines.tsc.status).toBe("disabled");
     expect(response.engines.biome.status).toBe("disabled");
+    expect(response.engines.eslint.status).toBe("disabled");
   });
 
   it("3. Stdio integration: server started with cwd = fixtureProjectA returns projectRoot === realpath(fixtureProjectA)", async () => {

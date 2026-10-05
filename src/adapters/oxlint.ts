@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
+import { resolveEngine } from "../engineResolution.js";
 import {
   createIssueId,
   normalizeIssueMessage,
@@ -161,9 +162,8 @@ async function runOxlintProcess(
   cwd: string,
   options: OxlintRunOptions,
 ): Promise<CommandResult> {
-  const require = createRequire(import.meta.url);
-  const packagePath = require.resolve("oxlint/package.json");
-  const cliPath = resolve(dirname(packagePath), "bin", "oxlint");
+  const resolved = resolveEngine("oxlint", cwd);
+  const cliPath = resolved?.binPath ?? resolve(dirname(createRequire(import.meta.url).resolve("oxlint/package.json")), "bin", "oxlint");
   return runEngineCommand(process.execPath, createOxlintCliArgs(cliPath, paths), {
     cwd,
     engine: "oxlint",

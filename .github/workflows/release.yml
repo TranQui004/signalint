@@ -3,7 +3,13 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'
+      - 'v*.*.*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag or version to release (e.g. v1.0.0)'
+        required: false
+        default: 'v1.0.0'
 
 permissions:
   contents: read
@@ -88,10 +94,11 @@ jobs:
 
       - name: Verify tag matches package version
         run: |
-          tag_version="${GITHUB_REF_NAME#v}"
+          ref_name="${{ github.event.inputs.tag || github.ref_name }}"
+          tag_version="${ref_name#v}"
           package_version="$(node -p "require('./package.json').version")"
           if [ "$tag_version" != "$package_version" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json version $package_version" >&2
+            echo "Tag $ref_name does not match package.json version $package_version" >&2
             exit 1
           fi
 
@@ -103,14 +110,15 @@ jobs:
 
       - name: Generate release notes from commit messages
         run: |
-          previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
+          ref_name="${{ github.event.inputs.tag || github.ref_name }}"
+          previous_tag="$(git describe --tags --abbrev=0 "${ref_name}^" 2>/dev/null || true)"
           if [ -n "$previous_tag" ]; then
-            range_opts=("${previous_tag}..${GITHUB_REF_NAME}")
+            range_opts=("${previous_tag}..${ref_name}")
             echo "Changes since ${previous_tag}:" > release-notes.md
           else
             # No earlier tag reachable (for example after retiring old tags): cap
             # the range so the notes do not expand to the entire history.
-            range_opts=(-n 200 "${GITHUB_REF_NAME}")
+            range_opts=(-n 200 "${ref_name}")
             echo "Changes in the most recent 200 commits:" > release-notes.md
           fi
           echo "" >> release-notes.md
@@ -138,20 +146,20 @@ jobs:
           fi
           cat release-notes.md
 
-      - name: Check if already published
+      - name: Check if already published on npm
         id: check-publish
         run: |
           package_version="$(node -p "require('./package.json').version")"
           if npm view "signalint-mcp@$package_version" version >/dev/null 2>&1; then
-            echo "Version $package_version is already published on npm. Skipping publish steps."
-            echo "skip_publish=true" >> "$GITHUB_OUTPUT"
+            echo "Version $package_version is already published on npm. Skipping npm publish."
+            echo "skip_npm_publish=true" >> "$GITHUB_OUTPUT"
           else
             echo "Version $package_version is NOT published on npm. Proceeding."
-            echo "skip_publish=false" >> "$GITHUB_OUTPUT"
+            echo "skip_npm_publish=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Verify npm token secret is configured
-        if: steps.check-publish.outputs.skip_publish != 'true'
+        if: steps.check-publish.outputs.skip_npm_publish != 'true'
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -161,7 +169,7 @@ jobs:
           fi
 
       - name: Publish to npm
-        if: steps.check-publish.outputs.skip_publish != 'true'
+        if: steps.check-publish.outputs.skip_npm_publish != 'true'
         run: npm publish --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -176,22 +184,40 @@ jobs:
           fi
 
       - name: Install mcp-publisher
-        if: steps.check-publish.outputs.skip_publish != 'true'
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
 
       - name: Publish to MCP Registry
-        if: steps.check-publish.outputs.skip_publish != 'true'
         run: |
+          package_version="$(node -p "require('./package.json').version")"
+          registry_version="$(node -e "fetch('https://registry.modelcontextprotocol.io/v0.1/servers/io.github.TranQui004%2Fsignalint/versions/latest').then(r => r.json()).then(d => console.log(d.server?.version || '')).catch(() => '')" || true)"
+          if [ "$registry_version" = "$package_version" ]; then
+            echo "Version $package_version is already published on MCP Registry. Skipping."
+            exit 0
+          fi
+
           ./mcp-publisher login github-oidc
-          ./mcp-publisher publish
+          for attempt in 1 2 3 4 5; do
+            echo "Publishing to MCP Registry (attempt $attempt)..."
+            if ./mcp-publisher publish; then
+              echo "Successfully published to MCP Registry"
+              exit 0
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              echo "Publish attempt $attempt failed (likely npm metadata propagation delay). Retrying in 15s..."
+              sleep 15
+            fi
+          done
+          echo "Failed to publish to MCP Registry after 5 attempts." >&2
+          exit 1
 
       - name: Create GitHub Release
         run: |
-          if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
-            gh release edit "$GITHUB_REF_NAME" --notes-file release-notes.md
+          ref_name="${{ github.event.inputs.tag || github.ref_name }}"
+          if gh release view "$ref_name" > /dev/null 2>&1; then
+            gh release edit "$ref_name" --title "$ref_name" --notes-file release-notes.md
           else
-            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file release-notes.md
+            gh release create "$ref_name" --title "$ref_name" --notes-file release-notes.md
           fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

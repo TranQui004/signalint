@@ -6,7 +6,7 @@ import {
   createEslintCliArgs,
   parseEslintOutput,
   runEslint,
-} from "../src/adapters/eslint.js";
+} from "../src/engines/eslint.js";
 import { EngineDisabledError } from "../src/engineFanout.js";
 
 describe("ESLint adapter", () => {

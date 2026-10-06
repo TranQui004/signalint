@@ -55,9 +55,10 @@ them operates on `NormalizedIssue` objects and never shells out.
 
 | Module | Responsibility |
 |---|---|
-| `src/adapters/oxlint.ts` | Runs Oxlint and normalizes its JSON diagnostics. |
-| `src/adapters/tsc.ts` | Resolves the TypeScript project, selects project or build mode, runs the pinned compiler, and parses diagnostics. |
-| `src/adapters/biome.ts` | Runs optional Biome checks and normalizes its JSON reporter output. |
+| `src/engines/oxlint.ts` | Runs Oxlint and normalizes its JSON diagnostics. |
+| `src/engines/tsc.ts` | Resolves the TypeScript project, selects project or build mode, runs the pinned compiler, and parses diagnostics. |
+| `src/engines/biome.ts` | Runs optional Biome checks and normalizes its JSON reporter output. |
+| `src/engines/eslint.ts` | Runs ESLint flat-config checks and normalizes its JSON diagnostics. |
 | `src/subprocess.ts` | Runs engine processes with timeouts, output ceilings, abort handling, and Windows/POSIX process-tree termination. |
 | `src/abort.ts` | Links MCP cancellation to adapter subprocess cancellation. |
 | `src/engineFanout.ts` | Settles all engine tasks independently so one failing engine cannot discard another's diagnostics, and maps each outcome to an `ok`/`error`/`disabled` status. |
@@ -69,7 +70,7 @@ them operates on `NormalizedIssue` objects and never shells out.
 | `src/checkFiles.ts` | Coordinates per-file snapshots, engine config hashes, cache decisions, and the different file-local/whole-program strategies. |
 | `src/cache/sqliteCache.ts` | Stores per-engine file results and the latest whole-program result in `.signalint/cache.sqlite`, bounded by LRU eviction. |
 | `src/cluster/clusterEngine.ts` | Groups normalized issues by rule, assigns cluster IDs and priority, samples distinct issue IDs, and truncates responses. |
-| `src/defaultExclusions.ts` | Removes diagnostics whose path contains a `node_modules` segment, independently of user configuration. |
+| `src/check/exclusions.ts` | Removes diagnostics whose path contains a `node_modules` segment, independently of user configuration. |
 
 ### Session state
 
@@ -77,8 +78,8 @@ them operates on `NormalizedIssue` objects and never shells out.
 |---|---|
 | `src/memory/sessionMemory.ts` | Tracks issue-signature appearances, restores a bounded tail of JSONL history, adds loop warnings, and appends check metrics. |
 | `src/memory/sessionLogStorage.ts` | Reads the newest JSONL entries without loading the whole file, and rotates the log once it exceeds its size budget. |
-| `src/sessionLog.ts` | Shared JSONL parser that skips malformed and crash-truncated lines and reports how many were skipped. |
-| `src/stats.ts` | Aggregates `.signalint/session.jsonl` into payload, cache, latency, and loop-warning statistics. |
+| `src/memory/sessionLog.ts` | Shared JSONL parser that skips malformed and crash-truncated lines and reports how many were skipped. |
+| `src/memory/stats.ts` | Aggregates `.signalint/session.jsonl` into payload, cache, latency, and loop-warning statistics. |
 
 ## Engine invocation and caching
 

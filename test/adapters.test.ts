@@ -2,15 +2,15 @@ import { resolve } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBiomeCliArgs, parseBiomeOutput, runBiome } from "../src/adapters/biome.js";
-import { createOxlintCliArgs, parseOxlintOutput } from "../src/adapters/oxlint.js";
+import { createBiomeCliArgs, parseBiomeOutput, runBiome } from "../src/engines/biome.js";
+import { createOxlintCliArgs, parseOxlintOutput } from "../src/engines/oxlint.js";
 import {
   clearConfigInspectionCache,
   configInspectionCacheSize,
   createTscArgs,
   parseTscOutput,
   runTsc,
-} from "../src/adapters/tsc.js";
+} from "../src/engines/tsc.js";
 import { EngineDisabledError } from "../src/engineFanout.js";
 import * as engineResolution from "../src/engineResolution.js";
 import { isNormalizedIssue } from "../src/schema.js";

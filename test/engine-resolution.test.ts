@@ -1,6 +1,7 @@
+import { realpathSync, symlinkSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -73,6 +74,45 @@ describe("Engine resolution", () => {
     expect(resolved?.version).toBe("9.18.0");
     expect(resolved?.binPath).toContain("eslint.js");
     expect(resolveEngineVersion("eslint", tempProject)).toBe("9.18.0");
+  });
+
+  it("resolves project-local engines when project root is reached via symlink", async () => {
+    const realProject = join(tmpdir(), `signalint-res-real-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    const symlinkProject = join(tmpdir(), `signalint-res-link-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    tempDirs.push(realProject, symlinkProject);
+
+    await mkdir(resolve(realProject, "node_modules", "eslint", "bin"), { recursive: true });
+    await writeFile(
+      resolve(realProject, "package.json"),
+      JSON.stringify({ name: "mock-project" }),
+      "utf8",
+    );
+    await writeFile(
+      resolve(realProject, "node_modules", "eslint", "package.json"),
+      JSON.stringify({
+        name: "eslint",
+        version: "9.18.0",
+        bin: { eslint: "bin/eslint.js" },
+      }),
+      "utf8",
+    );
+    await writeFile(
+      resolve(realProject, "node_modules", "eslint", "bin", "eslint.js"),
+      "#!/usr/bin/env node\n",
+      "utf8",
+    );
+
+    symlinkSync(realProject, symlinkProject, process.platform === "win32" ? "junction" : "dir");
+
+    const resolved = resolveEngine("eslint", symlinkProject);
+    expect(resolved).toBeDefined();
+    expect(resolved?.isProjectLocal).toBe(true);
+    expect(resolved?.version).toBe("9.18.0");
+    expect(resolved?.binPath).toContain("eslint.js");
+
+    const relBin = relative(realpathSync(realProject), realpathSync(resolved!.binPath));
+    expect(relBin.startsWith("..")).toBe(false);
+    expect(isAbsolute(relBin)).toBe(false);
   });
 
   it("caches resolved engines per project and clearEngineResolutionCache resets it", async () => {

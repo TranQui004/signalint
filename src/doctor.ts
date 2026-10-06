@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
@@ -170,6 +171,22 @@ async function inspectEngine(
   return { name, source, version };
 }
 
+function canonicalizeConfiguredCwd(cwd: string): string {
+  const resolved = resolve(cwd);
+  try {
+    return realpathSync(resolved);
+  } catch {
+    return resolved;
+  }
+}
+
+function isSamePath(a: string, b: string): boolean {
+  if (process.platform === "win32" || process.platform === "darwin") {
+    return a.toLowerCase() === b.toLowerCase();
+  }
+  return a === b;
+}
+
 async function inspectClientConfig(
   spec: McpClientSpec,
   configPath: string,
@@ -180,8 +197,8 @@ async function inspectClientConfig(
     if (spec.format === "toml") {
       const match = /\[mcp_servers\.signalint\][\s\S]*?(?:cwd\s*=\s*["']([^"']+)["'])/m.exec(content);
       if (match && match[1]) {
-        const configuredCwd = resolve(match[1]);
-        if (configuredCwd !== projectRoot) {
+        const canonicalCwd = canonicalizeConfiguredCwd(match[1]);
+        if (!isSamePath(canonicalCwd, projectRoot)) {
           return {
             client: spec,
             configPath,
@@ -205,8 +222,8 @@ async function inspectClientConfig(
 
     const signalintEntry = serverContainer.signalint;
     if (typeof signalintEntry.cwd === "string") {
-      const configuredCwd = resolve(signalintEntry.cwd);
-      if (configuredCwd !== projectRoot) {
+      const canonicalCwd = canonicalizeConfiguredCwd(signalintEntry.cwd);
+      if (!isSamePath(canonicalCwd, projectRoot)) {
         return {
           client: spec,
           configPath,

@@ -106,8 +106,9 @@ npm install --save-dev signalint-mcp
 
 Run the setup command from that project root. It detects TypeScript, Oxlint,
 Biome, flat ESLint, and Prettier configuration, writes `signalint.config.json`,
-appends `.signalint/` to `.gitignore`, and offers to update a nearby
-Claude Code, Cursor, Codex CLI, or Antigravity MCP configuration:
+appends `.signalint/` to `.gitignore`, and offers to update a nearby MCP
+configuration for Claude Code, Cursor, Codex CLI, Antigravity, VS Code,
+Windsurf, or Zed:
 
 ```sh
 npx signalint-mcp init
@@ -318,8 +319,10 @@ Node invocation remains the reliable fallback for older builds or unusual npm se
 
 ## Configuration
 
-`engines.oxlint`, `engines.tsc`, and `engines.biome` are booleans. Defaults are
-Oxlint and tsc enabled, Biome disabled. Omitted engine keys retain those defaults.
+`engines.oxlint`, `engines.tsc`, `engines.biome`, and `engines.eslint` are booleans.
+Defaults are Oxlint and tsc enabled; Biome and ESLint disabled. Omitted engine keys
+retain those defaults. ESLint is only used when the project has a flat config
+(`eslint.config.*`) and installs ESLint itself.
 Unknown keys and incorrectly typed values fail with a configuration error.
 
 `ignore` is an array of project-relative globs. Signalint supports `*`, `**`, and
@@ -335,16 +338,17 @@ sources—including `.oxlintrc.jsonc`, extended configs, and nested package conf
 are not part of v1 cache hashing; clear `.signalint/` after changing one of them.
 
 `timeoutsMs` sets positive-integer subprocess deadlines in milliseconds. Defaults are
-30 seconds for Oxlint, 120 seconds for tsc, and 30 seconds for Biome. A timed-out
-engine and its child processes are terminated. In the schema 1.1 check response, that
-engine has `{ "status": "error", "message": "tsc did not complete within 120s" }`
-under `engines`, while completed engines' diagnostics are preserved.
+30 seconds for Oxlint, 60 seconds for tsc, 30 seconds for Biome, and 30 seconds for
+ESLint. A timed-out engine and its child processes are terminated. In the schema 1.3
+check response, that engine has `{ "status": "error", "message": "tsc did not complete
+within 60s" }` under `engines`, while completed engines' diagnostics are preserved.
 
 ## Known Limitations
 
 - Signalint supports JavaScript and TypeScript projects only.
-- The built-in engines are Oxlint, TypeScript, and Biome; v1 does not support
-  arbitrary custom engines.
+- The bundled engines are Oxlint, TypeScript, and Biome. ESLint is supported only
+  when the checked project has a flat config (`eslint.config.*`) and installs
+  ESLint itself; v1 does not support arbitrary custom engines.
 - Signalint reports whether an issue has a structured fix, but v1 does not apply
   fixes.
 - Signalint is not a SAST or security scanner.
@@ -445,10 +449,13 @@ the check with `--format github` so issues appear as inline annotations on
 the pull request diff:
 
 ```yaml
-- uses: TranQui004/signalint@main
+- uses: TranQui004/signalint@v1
   with:
     fail-on-priority: "3"
 ```
+
+`@v1` is a moving tag that is re-pointed on every `1.x` release; pin
+`@v1.0.0` (or any exact tag) when you need a fixed version.
 
 `fail-on-priority` defaults to `5`, which fails the job on any issue found,
 matching `signalint check`'s default behavior without the flag. Lower values
@@ -491,6 +498,8 @@ runtime reachability, and the conditions that require reassessment.
 - [AGENTS.md](AGENTS.md) — coding standards for this repository.
 - [SECURITY.md](SECURITY.md) — threat model, trust boundaries, and audit status.
 - [CHANGELOG.md](CHANGELOG.md) — notable changes by release.
+- [RELEASE.md](RELEASE.md) — release checklist: version bumps, tagging, and
+  publish targets.
 - [docs/history/](docs/history/) — original build plan and pre-launch audit trail.
 
 ## License

@@ -61,9 +61,10 @@ docs(readme): document pre-release installation
 
 ## Cutting a release
 
-Releases are published by the `Release` workflow
-(`.github/workflows/release.yml`), which is triggered by pushing a tag matching
-`v*`. Nothing is published from a developer machine.
+The full checklist lives in [RELEASE.md](RELEASE.md). In short: releases are
+published by the `Release` workflow (`.github/workflows/release.yml`), which is
+triggered by pushing a tag matching `v*`. Nothing is published from a developer
+machine.
 
 Prerequisite, one time: a repository secret named `NPM_TOKEN` holding an npm
 **automation** token for `signalint-mcp`. An automation token skips the
@@ -74,22 +75,27 @@ Steps:
 ```sh
 git switch main
 git pull
-# update README.md and any docs that describe the new version, then merge that
-# change through the normal pull request process
-npm version 0.3.0 --no-git-tag-version
-git commit -am "ci(release): 0.3.0"
-# open a pull request, wait for CI, merge, then from updated main:
-git tag v0.3.0
-git push origin v0.3.0
+# bump version in package.json and server.json, move CHANGELOG "Unreleased"
+# entries into a versioned section, update docs, then merge through a PR
+git commit -am "ci(release): 1.0.0"
+# after that PR is merged and main is updated:
+git tag v1.0.0
+git push origin v1.0.0
 ```
+
+Remember to bump `version` and `packages[0].version` in `server.json` together
+with `package.json`; the workflow rejects a mismatch.
 
 The workflow then:
 
-1. Runs the same four-platform gate as CI (`lint`, `typecheck`, `test`, `build`).
+1. Runs the same three-platform gate as CI (`lint`, `typecheck`, `test`, `build`).
 2. Fails if the tag version does not match `package.json` `version`, so a tag can
    never publish a different version than it names.
-3. Builds and runs `npm publish --provenance --access public` with `NPM_TOKEN`.
-4. Generates release notes by grouping commit subjects since the previous tag by
+3. Builds, lists the packed contents, and runs
+   `npm publish --provenance --access public` with `NPM_TOKEN`.
+4. Verifies `server.json` carries the same version and publishes the listing to
+   the official MCP Registry with `mcp-publisher` (GitHub OIDC).
+5. Generates release notes by grouping commit subjects since the previous tag by
    their `type(scope):` prefix, and creates the GitHub Release with `gh release
    create`.
 

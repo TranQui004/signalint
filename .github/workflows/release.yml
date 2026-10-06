@@ -98,19 +98,24 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Inspect packed contents
+        run: npm pack --dry-run
+
       - name: Generate release notes from commit messages
         run: |
           previous_tag="$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)"
           if [ -n "$previous_tag" ]; then
-            range="${previous_tag}..${GITHUB_REF_NAME}"
+            range_opts=("${previous_tag}..${GITHUB_REF_NAME}")
             echo "Changes since ${previous_tag}:" > release-notes.md
           else
-            range="${GITHUB_REF_NAME}"
-            echo "Changes in ${GITHUB_REF_NAME}:" > release-notes.md
+            # No earlier tag reachable (for example after retiring old tags): cap
+            # the range so the notes do not expand to the entire history.
+            range_opts=(-n 200 "${GITHUB_REF_NAME}")
+            echo "Changes in the most recent 200 commits:" > release-notes.md
           fi
           echo "" >> release-notes.md
           for type in feat fix refactor test docs ci; do
-            matches="$(git log --no-merges --pretty=format:'%s' "$range" | grep -E "^${type}(\(.+\))?: " || true)"
+            matches="$(git log --no-merges --pretty=format:'%s' "${range_opts[@]}" | grep -E "^${type}(\(.+\))?: " || true)"
             if [ -n "$matches" ]; then
               case "$type" in
                 feat) heading="Features" ;;
@@ -125,7 +130,7 @@ jobs:
               echo "" >> release-notes.md
             fi
           done
-          other="$(git log --no-merges --pretty=format:'%s' "$range" | grep -Ev "^(feat|fix|refactor|test|docs|ci)(\(.+\))?: " || true)"
+          other="$(git log --no-merges --pretty=format:'%s' "${range_opts[@]}" | grep -Ev "^(feat|fix|refactor|test|docs|ci)(\(.+\))?: " || true)"
           if [ -n "$other" ]; then
             echo "### Other" >> release-notes.md
             echo "$other" | sed 's/^/- /' >> release-notes.md
@@ -171,10 +176,12 @@ jobs:
           fi
 
       - name: Install mcp-publisher
+        if: steps.check-publish.outputs.skip_publish != 'true'
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
 
       - name: Publish to MCP Registry
+        if: steps.check-publish.outputs.skip_publish != 'true'
         run: |
           ./mcp-publisher login github-oidc
           ./mcp-publisher publish

@@ -7,7 +7,7 @@ import {
   formatSessionStats,
   parseSessionLog,
   readSessionStats,
-} from "../src/stats.js";
+} from "../src/memory/stats.js";
 
 const SESSION_LOG = [
   {

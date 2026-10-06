@@ -9,7 +9,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import {
   filterDefaultExcludedIssues,
   isDefaultExcludedPath,
-} from "../src/defaultExclusions.js";
+} from "../src/check/exclusions.js";
 import { createServer } from "../src/index.js";
 import { SessionMemory } from "../src/memory/sessionMemory.js";
 import {

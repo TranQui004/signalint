@@ -12,7 +12,7 @@ import type {
 import {
   parseSessionJsonLines,
   type ParsedSessionLogEntry,
-} from "../sessionLog.js";
+} from "./sessionLog.js";
 import {
   readSessionLogTail,
   rotateSessionLogIfNeeded,

@@ -2,6 +2,7 @@ import { readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
+import { canonicalizePath } from "./projectPaths.js";
 import type { IssueEngine } from "./schema.js";
 import { isRecord } from "./util/index.js";
 
@@ -25,12 +26,17 @@ export function clearEngineResolutionCache(): void {
   resolutionCache.clear();
 }
 
+function safeRealpath(path: string): string {
+  return canonicalizePath(path);
+}
+
 /** Resolves an engine binary and version from the project root first, falling back to bundled copies. */
 export function resolveEngine(
   engine: IssueEngine,
   projectRoot: string = process.cwd(),
 ): ResolvedEngine | undefined {
-  const cacheKey = `${engine}:${resolve(projectRoot)}`;
+  const canonicalRoot = safeRealpath(projectRoot);
+  const cacheKey = `${engine}:${canonicalRoot}`;
   if (resolutionCache.has(cacheKey)) {
     const cached = resolutionCache.get(cacheKey);
     return cached ?? undefined;
@@ -59,11 +65,13 @@ function resolveProjectLocalEngine(
   projectRoot: string,
 ): ResolvedEngine | undefined {
   try {
+    const canonicalRoot = safeRealpath(projectRoot);
     const projectRequire = createRequire(resolve(projectRoot, "package.json"));
     const packageJsonPath = projectRequire.resolve(`${info.packageName}/package.json`, {
       paths: [projectRoot],
     });
-    const rel = relative(projectRoot, packageJsonPath);
+    const canonicalPkg = safeRealpath(packageJsonPath);
+    const rel = relative(canonicalRoot, canonicalPkg);
     if (rel.startsWith("..") || isAbsolute(rel)) {
       return undefined;
     }

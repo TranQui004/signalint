@@ -1,3 +1,4 @@
+import { symlinkSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -6,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { runCli } from "../src/cli.js";
 import { runDoctorCommand } from "../src/doctor.js";
+import { canonicalizePath } from "../src/projectPaths.js";
 
 const temporaryRoots: string[] = [];
 
@@ -179,6 +181,51 @@ describe("signalint doctor", () => {
     expect(combined).toContain("Could not resolve project root");
   });
 
+  it("passes when an active MCP config uses a symlinked cwd pointing to the current project", async () => {
+    const root = await createTemporaryProject();
+    const homeDir = await createTemporaryProject();
+    await writeFile(join(root, "signalint.config.json"), "{}\n", "utf8");
+    await writeFile(join(root, "package.json"), '{"name":"test"}\n', "utf8");
+
+    const symlinkRoot = join(
+      tmpdir(),
+      `signalint-doctor-symlink-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    symlinkSync(root, symlinkRoot, process.platform === "win32" ? "junction" : "dir");
+    temporaryRoots.push(symlinkRoot);
+
+    const claudeUserConfig = join(homeDir, ".claude.json");
+    await writeFile(
+      claudeUserConfig,
+      JSON.stringify(
+        {
+          mcpServers: {
+            signalint: {
+              command: "npx",
+              args: ["--no-install", "signalint-mcp"],
+              cwd: symlinkRoot,
+            },
+          },
+        },
+        null,
+        2,
+      ),
+      "utf8",
+    );
+
+    const output: string[] = [];
+    const code = await runDoctorCommand({
+      cwd: root,
+      homeDir,
+      writeOutput: (msg) => output.push(msg),
+    });
+
+    expect(code).toBe(0);
+    const combined = output.join("");
+    expect(combined).not.toContain("Stale cwd");
+    expect(combined).toContain("PASSED");
+  });
+
   it("can be invoked through runCli", async () => {
     const root = await createTemporaryProject();
     const homeDir = await createTemporaryProject();
@@ -193,5 +240,5 @@ describe("signalint doctor", () => {
 async function createTemporaryProject(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "signalint-doctor-"));
   temporaryRoots.push(root);
-  return root;
+  return canonicalizePath(root);
 }

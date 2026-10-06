@@ -12,7 +12,7 @@ You do not need to read the historical build plan to make a correct change.
 - TypeScript strict mode is mandatory. Never use `any` — use `unknown` and narrow,
   or define a proper type.
 - Functions should do one thing. If a function exceeds ~40 lines, consider splitting it.
-- Every module under `src/adapters/`, `src/cache/`, `src/cluster/`, and `src/memory/`
+- Every module under `src/engines/`, `src/cache/`, `src/cluster/`, and `src/memory/`
   must have a corresponding test file under `test/` before it is considered done.
 - All public functions and MCP tool handlers need a one-line JSDoc comment stating
   what they do and what they assume about their input.

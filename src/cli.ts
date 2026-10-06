@@ -7,7 +7,7 @@ import { runInitCommand } from "./init.js";
 import { checkProjectWithIssues } from "./index.js";
 import { isMainModule } from "./mainModule.js";
 import type { CheckResponse, NormalizedIssue } from "./schema.js";
-import { formatSessionStats, readSessionStats } from "./stats.js";
+import { formatSessionStats, readSessionStats } from "./memory/stats.js";
 
 const CHECK_USAGE =
   "Usage: signalint check [path ...] [--format json|github] [--fail-on-priority <N>]\n";

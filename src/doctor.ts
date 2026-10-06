@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { CLIENT_REGISTRY, getLegacyAntigravityConfigPath, type McpClientSpec } from "./clients/registry.js";
-import { readCanonicalProjectRoot } from "./projectPaths.js";
+import { canonicalizePath, readCanonicalProjectRoot } from "./projectPaths.js";
 import { isRecord } from "./util/index.js";
 
 export interface DoctorOptions {
@@ -170,6 +170,17 @@ async function inspectEngine(
   return { name, source, version };
 }
 
+function canonicalizeConfiguredCwd(cwd: string): string {
+  return canonicalizePath(cwd);
+}
+
+function isSamePath(a: string, b: string): boolean {
+  if (process.platform === "win32" || process.platform === "darwin") {
+    return a.toLowerCase() === b.toLowerCase();
+  }
+  return a === b;
+}
+
 async function inspectClientConfig(
   spec: McpClientSpec,
   configPath: string,
@@ -180,8 +191,8 @@ async function inspectClientConfig(
     if (spec.format === "toml") {
       const match = /\[mcp_servers\.signalint\][\s\S]*?(?:cwd\s*=\s*["']([^"']+)["'])/m.exec(content);
       if (match && match[1]) {
-        const configuredCwd = resolve(match[1]);
-        if (configuredCwd !== projectRoot) {
+        const canonicalCwd = canonicalizeConfiguredCwd(match[1]);
+        if (!isSamePath(canonicalCwd, projectRoot)) {
           return {
             client: spec,
             configPath,
@@ -205,8 +216,8 @@ async function inspectClientConfig(
 
     const signalintEntry = serverContainer.signalint;
     if (typeof signalintEntry.cwd === "string") {
-      const configuredCwd = resolve(signalintEntry.cwd);
-      if (configuredCwd !== projectRoot) {
+      const canonicalCwd = canonicalizeConfiguredCwd(signalintEntry.cwd);
+      if (!isSamePath(canonicalCwd, projectRoot)) {
         return {
           client: spec,
           configPath,

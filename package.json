@@ -47,15 +47,15 @@
     "dist/src",
     "examples",
     "glama.json",
-    "signalint.config.json",
     "README.md",
     "SECURITY.md",
     "LICENSE"
   ],
   "engines": {
-    "node": "^20.19.0 || >=22.12.0"
+    "node": ">=22.12.0"
   },
   "scripts": {
+    "bench": "node scripts/bench.mjs",
     "build": "tsc -p tsconfig.json",
     "lint": "oxlint src test --ignore-pattern test/fixtures",
     "start": "node dist/src/index.js",
@@ -64,15 +64,21 @@
     "prepack": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@biomejs/biome": "2.5.8",
-    "@modelcontextprotocol/sdk": "1.30.0",
-    "better-sqlite3": "12.6.2",
-    "oxlint": "1.78.0",
+    "@modelcontextprotocol/sdk": "1.32.0",
+    "oxlint": "1.86.0",
     "typescript": "7.0.2",
-    "zod": "4.4.3"
+    "zod": "4.6.5"
+  },
+  "peerDependencies": {
+    "@biomejs/biome": "2.5.15"
+  },
+  "peerDependenciesMeta": {
+    "@biomejs/biome": {
+      "optional": true
+    }
   },
   "devDependencies": {
-    "@types/better-sqlite3": "7.6.13",
+    "@biomejs/biome": "2.5.15",
     "@types/node": "26.1.1",
     "@vitest/coverage-v8": "4.1.10",
     "vitest": "4.1.10"

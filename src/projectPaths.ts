@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { realpath } from "node:fs/promises";
 import { isAbsolute, relative, resolve, sep, win32 } from "node:path";
 
@@ -58,9 +59,19 @@ export async function containProjectPath(
   return await canonicalizeContainedPath(absolutePath, projectRoot);
 }
 
-async function readCanonicalProjectRoot(cwd: string): Promise<string> {
+/** Resolves the canonical, realpath-contained project root directory asynchronously. */
+export async function readCanonicalProjectRoot(cwd: string): Promise<string> {
   try {
     return await realpath(resolve(cwd));
+  } catch (error: unknown) {
+    throw pathNotFoundError("Project root", error);
+  }
+}
+
+/** Resolves the canonical, realpath-contained project root directory synchronously. */
+export function readCanonicalProjectRootSync(cwd: string): string {
+  try {
+    return realpathSync(resolve(cwd));
   } catch (error: unknown) {
     throw pathNotFoundError("Project root", error);
   }

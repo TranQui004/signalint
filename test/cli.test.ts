@@ -100,7 +100,7 @@ describe("signalint check --fail-on-priority", () => {
     vi.spyOn(process.stdout, "write").mockReturnValue(true);
 
     const exitCode = await runCli(
-      ["check", ".", "--fail-on-priority", "2"],
+      ["check", ".", "--fail-on-priority", "4"],
       checkFixtureRoot,
     );
 

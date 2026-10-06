@@ -3,19 +3,16 @@
 This directory holds the original planning and review record for Signalint. It is
 kept for provenance and is not maintained as current documentation.
 
-For how the system works today, read [ARCHITECTURE.md](../../ARCHITECTURE.md).
+For how the system works today, read [ARCHITECTURE.md](../../ARCHITECTURE.md). For current risks and limitations, see [known-limitations.md](../known-limitations.md).
 
 ## Contents
 
-- [`build-plan.md`](build-plan.md) — the plan Signalint was built from, including
-  the schema specification, per-phase acceptance criteria, a dated amendment log,
-  a risk register, and an honest competitive assessment written before launch.
+- [`build-plan.md`](build-plan.md) — the historical plan Signalint was built from, kept as an untouched archive for provenance.
 
 ## Why this is kept
 
 The build plan records not just what was decided, but what turned out to be wrong
-and was corrected during implementation. Its amendment log (Section 7.4) and risk
-register (Section 15) track each change with a date and a trigger.
+and was corrected during implementation. Its amendment log (Section 7.4) tracks each change with a date and a trigger.
 
 Two findings are worth surfacing directly, both from a pre-publish security and
 correctness review, and both fixed before any public release:
@@ -38,12 +35,10 @@ Both fixes are verifiable in git history alongside the review that prompted them
 
 Treat every statement in `build-plan.md` as a record of intent at the time it was
 written, not as a description of current behavior. Where the two disagree, the
-code and `ARCHITECTURE.md` are correct.
+code, `ARCHITECTURE.md`, and `docs/known-limitations.md` are correct.
 
-Two known divergences:
+Known divergences:
 
-- Section 18 embeds a copy of `AGENTS.md` as it existed during the initial build.
-  The live [AGENTS.md](../../AGENTS.md) has since been rewritten and supersedes it.
 - Section 13 describes phases 0–8 as a forward-looking sequence. Phases 0–6 are
   complete; phases 7 (website) and 8 (local dashboard) remain unstarted.
 

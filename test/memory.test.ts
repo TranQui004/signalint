@@ -327,8 +327,9 @@ async function recordIssues(
   return memory.recordCheck(
     issues,
     {
-      schemaVersion: "1.2",
+      schemaVersion: "1.3",
       status: issues.length === 0 ? "clean" : "issues_found",
+      projectRoot: process.cwd(),
       engines: createSuccessfulEngineStatuses(),
       totalIssues: issues.length,
       clusters: [],

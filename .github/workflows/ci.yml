@@ -19,24 +19,14 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            install-node: '22.x'
-            runtime-node: '22.x'
+            node: '22.x'
             label: windows-latest
           - os: ubuntu-latest
-            install-node: '22.x'
-            runtime-node: '22.x'
+            node: '22.x'
             label: ubuntu-latest
-          # macos-latest currently resolves to an arm64 (Apple Silicon) image, not
-          # Intel/x86_64 — confirmed against GitHub's hosted-runner reference. This
-          # matters for better-sqlite3's native build, so don't assume x64 here.
           - os: macos-latest
-            install-node: '22.x'
-            runtime-node: '22.x'
+            node: '22.x'
             label: macos-latest
-          - os: ubuntu-latest
-            install-node: '22.x'
-            runtime-node: '20.19.0'
-            label: ubuntu-node-20.19
 
     steps:
       - name: Check out repository
@@ -50,44 +40,17 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v7
         with:
-          node-version: ${{ matrix.install-node }}
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Set up compatibility Node.js
-        if: matrix.runtime-node != matrix.install-node
-        uses: actions/setup-node@v7
-        with:
-          node-version: ${{ matrix.runtime-node }}
-
-      - name: Rebuild native dependency for compatibility Node.js
-        if: matrix.runtime-node != matrix.install-node
-        run: npm rebuild better-sqlite3
-
       - name: Lint
-        if: matrix.runtime-node == matrix.install-node
         run: pnpm lint
 
-      - name: Lint on compatibility Node.js
-        if: matrix.runtime-node != matrix.install-node
-        run: ./node_modules/.bin/oxlint src test --ignore-pattern test/fixtures
-
       - name: Typecheck
-        if: matrix.runtime-node == matrix.install-node
         run: pnpm typecheck
 
-      - name: Typecheck on compatibility Node.js
-        if: matrix.runtime-node != matrix.install-node
-        run: node node_modules/typescript/bin/tsc -p tsconfig.json --noEmit
-
       - name: Test
-        if: matrix.runtime-node == matrix.install-node
         run: pnpm run build && pnpm exec vitest run --coverage
-
-      - name: Test on compatibility Node.js
-        if: matrix.runtime-node != matrix.install-node
-        run: |
-          node node_modules/typescript/bin/tsc -p tsconfig.json
-          node node_modules/vitest/vitest.mjs run --coverage

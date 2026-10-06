@@ -6,10 +6,6 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       include: ["src/**/*.ts"],
-      // src/index.ts is MCP server wiring; exercised by stdio integration tests
-      // (ping, init, security) but not by isolated unit tests — exclude to avoid
-      // inflating the uncovered-lines count with SDK boilerplate.
-      exclude: ["src/index.ts"],
       reporter: ["text", "lcov"],
       // Thresholds are set 5% below the measured baseline (2026-09-04, 93 tests).
       // They enforce that coverage does not regress; not that every new feature

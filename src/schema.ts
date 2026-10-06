@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-export type IssueEngine = "oxlint" | "tsc" | "biome";
+export type IssueEngine = "oxlint" | "tsc" | "biome" | "eslint";
 export type IssueSeverity = "error" | "warning";
 
 export interface NormalizedIssue {
@@ -70,20 +70,18 @@ export type EngineStatuses = Record<IssueEngine, EngineStatus>;
  * is stuck on a particular file even if the exact diagnostic message varies.
  */
 export interface CheckResponse {
-  schemaVersion: "1.2";
-  status: "clean" | "issues_found";
+  schemaVersion: "1.3";
+  status: "clean" | "issues_found" | "error";
+  projectRoot: string;
   engines: EngineStatuses;
   totalIssues: number;
   clusters: Cluster[];
   truncated: boolean;
   loopWarning: LoopWarning | null;
   fileRuleChurnWarning: FileRuleChurnWarning | null;
-}
-
-export interface TimeoutResponse {
-  status: "timeout";
-  engine: IssueEngine;
-  message: string;
+  checkId?: string;
+  code?: string;
+  message?: string;
 }
 
 export interface EngineOutputLimitResponse {
@@ -160,15 +158,19 @@ export function isCheckResponse(value: unknown): value is CheckResponse {
     return false;
   }
   return (
-    value.schemaVersion === "1.2" &&
-    (value.status === "clean" || value.status === "issues_found") &&
+    value.schemaVersion === "1.3" &&
+    (value.status === "clean" || value.status === "issues_found" || value.status === "error") &&
+    typeof value.projectRoot === "string" &&
     isEngineStatuses(value.engines) &&
     Number.isInteger(value.totalIssues) &&
     Array.isArray(value.clusters) &&
     value.clusters.every(isCluster) &&
     typeof value.truncated === "boolean" &&
     (value.loopWarning === null || isLoopWarning(value.loopWarning)) &&
-    (value.fileRuleChurnWarning === null || isFileRuleChurnWarning(value.fileRuleChurnWarning))
+    (value.fileRuleChurnWarning === null || isFileRuleChurnWarning(value.fileRuleChurnWarning)) &&
+    (value.checkId === undefined || typeof value.checkId === "string") &&
+    (value.code === undefined || typeof value.code === "string") &&
+    (value.message === undefined || typeof value.message === "string")
   );
 }
 
@@ -178,6 +180,7 @@ export function createSuccessfulEngineStatuses(): EngineStatuses {
     oxlint: { status: "ok" },
     tsc: { status: "ok" },
     biome: { status: "ok" },
+    eslint: { status: "ok" },
   };
 }
 
@@ -190,16 +193,6 @@ export function isFileRuleChurnWarning(value: unknown): value is FileRuleChurnWa
     Number.isInteger(value.checkCount) &&
     (value.checkCount as number) >= 1 &&
     typeof value.hint === "string"
-  );
-}
-
-/** Returns whether an unknown value is the Section 8.1 engine-timeout response. */
-export function isTimeoutResponse(value: unknown): value is TimeoutResponse {
-  return (
-    isRecord(value) &&
-    value.status === "timeout" &&
-    isIssueEngine(value.engine) &&
-    typeof value.message === "string"
   );
 }
 
@@ -266,14 +259,15 @@ function isLoopWarning(value: unknown): value is LoopWarning {
 }
 
 function isEngineStatuses(value: unknown): value is EngineStatuses {
-  const expectedKeys = ["oxlint", "tsc", "biome"];
+  const expectedKeys = ["oxlint", "tsc", "biome", "eslint"];
   return (
     isRecord(value) &&
     Object.keys(value).length === expectedKeys.length &&
     Object.keys(value).every((key) => expectedKeys.includes(key)) &&
     isEngineStatus(value.oxlint) &&
     isEngineStatus(value.tsc) &&
-    isEngineStatus(value.biome)
+    isEngineStatus(value.biome) &&
+    isEngineStatus(value.eslint)
   );
 }
 
@@ -290,7 +284,7 @@ function isEngineStatus(value: unknown): value is EngineStatus {
 }
 
 function isIssueEngine(value: unknown): value is IssueEngine {
-  return value === "oxlint" || value === "tsc" || value === "biome";
+  return value === "oxlint" || value === "tsc" || value === "biome" || value === "eslint";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

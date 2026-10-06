@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -13,8 +13,8 @@ import {
   isEngineOutputLimitResponse,
   isNormalizedIssue,
   isStaleReferenceResponse,
-  isTimeoutResponse,
   type CheckResponse,
+  type EngineStatuses,
   type NormalizedIssue,
 } from "../src/schema.js";
 import {
@@ -47,7 +47,7 @@ describe("MCP response amendments", () => {
     if (!isCheckResponse(firstCheck)) {
       throw new Error("Expected a Check Response.");
     }
-    expect(firstCheck.schemaVersion).toBe("1.2");
+    expect(firstCheck.schemaVersion).toBe("1.3");
     const clusterId = firstCheck.clusters[0]?.clusterId;
     if (clusterId === undefined) {
       throw new Error("Expected a clustered fixture issue.");
@@ -71,19 +71,31 @@ describe("MCP response amendments", () => {
     }
   });
 
-  it("returns the exact structured timeout response from check_project", async () => {
-    const client = await connectServer(() =>
-      Promise.reject(new EngineTimeoutError("tsc", 120_000)),
-    );
+  it("returns the exact per-engine error status on engine timeout", async () => {
+    const timeoutError = new EngineTimeoutError("tsc", 120_000);
+    const client = await connectServer(async () => ({
+      issues: [],
+      cache: { hits: 0, misses: 0 },
+      engines: {
+        oxlint: { status: "ok" },
+        tsc: { status: "error", message: timeoutError.message },
+        biome: { status: "disabled" },
+        eslint: { status: "disabled" },
+      },
+    }));
 
     const response = parseText(
       await callTool(client, "check_project", { paths: ["."] }),
     );
 
-    expect(isTimeoutResponse(response)).toBe(true);
-    expect(response).toEqual({
-      status: "timeout",
-      engine: "tsc",
+    expect(isCheckResponse(response)).toBe(true);
+    if (!isCheckResponse(response)) {
+      throw new Error("Expected CheckResponse");
+    }
+    expect(response.status).toBe("error");
+    expect(response.code).toBe("engine_failed");
+    expect(response.engines.tsc).toEqual({
+      status: "error",
       message: "tsc did not complete within 120s",
     });
   });
@@ -151,7 +163,7 @@ describe("MCP response amendments", () => {
     }
 
     const pingResult = await client.callTool({ name: "ping", arguments: {} });
-    expect(pingResult.structuredContent).toEqual({ pong: true });
+    expect(pingResult.structuredContent).toEqual({ pong: true, projectRoot: expect.any(String) });
     expect(pingResult.content).toEqual([{ type: "text", text: "pong" }]);
 
     const checkResult = await client.callTool({
@@ -168,14 +180,34 @@ describe("MCP response amendments", () => {
       throw new Error("Expected clustered fixture issue.");
     }
 
+    const checkId = (checkResult.structuredContent as CheckResponse).checkId;
+    expect(typeof checkId).toBe("string");
+
+    const detailWithValidCheckId = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { clusterId, checkId },
+    });
+    expect(detailWithValidCheckId.structuredContent).toEqual({
+      issues: [{ ...issue, clusterId }],
+    });
+
+    const detailWithStaleCheckId = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { clusterId, checkId: "stale-check-id" },
+    });
+    expect(detailWithStaleCheckId.structuredContent).toEqual({
+      status: "stale",
+      message: "This cluster/issue no longer exists; run check_project again.",
+    });
+
     const detailResult = await client.callTool({
       name: "get_issue_detail",
       arguments: { clusterId },
     });
     expect(detailResult.structuredContent).toEqual({
-      issues: [{ ...issue, clusterId: "c1" }],
+      issues: [{ ...issue, clusterId }],
     });
-    expect(parseText(detailResult.content)).toEqual([{ ...issue, clusterId: "c1" }]);
+    expect(parseText(detailResult.content)).toEqual([{ ...issue, clusterId }]);
 
     const loopResult = await client.callTool({
       name: "get_loop_status",
@@ -185,20 +217,27 @@ describe("MCP response amendments", () => {
     expect(parseText(loopResult.content)).toEqual({ looping: false, signatures: [], fileChurning: false, fileRuleChurns: [] });
   });
 
-  it("delivers structuredContent on timeout, output-limit, and invalid argument errors", async () => {
-    const timeoutClient = await connectServer(() =>
-      Promise.reject(new EngineTimeoutError("tsc", 120_000)),
-    );
-    const timeoutResult = await timeoutClient.callTool({
-      name: "check_project",
-      arguments: { paths: ["."] },
-    });
-    expect(timeoutResult.structuredContent).toEqual({
-      status: "timeout",
-      engine: "tsc",
-      message: "tsc did not complete within 120s",
-    });
+  it("safely handles concurrent check calls without corrupting session state or JSONL logs", async () => {
+    const memory = new SessionMemory({ logPath });
+    const client = await connectServer(() => Promise.resolve([makeIssue()]), memory);
 
+    const [res1, res2] = await Promise.all([
+      client.callTool({ name: "check_project", arguments: { paths: ["."] } }),
+      client.callTool({ name: "check_project", arguments: { paths: ["."] } }),
+    ]);
+
+    expect(isCheckResponse(res1.structuredContent)).toBe(true);
+    expect(isCheckResponse(res2.structuredContent)).toBe(true);
+
+    const content = await readFile(logPath, "utf8");
+    const lines = content.trim().split("\n").filter((line) => line.trim().length > 0);
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    for (const line of lines) {
+      expect(() => JSON.parse(line)).not.toThrow();
+    }
+  });
+
+  it("delivers structuredContent on output-limit and invalid argument errors", async () => {
     vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const limitClient = await connectServer(() =>
       Promise.reject(new EngineOutputLimitError("oxlint", 256)),
@@ -215,7 +254,8 @@ describe("MCP response amendments", () => {
       message: "oxlint output exceeded the 256 bytes limit",
     });
 
-    const errorResult = await timeoutClient.callTool({
+    const errorClient = await connectServer(() => Promise.resolve([]));
+    const errorResult = await errorClient.callTool({
       name: "check_files",
       arguments: { files: ["../outside.ts"] },
     });
@@ -230,11 +270,19 @@ describe("MCP response amendments", () => {
 });
 
 async function connectServer(
-  provider: () => Promise<NormalizedIssue[]>,
+  provider: () => Promise<
+    | NormalizedIssue[]
+    | {
+        issues: NormalizedIssue[];
+        cache: { hits: number; misses: number };
+        engines: EngineStatuses;
+      }
+  >,
+  memory?: SessionMemory | undefined,
 ): Promise<Client> {
   const server = createServer({
     projectIssueProvider: provider,
-    sessionMemory: new SessionMemory({ logPath }),
+    sessionMemory: memory ?? new SessionMemory({ logPath }),
   });
   servers.push(server);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

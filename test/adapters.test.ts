@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createBiomeCliArgs, parseBiomeOutput } from "../src/adapters/biome.js";
+import { createBiomeCliArgs, parseBiomeOutput, runBiome } from "../src/adapters/biome.js";
 import { createOxlintCliArgs, parseOxlintOutput } from "../src/adapters/oxlint.js";
 import {
   clearConfigInspectionCache,
@@ -11,7 +11,10 @@ import {
   parseTscOutput,
   runTsc,
 } from "../src/adapters/tsc.js";
+import { EngineDisabledError } from "../src/engineFanout.js";
+import * as engineResolution from "../src/engineResolution.js";
 import { isNormalizedIssue } from "../src/schema.js";
+import { isRecord } from "../src/util/index.js";
 
 const OXLINT_OUTPUT = JSON.stringify({
   diagnostics: [
@@ -286,18 +289,114 @@ describe("Biome adapter", () => {
     expect(issues.every(isNormalizedIssue)).toBe(true);
   });
 
-  it("places an end-of-options separator before every supplied path", () => {
+  it("places an end-of-options separator before every supplied path and suppresses formatter by default", () => {
     expect(createBiomeCliArgs("biome-cli", ["src/a.ts", "-hostile.ts"])).toEqual([
       "biome-cli",
       "check",
       "--reporter=json",
+      "--javascript-formatter-enabled=false",
+      "--json-formatter-enabled=false",
+      "--css-formatter-enabled=false",
+      "--graphql-formatter-enabled=false",
       "--",
       "src/a.ts",
       "-hostile.ts",
     ]);
   });
-});
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
+  it("omits formatter suppression flags when includeFormatter is true", () => {
+    expect(createBiomeCliArgs("biome-cli", ["src/a.ts"], true)).toEqual([
+      "biome-cli",
+      "check",
+      "--reporter=json",
+      "--",
+      "src/a.ts",
+    ]);
+  });
+
+  it("tolerantly maps severities (info->warning, fatal->error, unknown->error) without throwing", () => {
+    const raw = JSON.stringify({
+      diagnostics: [
+        {
+          category: "lint/suspicious/noExplicitAny",
+          severity: "info",
+          location: { path: { file: "src/info.ts" }, start: { line: 1, column: 1 } },
+          description: "Info diagnostic",
+        },
+        {
+          category: "lint/correctness/fatalBug",
+          severity: "fatal",
+          location: { path: { file: "src/fatal.ts" }, start: { line: 2, column: 1 } },
+          description: "Fatal diagnostic",
+        },
+        {
+          category: "lint/other/weird",
+          severity: "custom_alien_severity",
+          location: { path: { file: "src/weird.ts" }, start: { line: 3, column: 1 } },
+          description: "Weird diagnostic",
+        },
+      ],
+    });
+
+    const issues = parseBiomeOutput(raw);
+    expect(issues).toHaveLength(3);
+    expect(issues[0]?.severity).toBe("warning");
+    expect(issues[1]?.severity).toBe("error");
+    expect(issues[2]?.severity).toBe("error");
+    expect(issues[2]?.message).toContain("[custom_alien_severity]");
+  });
+
+  it("marks issue as fixable when advices mention safe fix", () => {
+    const raw = JSON.stringify({
+      diagnostics: [
+        {
+          category: "lint/style/useConst",
+          severity: "warning",
+          location: { path: { file: "src/const.ts" }, start: { line: 1, column: 1 } },
+          description: "Use const instead of let",
+          advices: [{ text: "Safe fix: Replace let with const." }],
+        },
+      ],
+    });
+
+    const issues = parseBiomeOutput(raw);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]?.fixable).toBe(true);
+  });
+
+  it("drops format category diagnostics by default and includes them when requested", () => {
+    const raw = JSON.stringify({
+      diagnostics: [
+        {
+          category: "format",
+          severity: "info",
+          location: { path: { file: "src/format.ts" }, start: { line: 0, column: 0 } },
+          description: "File not formatted",
+        },
+        {
+          category: "lint/style/useConst",
+          severity: "warning",
+          location: { path: { file: "src/const.ts" }, start: { line: 1, column: 1 } },
+          description: "Lint issue",
+        },
+      ],
+    });
+
+    const withoutFormatter = parseBiomeOutput(raw, process.cwd(), false);
+    expect(withoutFormatter).toHaveLength(1);
+    expect(withoutFormatter[0]?.rule).toBe("lint/style/useConst");
+
+    const withFormatter = parseBiomeOutput(raw, process.cwd(), true);
+    expect(withFormatter).toHaveLength(2);
+  });
+
+  it("throws EngineDisabledError with an actionable message when Biome is not installed", async () => {
+    const spy = vi.spyOn(engineResolution, "resolveEngine").mockReturnValue(undefined);
+    try {
+      await expect(runBiome(["src/a.ts"])).rejects.toThrow(EngineDisabledError);
+      await expect(runBiome(["src/a.ts"])).rejects.toThrow(/Install @biomejs\/biome to enable it/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

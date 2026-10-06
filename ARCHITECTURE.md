@@ -134,19 +134,30 @@ tail at startup instead of reading the whole file, and the log is rotated to a
    `{ status: "error", message }` while other engines' diagnostics are preserved.
 5. Unconditional `node_modules` exclusions and configured ignore globs remove
    diagnostics that should not reach the caller.
-6. `src/cluster/clusterEngine.ts` assigns `clusterId` values and builds the
-   `schemaVersion: "1.1"` response, ordered by priority ascending (1 is most
-   urgent) and limited to ten clusters by default. Schema 1.1 added the
-   per-engine `ok | error | disabled` status objects described in step 4;
-   1.0 had no such field, so one failing engine's `Promise.all` rejection
-   discarded diagnostics the other engines had already produced (see
-   [docs/history/README.md](docs/history/README.md)).
+6. `src/cluster/clusterEngine.ts` assigns stable, content-derived `clusterId` values,
+   generates a `checkId` hash for issue freshness, and builds the `schemaVersion: "1.3"`
+   response, ordered by priority ascending (1 is most urgent) and limited to ten
+   clusters by default. Schema 1.3 includes `projectRoot`, `checkId`, engine outcomes
+   reflecting failures/empty runs, and structured error codes.
 7. `SessionMemory` updates diagnostic appearances, adds any loop warning, records
-   cache/payload/latency metrics, and appends `.signalint/session.jsonl`.
+   cache/payload/latency metrics, and appends `.signalint/session.jsonl` through a serialized queue.
 8. The MCP handler returns the response as JSON text and retains the latest issues
    for `get_issue_detail`.
 
-Issue references that no longer exist in the latest successful result return the
+### Priority ladder
+
+Cluster priority is evaluated by `scorePriority` using available signals (severity,
+systemic impact across files, rule group size, and fix availability):
+
+| Priority | Meaning |
+|---|---|
+| **1** | Error, systemic (many issues across multiple files) |
+| **2** | Error, local, no structured fix known |
+| **3** | Error, structured fix available |
+| **4** | Warning, local, no structured fix known |
+| **5** | Warning, structured fix available or systemic-but-cosmetic |
+
+Issue references that no longer exist or mismatch the current `checkId` return the
 explicit stale reference response defined in `src/schema.ts`.
 
 ## Where to read next

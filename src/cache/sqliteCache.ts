@@ -1,8 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { dirname } from "node:path";
 
 import { DatabaseSync } from "node:sqlite";
 
@@ -14,6 +13,7 @@ import {
 } from "../schema.js";
 import { resolveEngineVersion } from "../engineResolution.js";
 import { isRecord } from "../util/index.js";
+import { resolveSignalintVersion } from "../version.js";
 import { ENGINE_REGISTRY } from "../engines/registry.js";
 
 interface CacheRow {
@@ -41,7 +41,6 @@ interface PackageMetadata {
 const openCaches = new Set<SqliteCache>();
 const require = createRequire(import.meta.url);
 const resolvedVersionInfo = new Map<string, CacheVersionInfo>();
-let installedSignalintVersion: string | undefined;
 
 /** Maximum number of file-result rows retained by the default SQLite cache. */
 export const DEFAULT_CACHE_ROW_LIMIT = 10_000;
@@ -337,32 +336,6 @@ function createEngineStateHash(
     .digest("hex");
 }
 
-function resolveSignalintVersion(): string {
-  if (installedSignalintVersion !== undefined) {
-    return installedSignalintVersion;
-  }
-  let directory = dirname(fileURLToPath(import.meta.url));
-  while (true) {
-    const packagePath = resolve(directory, "package.json");
-    try {
-      const metadata = readPackageMetadata(packagePath);
-      if (metadata.name === "signalint-mcp") {
-        installedSignalintVersion = metadata.version;
-        return installedSignalintVersion;
-      }
-    } catch (error: unknown) {
-      if (!isMissingFileError(error)) {
-        throw error;
-      }
-    }
-    const parent = dirname(directory);
-    if (parent === directory) {
-      throw new Error("Could not resolve the installed signalint-mcp package version.");
-    }
-    directory = parent;
-  }
-}
-
 function readPackageVersion(packagePath: string): string {
   return readPackageMetadata(packagePath).version;
 }
@@ -379,8 +352,4 @@ function readPackageMetadata(packagePath: string): PackageMetadata {
   return parsed.name === undefined
     ? { version: parsed.version }
     : { name: parsed.name, version: parsed.version };
-}
-
-function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
-  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }

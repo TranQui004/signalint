@@ -97,9 +97,9 @@ async function main() {
     console.log("=== Signalint Compression Benchmark ===");
     console.log(`Issues detected:           ${issues.length}`);
     console.log(`Clusters returned:         ${response.clusters.length}`);
-    console.log(`(a) Raw engine output:     ${rawBytes.toLocaleString()} bytes (oxlint --format agent + tsc --pretty false)`);
-    console.log(`(b) Signalint normalized:  ${normalizedBytes.toLocaleString()} bytes (JSON)`);
-    console.log(`(c) Signalint clustered:   ${clusteredBytes.toLocaleString()} bytes (JSON)`);
+    console.log(`(a) Raw engine output:     ${rawBytes.toLocaleString("en-US")} bytes (oxlint --format agent + tsc --pretty false)`);
+    console.log(`(b) Signalint normalized:  ${normalizedBytes.toLocaleString("en-US")} bytes (JSON)`);
+    console.log(`(c) Signalint clustered:   ${clusteredBytes.toLocaleString("en-US")} bytes (JSON)`);
     console.log(`Reduction vs raw:          ${reductionFromRaw}%`);
     console.log(`Reduction vs normalized:   ${reductionFromNormalized}%`);
 

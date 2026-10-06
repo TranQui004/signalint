@@ -79,11 +79,11 @@ describe("Cluster Engine", () => {
 
     expect(result.response.clusters.length).toBeLessThanOrEqual(10);
     expect(reduction).toBeGreaterThanOrEqual(0.7);
-    console.info(
-      `Phase 3 compactness: raw=${String(rawBytes)} bytes; ` +
+    process.stderr.write(
+      `[compactness] Phase 3 compactness: raw=${String(rawBytes)} bytes; ` +
         `clustered=${String(clusteredBytes)} bytes; ` +
         `reduction=${(reduction * 100).toFixed(2)}%; ` +
-        `clusters=${String(result.response.clusters.length)}`,
+        `clusters=${String(result.response.clusters.length)}\n`,
     );
   });
 

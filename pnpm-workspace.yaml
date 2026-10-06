@@ -1,4 +1,0 @@
-minimumReleaseAgeExclude:
-  - '@modelcontextprotocol/sdk'
-  - '@oxlint/*'
-  - 'oxlint'

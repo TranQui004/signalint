@@ -20,26 +20,26 @@ server restarts; malformed or crash-truncated lines are skipped.
 
 When a coding agent requests diagnostics on a project, raw compiler and linter outputs quickly flood the context window with repetitive errors across multiple files. Signalint normalizes issues and clusters them by root cause before returning a bounded, priority-ranked response:
 
-### Raw diagnostics (40 issues across 10 files · 9,151 bytes)
+### Raw engine output (7,370 bytes) & normalized diagnostics (52 issues across 11 files · 19,103 bytes)
 
 ```json
 [
   {
-    "issueId": "ts-01",
+    "issueId": "b2dbbc348dd564e942cc317d434c39d4ac3a1a925d3d53fe23d5d184ce8b820a",
     "file": "src/file01.ts",
-    "line": 10,
-    "col": 5,
+    "line": 3,
+    "col": 14,
     "engine": "tsc",
     "rule": "TS2322",
     "severity": "error",
-    "message": "Type 'string' is not assignable to type 'number' in fixture assignment 01.",
+    "message": "Type 'string' is not assignable to type 'number'.",
     "fixable": false
   },
-  // ... 39 more raw normalized issues
+  // ... 51 more raw normalized issues
 ]
 ```
 
-### Clustered response returned to agent (4 clusters · 1,233 bytes · 86.5% reduction)
+### Clustered response returned to agent (2 clusters · 1,477 bytes · 80.0% reduction vs raw, 92.3% vs normalized)
 
 ```json
 {
@@ -49,53 +49,42 @@ When a coding agent requests diagnostics on a project, raw compiler and linter o
   "engines": {
     "oxlint": { "status": "ok" },
     "tsc": { "status": "ok" },
-    "biome": { "status": "disabled" }
+    "biome": { "status": "disabled" },
+    "eslint": { "status": "disabled" }
   },
-  "totalIssues": 40,
+  "totalIssues": 52,
   "clusters": [
     {
-      "clusterId": "c1",
-      "rootCauseSummary": "10 TS2322 issues across 10 files",
+      "clusterId": "c4588ddaf",
+      "rootCauseSummary": "21 TS2322 issues across 11 files",
       "ruleIds": ["TS2322"],
-      "issueCount": 10,
-      "fileCount": 10,
+      "issueCount": 21,
+      "fileCount": 11,
       "priority": 1,
-      "suggestedAction": "Review the shared cause of TS2322 across 10 files",
-      "sampleIssueIds": ["ts-01", "ts-02"]
+      "suggestedAction": "Review the shared cause of TS2322 across 11 files",
+      "sampleIssueIds": [
+        "b2dbbc348dd564e942cc317d434c39d4ac3a1a925d3d53fe23d5d184ce8b820a",
+        "86420b99c641b881656faaef5277a866653df413d75d97dd3376cc4b694b7779"
+      ]
     },
     {
-      "clusterId": "c2",
-      "rootCauseSummary": "10 no-unused-vars issues across 10 files",
+      "clusterId": "c8920ad67",
+      "rootCauseSummary": "31 no-unused-vars issues across 11 files",
       "ruleIds": ["no-unused-vars"],
-      "issueCount": 10,
-      "fileCount": 10,
-      "priority": 2,
-      "suggestedAction": "Review the shared cause of no-unused-vars across 10 files",
-      "sampleIssueIds": ["unused-01", "unused-02"]
-    },
-    {
-      "clusterId": "c3",
-      "rootCauseSummary": "10 eqeqeq issues across 10 files",
-      "ruleIds": ["eqeqeq"],
-      "issueCount": 10,
-      "fileCount": 10,
+      "issueCount": 31,
+      "fileCount": 11,
       "priority": 5,
-      "suggestedAction": "Apply structured fixes for eqeqeq across 10 files",
-      "sampleIssueIds": ["eqeqeq-01", "eqeqeq-02"]
-    },
-    {
-      "clusterId": "c4",
-      "rootCauseSummary": "10 prefer-const issues across 10 files",
-      "ruleIds": ["prefer-const"],
-      "issueCount": 10,
-      "fileCount": 10,
-      "priority": 5,
-      "suggestedAction": "Apply structured fixes for prefer-const across 10 files",
-      "sampleIssueIds": ["const-01", "const-02"]
+      "suggestedAction": "Review the shared cause of no-unused-vars across 11 files",
+      "sampleIssueIds": [
+        "62989a92f29313f73f660b3a5fd8be185556f50ed4f20c58a782a0ce4a74b4bb",
+        "5fd3182b7608409594f0382a63d009a06fcd10daf2442a182e1765d0884cddf6"
+      ]
     }
   ],
   "truncated": false,
-  "loopWarning": null
+  "loopWarning": null,
+  "fileRuleChurnWarning": null,
+  "checkId": "7e3c2bd2"
 }
 ```
 
@@ -103,7 +92,7 @@ The agent receives a concise summary with priority-ordered clusters and sample i
 
 ## Requirements
 
-- Node.js 20.19 or later in the Node 20 line, or Node.js 22.12 or later
+- Node.js 22.12 or later (uses built-in `node:sqlite`)
 - A JavaScript or TypeScript project; TypeScript checks require a `tsconfig.json`
 - pnpm 11.9.0 for source development
 
@@ -443,10 +432,10 @@ Measured against realistic multi-engine fixture suites (`pnpm bench`):
 |---|---|---|
 | (a) Raw engine output | 7,370 bytes | Compact CLI output (`oxlint --format agent` + `tsc --pretty false`) |
 | (b) Signalint normalized | 19,103 bytes | Complete structured JSON diagnostics with per-issue metadata |
-| (c) Signalint clustered | 1,427 bytes | High-density agent summary response with root causes and priorities |
+| (c) Signalint clustered | 1,477 bytes | High-density agent summary response with root causes and priorities |
 
-- **Reduction vs raw engine output:** 80.6%
-- **Reduction vs normalized diagnostics:** 92.5%
+- **Reduction vs raw engine output:** 80.0%
+- **Reduction vs normalized diagnostics:** 92.3%
 
 ## GitHub Actions
 

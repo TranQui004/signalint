@@ -1,7 +1,8 @@
-import { readFileSync, realpathSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
+import { canonicalizePath } from "./projectPaths.js";
 import type { IssueEngine } from "./schema.js";
 import { isRecord } from "./util/index.js";
 
@@ -26,11 +27,7 @@ export function clearEngineResolutionCache(): void {
 }
 
 function safeRealpath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return resolve(path);
-  }
+  return canonicalizePath(path);
 }
 
 /** Resolves an engine binary and version from the project root first, falling back to bundled copies. */

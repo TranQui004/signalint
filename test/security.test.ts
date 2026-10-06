@@ -1,4 +1,6 @@
-import { mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { existsSync, realpathSync } from "node:fs";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -17,7 +19,12 @@ import {
 
 import { createServer } from "../src/index.js";
 import { SessionMemory } from "../src/memory/sessionMemory.js";
-import { MAX_TOOL_PATHS } from "../src/projectPaths.js";
+import {
+  MAX_TOOL_PATHS,
+  canonicalizePath,
+  readCanonicalProjectRoot,
+  readCanonicalProjectRootSync,
+} from "../src/projectPaths.js";
 import type { NormalizedIssue } from "../src/schema.js";
 
 interface StructuredRefusal {
@@ -252,3 +259,35 @@ function isStructuredRefusal(value: unknown): value is StructuredRefusal {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
+
+describe("canonicalizePath and project root normalization", () => {
+  it("normalizes temporary paths identically and eliminates 8.3 short names", async () => {
+    const tempDir = await mkdtemp(resolve(tmpdir(), "signalint-canon-"));
+    try {
+      expect(canonicalizePath(tempDir)).toBe(canonicalizePath(realpathSync(tempDir)));
+      expect(canonicalizePath(tmpdir())).not.toMatch(/~[0-9]/);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("produces identical strings from readCanonicalProjectRootSync and readCanonicalProjectRoot", async () => {
+    const syncCurrent = readCanonicalProjectRootSync(process.cwd());
+    const asyncCurrent = await readCanonicalProjectRoot(process.cwd());
+    expect(syncCurrent).toBe(asyncCurrent);
+
+    const syncTmp = readCanonicalProjectRootSync(tmpdir());
+    const asyncTmp = await readCanonicalProjectRoot(tmpdir());
+    expect(syncTmp).toBe(asyncTmp);
+  });
+
+  it("expands 8.3 short names on Windows when present", () => {
+    if (process.platform === "win32") {
+      const progFilesShort = "C:\\PROGRA~1";
+      if (existsSync(progFilesShort)) {
+        expect(canonicalizePath(progFilesShort)).toBe("C:\\Program Files");
+        expect(readCanonicalProjectRootSync(progFilesShort)).toBe("C:\\Program Files");
+      }
+    }
+  });
+});

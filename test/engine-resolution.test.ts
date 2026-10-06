@@ -1,4 +1,4 @@
-import { realpathSync, symlinkSync } from "node:fs";
+import { symlinkSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { isAbsolute, join, relative, resolve } from "node:path";
@@ -10,6 +10,7 @@ import {
   resolveEngine,
   resolveEngineVersion,
 } from "../src/engineResolution.js";
+import { canonicalizePath } from "../src/projectPaths.js";
 
 describe("Engine resolution", () => {
   const tempDirs: string[] = [];
@@ -110,7 +111,7 @@ describe("Engine resolution", () => {
     expect(resolved?.version).toBe("9.18.0");
     expect(resolved?.binPath).toContain("eslint.js");
 
-    const relBin = relative(realpathSync(realProject), realpathSync(resolved!.binPath));
+    const relBin = relative(canonicalizePath(realProject), canonicalizePath(resolved!.binPath));
     expect(relBin.startsWith("..")).toBe(false);
     expect(isAbsolute(relBin)).toBe(false);
   });

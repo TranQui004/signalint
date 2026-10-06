@@ -1,4 +1,4 @@
-import { realpathSync, symlinkSync } from "node:fs";
+import { symlinkSync } from "node:fs";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { runCli } from "../src/cli.js";
 import { runDoctorCommand } from "../src/doctor.js";
+import { canonicalizePath } from "../src/projectPaths.js";
 
 const temporaryRoots: string[] = [];
 
@@ -239,5 +240,5 @@ describe("signalint doctor", () => {
 async function createTemporaryProject(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "signalint-doctor-"));
   temporaryRoots.push(root);
-  return realpathSync(root);
+  return canonicalizePath(root);
 }

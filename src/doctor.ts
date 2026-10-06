@@ -1,11 +1,10 @@
-import { realpathSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { CLIENT_REGISTRY, getLegacyAntigravityConfigPath, type McpClientSpec } from "./clients/registry.js";
-import { readCanonicalProjectRoot } from "./projectPaths.js";
+import { canonicalizePath, readCanonicalProjectRoot } from "./projectPaths.js";
 import { isRecord } from "./util/index.js";
 
 export interface DoctorOptions {
@@ -172,12 +171,7 @@ async function inspectEngine(
 }
 
 function canonicalizeConfiguredCwd(cwd: string): string {
-  const resolved = resolve(cwd);
-  try {
-    return realpathSync(resolved);
-  } catch {
-    return resolved;
-  }
+  return canonicalizePath(cwd);
 }
 
 function isSamePath(a: string, b: string): boolean {

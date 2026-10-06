@@ -1,8 +1,8 @@
 # Release checklist
 
 Signalint is published from CI only. Nothing is published from a developer
-machine. A release starts by pushing a tag that matches `v*` and whose version
-matches `package.json`.
+machine. A release starts by pushing a tag that matches `v*.*.*` (or triggering manual
+dispatch) and whose version matches `package.json`.
 
 ## 1. Prepare (through a pull request)
 
@@ -32,14 +32,16 @@ git push origin v1.0.0
 2. Fails if the tag version does not match `package.json` `version`.
 3. Builds and runs `npm pack --dry-run` so the packed file list is visible in
    the log.
-4. Runs `npm publish --provenance --access public` with the `NPM_TOKEN` secret.
+4. Runs `npm publish --provenance --access public` with the `NPM_TOKEN` secret
+   (skipped if already published on npm).
 5. Verifies `server.json` matches `package.json`, then publishes the listing to
-   the official MCP Registry with `mcp-publisher` (GitHub OIDC).
-6. Creates or updates the GitHub Release with notes grouped by `type(scope):`
-   commit prefixes.
+   the official MCP Registry with `mcp-publisher` (GitHub OIDC) with automatic
+   retry for npm propagation delay (skipped if already on the MCP Registry).
+6. Creates or updates the GitHub Release with title and notes grouped by
+   `type(scope):` commit prefixes.
 
-Steps 4–6 are skipped when the version already exists on npm, so re-running the
-workflow after a partial failure is safe.
+Re-running the workflow or triggering it via workflow dispatch after a partial failure
+is safe: published artifacts on npm and MCP Registry are idempotently detected.
 
 ## 4. After the release
 

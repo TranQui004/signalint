@@ -55,9 +55,10 @@ them operates on `NormalizedIssue` objects and never shells out.
 
 | Module | Responsibility |
 |---|---|
-| `src/adapters/oxlint.ts` | Runs Oxlint and normalizes its JSON diagnostics. |
-| `src/adapters/tsc.ts` | Resolves the TypeScript project, selects project or build mode, runs the pinned compiler, and parses diagnostics. |
-| `src/adapters/biome.ts` | Runs optional Biome checks and normalizes its JSON reporter output. |
+| `src/engines/oxlint.ts` | Runs Oxlint and normalizes its JSON diagnostics. |
+| `src/engines/tsc.ts` | Resolves the TypeScript project, selects project or build mode, runs the pinned compiler, and parses diagnostics. |
+| `src/engines/biome.ts` | Runs optional Biome checks and normalizes its JSON reporter output. |
+| `src/engines/eslint.ts` | Runs ESLint flat-config checks and normalizes its JSON diagnostics. |
 | `src/subprocess.ts` | Runs engine processes with timeouts, output ceilings, abort handling, and Windows/POSIX process-tree termination. |
 | `src/abort.ts` | Links MCP cancellation to adapter subprocess cancellation. |
 | `src/engineFanout.ts` | Settles all engine tasks independently so one failing engine cannot discard another's diagnostics, and maps each outcome to an `ok`/`error`/`disabled` status. |
@@ -69,7 +70,7 @@ them operates on `NormalizedIssue` objects and never shells out.
 | `src/checkFiles.ts` | Coordinates per-file snapshots, engine config hashes, cache decisions, and the different file-local/whole-program strategies. |
 | `src/cache/sqliteCache.ts` | Stores per-engine file results and the latest whole-program result in `.signalint/cache.sqlite`, bounded by LRU eviction. |
 | `src/cluster/clusterEngine.ts` | Groups normalized issues by rule, assigns cluster IDs and priority, samples distinct issue IDs, and truncates responses. |
-| `src/defaultExclusions.ts` | Removes diagnostics whose path contains a `node_modules` segment, independently of user configuration. |
+| `src/check/exclusions.ts` | Removes diagnostics whose path contains a `node_modules` segment, independently of user configuration. |
 
 ### Session state
 
@@ -77,8 +78,8 @@ them operates on `NormalizedIssue` objects and never shells out.
 |---|---|
 | `src/memory/sessionMemory.ts` | Tracks issue-signature appearances, restores a bounded tail of JSONL history, adds loop warnings, and appends check metrics. |
 | `src/memory/sessionLogStorage.ts` | Reads the newest JSONL entries without loading the whole file, and rotates the log once it exceeds its size budget. |
-| `src/sessionLog.ts` | Shared JSONL parser that skips malformed and crash-truncated lines and reports how many were skipped. |
-| `src/stats.ts` | Aggregates `.signalint/session.jsonl` into payload, cache, latency, and loop-warning statistics. |
+| `src/memory/sessionLog.ts` | Shared JSONL parser that skips malformed and crash-truncated lines and reports how many were skipped. |
+| `src/memory/stats.ts` | Aggregates `.signalint/session.jsonl` into payload, cache, latency, and loop-warning statistics. |
 
 ## Engine invocation and caching
 
@@ -134,19 +135,30 @@ tail at startup instead of reading the whole file, and the log is rotated to a
    `{ status: "error", message }` while other engines' diagnostics are preserved.
 5. Unconditional `node_modules` exclusions and configured ignore globs remove
    diagnostics that should not reach the caller.
-6. `src/cluster/clusterEngine.ts` assigns `clusterId` values and builds the
-   `schemaVersion: "1.1"` response, ordered by priority ascending (1 is most
-   urgent) and limited to ten clusters by default. Schema 1.1 added the
-   per-engine `ok | error | disabled` status objects described in step 4;
-   1.0 had no such field, so one failing engine's `Promise.all` rejection
-   discarded diagnostics the other engines had already produced (see
-   [docs/history/README.md](docs/history/README.md)).
+6. `src/cluster/clusterEngine.ts` assigns stable, content-derived `clusterId` values,
+   generates a `checkId` hash for issue freshness, and builds the `schemaVersion: "1.3"`
+   response, ordered by priority ascending (1 is most urgent) and limited to ten
+   clusters by default. Schema 1.3 includes `projectRoot`, `checkId`, engine outcomes
+   reflecting failures/empty runs, and structured error codes.
 7. `SessionMemory` updates diagnostic appearances, adds any loop warning, records
-   cache/payload/latency metrics, and appends `.signalint/session.jsonl`.
+   cache/payload/latency metrics, and appends `.signalint/session.jsonl` through a serialized queue.
 8. The MCP handler returns the response as JSON text and retains the latest issues
    for `get_issue_detail`.
 
-Issue references that no longer exist in the latest successful result return the
+### Priority ladder
+
+Cluster priority is evaluated by `scorePriority` using available signals (severity,
+systemic impact across files, rule group size, and fix availability):
+
+| Priority | Meaning |
+|---|---|
+| **1** | Error, systemic (many issues across multiple files) |
+| **2** | Error, local, no structured fix known |
+| **3** | Error, structured fix available |
+| **4** | Warning, local, no structured fix known |
+| **5** | Warning, structured fix available or systemic-but-cosmetic |
+
+Issue references that no longer exist or mismatch the current `checkId` return the
 explicit stale reference response defined in `src/schema.ts`.
 
 ## Where to read next

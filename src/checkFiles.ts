@@ -2,13 +2,14 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { runOxlint } from "./adapters/oxlint.js";
-import { runBiome } from "./adapters/biome.js";
-import { runTsc } from "./adapters/tsc.js";
+import { ENGINE_REGISTRY } from "./engines/registry.js";
+import { resolveProjectFile } from "./engines/tsc.js";
 import { createLinkedAbortController } from "./abort.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
 import {
   DEFAULT_CONFIG,
+  isEngineEnabled,
+  shouldIncludeBiomeFormatter,
   type EngineSelection,
   type EngineTimeouts,
 } from "./config.js";
@@ -20,13 +21,15 @@ import {
   type NormalizedIssue,
 } from "./schema.js";
 import { resolveProjectPaths, type ResolvedProjectPath } from "./projectPaths.js";
+import { compareIssues, isRecord } from "./util/index.js";
 
 export type CacheEngine = IssueEngine;
 
 export interface EngineRunOptions {
-  cwd?: string;
+  cwd?: string | undefined;
+  includeFormatter?: boolean | undefined;
   signal?: AbortSignal | undefined;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 export type EngineRunner = (
@@ -42,6 +45,7 @@ export interface EngineRunners {
   oxlint: EngineRunner;
   tsc: WholeProgramRunner;
   biome: EngineRunner;
+  eslint: EngineRunner;
 }
 
 export interface CheckFilesOptions {
@@ -51,6 +55,7 @@ export interface CheckFilesOptions {
   engines?: EngineSelection;
   signal?: AbortSignal | undefined;
   timeoutsMs?: EngineTimeouts;
+  targetPath?: string | undefined;
 }
 
 export interface CacheStats {
@@ -78,22 +83,11 @@ interface EngineCheckResult {
   cache: CacheStats;
 }
 
-const ENGINE_CONFIG_FILES: Record<CacheEngine, readonly string[]> = {
-  oxlint: [".oxlintrc", ".oxlintrc.json", "oxlint.json"],
-  tsc: ["tsconfig.json"],
-  biome: ["biome.json", "biome.jsonc"],
-};
-
-const DEFAULT_RUNNERS: EngineRunners = {
-  oxlint: runOxlint,
-  tsc: (options) => runTsc(["."], options),
-  biome: runBiome,
-};
-
 const DEFAULT_ENGINES: EngineSelection = {
   oxlint: true,
   tsc: true,
   biome: false,
+  eslint: false,
 };
 
 /** Checks files through enabled engines and returns normalized issues without instrumentation. */
@@ -116,8 +110,10 @@ export async function checkFilesWithStats(
 
   try {
     const resolvedFiles = await resolveProjectPaths(files, cwd);
-    const snapshots = await Promise.all(resolvedFiles.map(readSnapshot));
-    const runners = { ...DEFAULT_RUNNERS, ...options.runners };
+    const snapshots = await mapConcurrent(resolvedFiles, 32, readSnapshot);
+    const getLocalRunner = (engine: Exclude<IssueEngine, "tsc">): EngineRunner =>
+      options.runners?.[engine] ?? ((paths, opts) => ENGINE_REGISTRY[engine].run(paths, opts));
+    const tscRunner = options.runners?.tsc ?? ((opts) => ENGINE_REGISTRY.tsc.run(["."], opts));
     const engines = options.engines ?? DEFAULT_ENGINES;
     const timeoutsMs = options.timeoutsMs ?? DEFAULT_CONFIG.timeoutsMs;
     const fanout = await settleEngineTasks<EngineCheckResult>([
@@ -129,7 +125,7 @@ export async function checkFilesWithStats(
           snapshots.filter((snapshot) => isOxlintRelevant(snapshot.file)),
           cwd,
           cache,
-          runners.oxlint,
+          getLocalRunner("oxlint"),
           timeoutsMs.oxlint,
           linkedAbort.controller.signal,
         ),
@@ -141,21 +137,38 @@ export async function checkFilesWithStats(
           snapshots,
           cwd,
           cache,
-          runners.tsc,
+          tscRunner,
           timeoutsMs.tsc,
           linkedAbort.controller.signal,
+          options.targetPath,
         ),
       },
       {
         engine: "biome",
-        enabled: engines.biome,
+        enabled: isEngineEnabled(engines.biome),
         run: () => checkFileLocalEngine(
           "biome",
           snapshots.filter((snapshot) => isBiomeRelevant(snapshot.file)),
           cwd,
           cache,
-          runners.biome,
+          (paths, opts) => getLocalRunner("biome")(paths, {
+            ...opts,
+            includeFormatter: shouldIncludeBiomeFormatter(engines.biome),
+          }),
           timeoutsMs.biome,
+          linkedAbort.controller.signal,
+        ),
+      },
+      {
+        engine: "eslint",
+        enabled: engines.eslint,
+        run: () => checkFileLocalEngine(
+          "eslint",
+          snapshots.filter((snapshot) => isEslintRelevant(snapshot.file)),
+          cwd,
+          cache,
+          getLocalRunner("eslint"),
+          timeoutsMs.eslint,
           linkedAbort.controller.signal,
         ),
       },
@@ -180,10 +193,12 @@ export async function checkFilesWithStats(
 export async function computeEngineConfigHash(
   engine: CacheEngine,
   cwd: string,
+  targetTsconfigPath?: string,
 ): Promise<string> {
   const hash = createHash("sha256");
   if (engine === "tsc") {
-    const configFiles = await collectTscConfigFiles(resolve(cwd, "tsconfig.json"), new Set());
+    const projectFile = targetTsconfigPath ?? resolve(cwd, "tsconfig.json");
+    const configFiles = await collectTscConfigFiles(projectFile, new Set());
     for (const absolutePath of Array.from(configFiles).sort()) {
       hash.update(absolutePath);
       hash.update("\0");
@@ -191,7 +206,7 @@ export async function computeEngineConfigHash(
       hash.update("\0");
     }
   } else {
-    for (const configFile of ENGINE_CONFIG_FILES[engine]) {
+    for (const configFile of ENGINE_REGISTRY[engine].configFiles) {
       hash.update(configFile);
       hash.update("\0");
       hash.update(await readConfig(configFile, cwd));
@@ -253,8 +268,18 @@ async function checkWholeProgramTsc(
   runner: WholeProgramRunner,
   timeoutMs: number,
   signal: AbortSignal,
+  targetPath?: string | undefined,
 ): Promise<EngineCheckResult> {
-  const configHash = await computeEngineConfigHash("tsc", cwd);
+  let targetTsconfigPath: string | undefined;
+  const probePath = targetPath ?? snapshots[0]?.file;
+  if (probePath !== undefined) {
+    try {
+      targetTsconfigPath = await resolveProjectFile(probePath, cwd);
+    } catch {
+      // fallback to cwd tsconfig
+    }
+  }
+  const configHash = await computeEngineConfigHash("tsc", cwd, targetTsconfigPath);
   cache.invalidateEngine("tsc", configHash);
   const latestResult = cache.getEngineResult("tsc", configHash);
   const relevantSnapshots = snapshots.filter((snapshot) => isTypeScriptRelevant(snapshot.file));
@@ -349,7 +374,7 @@ async function collectTscConfigFiles(
     return visited;
   }
 
-  if (!isPlainObject(parsed)) {
+  if (!isRecord(parsed)) {
     return visited;
   }
 
@@ -368,7 +393,7 @@ async function collectTscConfigFiles(
 
   if (Array.isArray(parsed.references)) {
     for (const ref of parsed.references) {
-      if (isPlainObject(ref) && typeof ref.path === "string") {
+      if (isRecord(ref) && typeof ref.path === "string") {
         const refPath = join(baseDir, ref.path);
         const candidate = refPath.endsWith(".json") ? refPath : join(refPath, "tsconfig.json");
         paths.push(candidate);
@@ -392,10 +417,6 @@ function resolveExtends(ext: string, baseDir: string): string {
   return join(baseDir, "node_modules", ext, "tsconfig.json");
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function relocateIssues(
   issues: readonly NormalizedIssue[],
   file: string,
@@ -411,29 +432,41 @@ function relocateIssues(
   );
 }
 
-function compareIssues(left: NormalizedIssue, right: NormalizedIssue): number {
-  return (
-    left.file.localeCompare(right.file) ||
-    left.line - right.line ||
-    left.col - right.col ||
-    left.engine.localeCompare(right.engine)
+async function mapConcurrent<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = Array.from({ length: items.length });
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex++;
+      results[index] = await fn(items[index]!);
+    }
+  };
+  const workers = Array.from(
+    { length: Math.min(concurrency, items.length) },
+    () => worker(),
   );
+  await Promise.all(workers);
+  return results;
 }
 
 function isTypeScriptRelevant(file: string): boolean {
-  return (
-    /\.(?:[cm]?[jt]sx?|json)$/.test(file) ||
-    file.endsWith("/package.json") ||
-    file === "package.json"
-  );
+  return ENGINE_REGISTRY.tsc.isRelevant(file);
 }
 
 function isOxlintRelevant(file: string): boolean {
-  return /\.[cm]?[jt]sx?$/.test(file);
+  return ENGINE_REGISTRY.oxlint.isRelevant(file);
 }
 
 function isBiomeRelevant(file: string): boolean {
-  return /\.(?:[cm]?[jt]sx?|jsonc?|css|g(?:raph)?ql)$/.test(file);
+  return ENGINE_REGISTRY.biome.isRelevant(file);
+}
+
+function isEslintRelevant(file: string): boolean {
+  return ENGINE_REGISTRY.eslint.isRelevant(file);
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

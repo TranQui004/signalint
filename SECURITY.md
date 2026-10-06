@@ -49,7 +49,7 @@ permissions.
 
 ## Known npm audit advisory
 
-First evaluated 2026-07-26, while `@modelcontextprotocol/sdk` resolved to `1.29.0`.
+First evaluated 2026-07-26 and re-evaluated 2026-10-06 with `@modelcontextprotocol/sdk@1.32.1`.
 This assessment is tied to the dependency versions and transport code described
 below, not to a specific Signalint release — re-check it whenever either changes,
 not just when the package version changes.
@@ -57,7 +57,7 @@ not just when the package version changes.
 - Advisory: [GHSA-frvp-7c67-39w9](https://github.com/advisories/GHSA-frvp-7c67-39w9),
   moderate severity.
 - Installed dependency path: `signalint-mcp` ->
-  `@modelcontextprotocol/sdk@1.29.0` -> `@hono/node-server@1.19.15`.
+  `@modelcontextprotocol/sdk@1.32.1` -> `@hono/node-server`.
 - Affected component: `@hono/node-server <2.0.5`'s separately exported
   `serveStatic` middleware on Windows. An encoded backslash (`%5C`) in an HTTP URL
   can bypass prefix-mounted middleware and expose a file elsewhere under the

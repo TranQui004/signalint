@@ -1,0 +1,214 @@
+import type { StaleReferenceResponse } from "../schema.js";
+
+export const STALE_REFERENCE_RESPONSE: StaleReferenceResponse = {
+  status: "stale",
+  message: "This cluster/issue no longer exists; run check_project again.",
+};
+
+export const engineStatusOutputSchema = {
+  type: "object" as const,
+  properties: {
+    status: {
+      type: "string" as const,
+      enum: ["ok", "error", "disabled"] as const,
+    },
+    message: { type: "string" as const },
+  },
+  required: ["status"],
+  additionalProperties: false,
+};
+
+export const clusterOutputSchema = {
+  type: "object" as const,
+  properties: {
+    clusterId: { type: "string" as const },
+    rootCauseSummary: { type: "string" as const },
+    ruleIds: {
+      type: "array" as const,
+      items: { type: "string" as const },
+    },
+    issueCount: { type: "integer" as const },
+    fileCount: { type: "integer" as const },
+    priority: { type: "integer" as const },
+    suggestedAction: { type: "string" as const },
+    sampleIssueIds: {
+      type: "array" as const,
+      items: { type: "string" as const },
+    },
+  },
+  required: [
+    "clusterId",
+    "rootCauseSummary",
+    "ruleIds",
+    "issueCount",
+    "fileCount",
+    "priority",
+    "suggestedAction",
+    "sampleIssueIds",
+  ],
+  additionalProperties: false,
+};
+
+export const loopWarningOutputSchema = {
+  type: "object" as const,
+  properties: {
+    signature: { type: "string" as const },
+    occurrences: { type: "integer" as const },
+    hint: { type: "string" as const },
+  },
+  required: ["signature", "occurrences", "hint"],
+  additionalProperties: false,
+};
+
+export const fileRuleChurnWarningOutputSchema = {
+  type: "object" as const,
+  properties: {
+    file: { type: "string" as const },
+    rule: { type: "string" as const },
+    checkCount: { type: "integer" as const },
+    hint: { type: "string" as const },
+  },
+  required: ["file", "rule", "checkCount", "hint"],
+  additionalProperties: false,
+};
+
+export const pingOutputSchema = {
+  type: "object" as const,
+  properties: {
+    pong: {
+      type: "boolean" as const,
+      description: "True when the server is responsive.",
+    },
+    projectRoot: {
+      type: "string" as const,
+      description: "Canonical absolute project root path.",
+    },
+  },
+  required: ["pong", "projectRoot"],
+  additionalProperties: false,
+};
+
+export const checkOutputSchema = {
+  type: "object" as const,
+  properties: {
+    schemaVersion: { type: "string" as const, enum: ["1.3"] as const },
+    status: {
+      type: "string" as const,
+      enum: ["clean", "issues_found", "error"] as const,
+    },
+    projectRoot: { type: "string" as const },
+    engines: {
+      type: "object" as const,
+      properties: {
+        oxlint: engineStatusOutputSchema,
+        tsc: engineStatusOutputSchema,
+        biome: engineStatusOutputSchema,
+        eslint: engineStatusOutputSchema,
+      },
+      required: ["oxlint", "tsc", "biome", "eslint"],
+      additionalProperties: false,
+    },
+    totalIssues: { type: "integer" as const },
+    clusters: {
+      type: "array" as const,
+      items: clusterOutputSchema,
+    },
+    truncated: { type: "boolean" as const },
+    loopWarning: {
+      oneOf: [
+        loopWarningOutputSchema,
+        { type: "null" as const },
+      ],
+    },
+    fileRuleChurnWarning: {
+      oneOf: [
+        fileRuleChurnWarningOutputSchema,
+        { type: "null" as const },
+      ],
+    },
+    engine: {
+      type: "string" as const,
+      enum: ["oxlint", "tsc", "biome", "eslint"] as const,
+    },
+    checkId: { type: "string" as const },
+    code: { type: "string" as const },
+    message: { type: "string" as const },
+  },
+  required: ["status"],
+};
+
+export const normalizedIssueOutputSchema = {
+  type: "object" as const,
+  properties: {
+    issueId: { type: "string" as const },
+    file: { type: "string" as const },
+    line: { type: "integer" as const },
+    col: { type: "integer" as const },
+    engine: {
+      type: "string" as const,
+      enum: ["oxlint", "tsc", "biome", "eslint"] as const,
+    },
+    rule: { type: "string" as const },
+    severity: {
+      type: "string" as const,
+      enum: ["error", "warning"] as const,
+    },
+    message: { type: "string" as const },
+    fixable: { type: "boolean" as const },
+    clusterId: { type: "string" as const },
+  },
+  required: [
+    "issueId",
+    "file",
+    "line",
+    "col",
+    "engine",
+    "rule",
+    "severity",
+    "message",
+    "fixable",
+  ],
+  additionalProperties: false,
+};
+
+export const getIssueDetailOutputSchema = {
+  type: "object" as const,
+  properties: {
+    issues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+    status: {
+      type: "string" as const,
+      enum: ["stale", "error"] as const,
+    },
+    code: { type: "string" as const },
+    message: { type: "string" as const },
+  },
+};
+
+export const getLoopStatusOutputSchema = {
+  type: "object" as const,
+  properties: {
+    looping: { type: "boolean" as const },
+    signatures: {
+      type: "array" as const,
+      items: loopWarningOutputSchema,
+    },
+    fileChurning: { type: "boolean" as const },
+    fileRuleChurns: {
+      type: "array" as const,
+      items: fileRuleChurnWarningOutputSchema,
+    },
+  },
+  required: ["looping", "signatures", "fileChurning", "fileRuleChurns"],
+  additionalProperties: false,
+};
+
+/** Hints applied uniformly to every tool: local-only reads, no external writes or network. */
+export const TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;

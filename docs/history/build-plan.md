@@ -3,9 +3,8 @@
 > current documentation — where it disagrees with the code, the code and
 > [ARCHITECTURE.md](../../ARCHITECTURE.md) are correct.
 >
-> Phases 0–6 are complete. Section 18's embedded `AGENTS.md` copy is superseded by
-> the live [AGENTS.md](../../AGENTS.md). See [README.md](README.md) in this
-> directory for context on why this file is retained.
+> Phases 0–6 are complete. The live [AGENTS.md](../../AGENTS.md) governs current work.
+> See [README.md](README.md) in this directory for context on why this file is retained.
 
 ---
 
@@ -395,7 +394,13 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 
 ## 14. Success Metrics (v1)
 
-- ≥70% reduction in diagnostic payload size vs. raw tool output (measured, not estimated)
+- ≥70% reduction in diagnostic payload size vs. raw tool output (measured, not estimated):
+  - **Verified benchmark (2026-10-06 via `scripts/bench.mjs`):**
+    - Raw engine output (`oxlint --format agent` + `tsc --pretty false`): 7,370 bytes
+    - Signalint normalized issues: 19,103 bytes
+    - Signalint clustered response: 1,427 bytes
+    - **Reduction vs raw engine output: 80.6%**
+    - **Reduction vs normalized issues: 92.5%**
 - <300ms incremental check latency on a mid-size repo (≤500 files) for a 1-3 file change
 - At least 1 real loop-breaking event demonstrated in a dogfooding session
 - Successful install + first use by at least 5 external users within 30 days of publishing
@@ -427,7 +432,7 @@ If a given Codex surface only exposes one model with adjustable reasoning (rathe
 | Cache and session history grow without bounds (final pre-launch reviews, 2026-08-01) | Resolved pre-launch: 10,000-row LRU cache cap plus bounded 5,000-entry session replay and 10 MiB rotation |
 | Engine config discovery is narrower than README claims: `.oxlintrc.jsonc`, `extends` chains, nested/monorepo configs, and Biome config in `package.json` are missed (final CL1 review, 2026-08-01) | Backlog: widen the literal discovery list or soften the README claim that changing engine config always invalidates cache |
 | `engine_state` is keyed by engine alone rather than engine plus config hash, so alternating configs or branches never hit whole-program cache (final CL1 review, 2026-08-01) | Backlog: include `config_hash` in the engine-state key |
-| Biome hardcodes `fixable: false` while Oxlint derives structured fixability, under-claiming fixes and skewing cluster priority (final CL1 review, 2026-08-01) | **Investigated, closed (2026-09):** `--reporter=json` (Biome 2.5.8) returns no per-diagnostic fix data — `advices: []` even for rules Biome can auto-fix; the `suggestedFixesSkipped` field in the `summary` block is aggregate, not per-diagnostic. Fix-span and replacement text are only surfaced through `biome check --write`, which applies edits and is outside the read-only adapter contract. `fixable: false` is accurate, not under-claiming. Revisit if Biome adds per-diagnostic fix metadata to the JSON reporter. |
+| Biome hardcodes `fixable: false` while Oxlint derives structured fixability, under-claiming fixes and skewing cluster priority (final CL1 review, 2026-08-01) | **Revised (2026-10-06):** revises the earlier "Biome has no per-diagnostic fix data" conclusion — the fix data is in `advices`, matching `/safe fix/i`, rather than a top-level `fix` field. The Biome adapter now inspects `advices` to report `fixable: true`. |
 | Cluster assignment maps by object identity rather than `issueId`, so a future clone between grouping and mapping would fail `requireClusterId` (final CL1 review, 2026-08-01) | Backlog: key cluster assignments by stable `issueId` |
 | `isNormalizedIssue` rejects long cached messages even though normalization should own the length invariant (final CL1 review, 2026-08-01) | Backlog: truncate on the write/normalization path and keep cache reads tolerant |
 | Timeout failures have top-level `status: timeout` and per-engine `status: error` variants with inconsistent MCP `isError` flags (final CL1 review, 2026-08-01) | Backlog: standardize on the per-engine response shape used by normal checks |
@@ -465,83 +470,6 @@ Research as of July 2026 found the following adjacent/overlapping projects. Read
 
 ---
 
-## 18. Agent System Prompt (save as `AGENTS.md` in repo root)
-
-Copy the block below verbatim into `AGENTS.md` at the project root before starting Phase 0. This governs how the coding agent should behave for the rest of the project.
-
-```markdown
-# AGENTS.md — Operating Rules for Signalint
-
-You are building Signalint, an MCP server described in `signalint-plan.md` in this
-repo. That file is the source of truth for architecture, schema, and phase order.
-Read it in full before writing any code, and re-read the relevant section before
-starting each phase.
-
-## Coding standards
-
-- TypeScript strict mode is mandatory (`"strict": true` in tsconfig). Never use `any`
-  — use `unknown` and narrow, or define a proper type.
-- Functions should do one thing. If a function exceeds ~40 lines, consider splitting it.
-- Every module under `src/adapters/`, `src/cache/`, `src/cluster/`, `src/memory/` must
-  have a corresponding test file under `test/` before it is considered done.
-- No new runtime dependency may be added without first checking: (a) does the standard
-  library or an already-installed package cover this? (b) is the package actively
-  maintained (commit within last 6 months)? If unsure, ask the human before installing.
-- All public functions and MCP tool handlers need a one-line JSDoc comment stating
-  what they do and what they assume about their input.
-- Match the data schema in Section 7 of the plan exactly. If you believe the schema
-  needs to change, stop and propose the change — do not silently add or rename fields.
-
-## Workflow
-
-- Follow the phase order in Section 13 of the plan. Do not start a phase until the
-  previous phase's acceptance criteria are met AND verified by an actually-passing
-  test, not just a visual read of the code.
-- At the end of each phase, write a short summary (3-5 bullet points) of what was
-  built and confirm the acceptance criteria against it explicitly.
-- Commit at phase boundaries with a message like `feat(phase-1): engine adapters
-  for oxlint and tsc`. Do not squash multiple phases into one commit.
-- Phase 7 (website) and Phase 8 (dashboard) must not start until Phase 6 is marked
-  complete by the human. If asked to start them early, remind the human of this gate
-  and ask for explicit confirmation before proceeding.
-- Whenever a change you make affects the compiled MCP server (anything under
-  `src/` that gets built to `dist/`), end your report with an explicit reminder:
-  the human must run `npm run build` AND disconnect/reconnect (or restart) their
-  MCP client for the change to actually take effect — a stale running process or
-  un-rebuilt `dist/` will silently keep serving old behavior even after you've
-  committed and pushed a real fix. Do not assume this is obvious; state it plainly
-  every time, since this exact mistake has already cost real debugging time once.
-
-## When to stop and ask the human (do not guess or proceed silently)
-
-Stop and ask when:
-1. A design decision in the plan conflicts with what you're finding during
-   implementation (e.g., oxlint's actual output format differs from what Section 7
-   assumes).
-2. You need to add a new external dependency not already listed in Section 6.
-3. You're about to write code that executes a subprocess, writes files outside the
-   project directory, or touches anything network-related beyond what's specified.
-4. An acceptance criterion in Section 13 is ambiguous or you cannot find a way to
-   verify it automatically.
-5. You've hit the same failing test 3 times with different fix attempts — this is
-   exactly the kind of loop Signalint itself is meant to catch; don't keep guessing,
-   summarize what you tried and ask for direction.
-6. Anything involving money, publishing to npm/GitHub publicly, or deleting data.
-
-Do NOT stop and ask for:
-- Routine implementation choices already covered by the plan (naming a variable,
-  choosing between two equivalent ways to write a loop, etc.) — just proceed.
-- Anything reversible and low-risk that's clearly within a phase's stated tasks.
-
-## Style for commit messages, docs, and any user-facing copy
-
-- No hype language ("revolutionary," "blazing fast," "game-changing"). State facts
-  and, where possible, numbers.
-- No emoji in code, commit messages, or docs unless the human explicitly asks.
-- Prefer showing a real example (input → output) over describing a feature abstractly.
-```
-
----
 
 ## 19. Website Specification (Phase 7)
 

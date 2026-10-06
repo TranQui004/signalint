@@ -20,81 +20,71 @@ server restarts; malformed or crash-truncated lines are skipped.
 
 When a coding agent requests diagnostics on a project, raw compiler and linter outputs quickly flood the context window with repetitive errors across multiple files. Signalint normalizes issues and clusters them by root cause before returning a bounded, priority-ranked response:
 
-### Raw diagnostics (40 issues across 10 files · 9,151 bytes)
+### Raw engine output (7,370 bytes) & normalized diagnostics (52 issues across 11 files · 19,103 bytes)
 
 ```json
 [
   {
-    "issueId": "ts-01",
+    "issueId": "b2dbbc348dd564e942cc317d434c39d4ac3a1a925d3d53fe23d5d184ce8b820a",
     "file": "src/file01.ts",
-    "line": 10,
-    "col": 5,
+    "line": 3,
+    "col": 14,
     "engine": "tsc",
     "rule": "TS2322",
     "severity": "error",
-    "message": "Type 'string' is not assignable to type 'number' in fixture assignment 01.",
+    "message": "Type 'string' is not assignable to type 'number'.",
     "fixable": false
   },
-  // ... 39 more raw normalized issues
+  // ... 51 more raw normalized issues
 ]
 ```
 
-### Clustered response returned to agent (4 clusters · 1,233 bytes · 86.5% reduction)
+### Clustered response returned to agent (2 clusters · 1,477 bytes · 80.0% reduction vs raw, 92.3% vs normalized)
 
 ```json
 {
-  "schemaVersion": "1.1",
+  "schemaVersion": "1.3",
   "status": "issues_found",
+  "projectRoot": "/path/to/project",
   "engines": {
     "oxlint": { "status": "ok" },
     "tsc": { "status": "ok" },
-    "biome": { "status": "disabled" }
+    "biome": { "status": "disabled" },
+    "eslint": { "status": "disabled" }
   },
-  "totalIssues": 40,
+  "totalIssues": 52,
   "clusters": [
     {
-      "clusterId": "c1",
-      "rootCauseSummary": "10 TS2322 issues across 10 files",
+      "clusterId": "c4588ddaf",
+      "rootCauseSummary": "21 TS2322 issues across 11 files",
       "ruleIds": ["TS2322"],
-      "issueCount": 10,
-      "fileCount": 10,
+      "issueCount": 21,
+      "fileCount": 11,
       "priority": 1,
-      "suggestedAction": "Review the shared cause of TS2322 across 10 files",
-      "sampleIssueIds": ["ts-01", "ts-02"]
+      "suggestedAction": "Review the shared cause of TS2322 across 11 files",
+      "sampleIssueIds": [
+        "b2dbbc348dd564e942cc317d434c39d4ac3a1a925d3d53fe23d5d184ce8b820a",
+        "86420b99c641b881656faaef5277a866653df413d75d97dd3376cc4b694b7779"
+      ]
     },
     {
-      "clusterId": "c2",
-      "rootCauseSummary": "10 no-unused-vars issues across 10 files",
+      "clusterId": "c8920ad67",
+      "rootCauseSummary": "31 no-unused-vars issues across 11 files",
       "ruleIds": ["no-unused-vars"],
-      "issueCount": 10,
-      "fileCount": 10,
-      "priority": 2,
-      "suggestedAction": "Review the shared cause of no-unused-vars across 10 files",
-      "sampleIssueIds": ["unused-01", "unused-02"]
-    },
-    {
-      "clusterId": "c3",
-      "rootCauseSummary": "10 eqeqeq issues across 10 files",
-      "ruleIds": ["eqeqeq"],
-      "issueCount": 10,
-      "fileCount": 10,
+      "issueCount": 31,
+      "fileCount": 11,
       "priority": 5,
-      "suggestedAction": "Apply structured fixes for eqeqeq across 10 files",
-      "sampleIssueIds": ["eqeqeq-01", "eqeqeq-02"]
-    },
-    {
-      "clusterId": "c4",
-      "rootCauseSummary": "10 prefer-const issues across 10 files",
-      "ruleIds": ["prefer-const"],
-      "issueCount": 10,
-      "fileCount": 10,
-      "priority": 5,
-      "suggestedAction": "Apply structured fixes for prefer-const across 10 files",
-      "sampleIssueIds": ["const-01", "const-02"]
+      "suggestedAction": "Review the shared cause of no-unused-vars across 11 files",
+      "sampleIssueIds": [
+        "62989a92f29313f73f660b3a5fd8be185556f50ed4f20c58a782a0ce4a74b4bb",
+        "5fd3182b7608409594f0382a63d009a06fcd10daf2442a182e1765d0884cddf6"
+      ]
     }
   ],
   "truncated": false,
-  "loopWarning": null
+  "loopWarning": null,
+  "fileRuleChurnWarning": null,
+  "checkId": "7e3c2bd2"
 }
 ```
 
@@ -102,7 +92,7 @@ The agent receives a concise summary with priority-ordered clusters and sample i
 
 ## Requirements
 
-- Node.js 20.19 or later in the Node 20 line, or Node.js 22.12 or later
+- Node.js 22.12 or later (uses built-in `node:sqlite`)
 - A JavaScript or TypeScript project; TypeScript checks require a `tsconfig.json`
 - pnpm 11.9.0 for source development
 
@@ -114,8 +104,9 @@ Install Signalint in the project it should check:
 npm install --save-dev signalint-mcp
 ```
 
-Run the setup command from that project root. It detects TypeScript, Oxlint, and
-Biome configuration, writes `signalint.config.json`, and offers to update a nearby
+Run the setup command from that project root. It detects TypeScript, Oxlint,
+Biome, flat ESLint, and Prettier configuration, writes `signalint.config.json`,
+appends `.signalint/` to `.gitignore`, and offers to update a nearby
 Claude Code, Cursor, Codex CLI, or Antigravity MCP configuration:
 
 ```sh
@@ -124,28 +115,53 @@ npx signalint-mcp init
 
 If no MCP client can be selected safely, the command prints exact configuration
 snippets to copy. TypeScript is enabled only when a root `tsconfig.json` exists;
-Biome is enabled when its config exists; Oxlint is the fallback when no configured
-linter is detected. To configure Signalint manually, create `signalint.config.json`:
+ESLint is enabled when a flat config (`eslint.config.*`) exists; Biome is enabled
+when its config exists; Oxlint is the fallback when no other configured linter is detected.
+To configure Signalint manually, create `signalint.config.json`:
 
 ```json
 {
   "engines": {
     "oxlint": true,
     "tsc": true,
-    "biome": false
+    "biome": false,
+    "eslint": false
   },
   "ignore": ["node_modules/**", "dist/**", ".signalint/**"],
   "timeoutsMs": {
     "oxlint": 30000,
-    "tsc": 120000,
-    "biome": 30000
+    "tsc": 60000,
+    "biome": 30000,
+    "eslint": 30000
   }
 }
 ```
 
+### Engines and resolution
+
+Signalint supports four diagnostic engines:
+- **TypeScript (`tsc`)**: Whole-project type checking using `tsconfig.json`. Timeout default is 60s.
+- **Oxlint (`oxlint`)**: Ultra-fast file-local linter.
+- **Biome (`biome`)**: Fast linter and formatter. Suppresses formatter diagnostics by default and captures safe fix recommendations from advices.
+- **ESLint (`eslint`)**: Flat config (`eslint.config.*`) linter. Signalint does not bundle ESLint — it resolves your project's local ESLint installation without extra dependencies and reports true fixable diagnostics (`fixable: true`).
+
+**Resolution order:** For each engine, Signalint checks the target project's `node_modules` first (`require.resolve` / `node_modules/.bin`), ensuring diagnostics match the project's own tool versions. If the project does not have the engine installed, Signalint falls back to its bundled copy (for `oxlint`, `tsc`, `biome`) or marks it disabled with an actionable message (for `eslint`). The resolved engine version is hashed into cache keys to ensure cache invalidation across tool upgrades.
+
+## Supported clients
+
+| Client | Project-scoped (preferred) | User/global (fallback) | Config format / key | Working directory (`cwd`) |
+|---|---|---|---|---|
+| **Claude Code** | `<root>/.mcp.json` | `~/.claude.json` | JSON (`mcpServers`) | Automatic (Claude sets `cwd` to project root) |
+| **Cursor** | `<root>/.cursor/mcp.json` | `~/.cursor/mcp.json` | JSON (`mcpServers`) | Supported (emitted for project scope only) |
+| **Codex CLI** | `<root>/.codex/config.toml` | `~/.codex/config.toml` | TOML (`[mcp_servers.<name>]`) | Supported (emitted for project scope only) |
+| **Antigravity** | `<root>/.agents/mcp_config.json` | `~/.gemini/config/mcp_config.json` | JSON (`mcpServers`) | Not emitted (runs in active workspace) |
+| **VS Code** | `<root>/.vscode/mcp.json` | User settings (`chat.mcp.servers`) | JSON (`servers`) | Not supported |
+| **Windsurf** | — | `~/.codeium/windsurf/mcp_config.json` | JSON (`mcpServers`) | Not emitted |
+| **Zed** | — | `~/.config/zed/settings.json` | JSON (`context_servers`) | Not supported |
+
 ## Claude Code setup
 
-Run this from the checked project. Project scope writes a shareable `.mcp.json`:
+Run this from the checked project. Project scope writes a shareable `<root>/.mcp.json`:
 
 ```sh
 claude mcp add --scope project signalint -- npx --no-install signalint-mcp
@@ -167,7 +183,66 @@ for scope and troubleshooting details.
 
 ## Cursor setup
 
-Create `.cursor/mcp.json` in the checked project:
+Create `<root>/.cursor/mcp.json` in the checked project:
+
+```json
+{
+  "mcpServers": {
+    "signalint": {
+      "command": "npx",
+      "args": ["--no-install", "signalint-mcp"],
+      "cwd": "/path/to/project"
+    }
+  }
+}
+```
+
+On native Windows, use `"command": "cmd"` and
+`"args": ["/c", "npx", "--no-install", "signalint-mcp"]`. Open Cursor's MCP
+settings, enable `signalint`, and call `ping` followed by `check_project`.
+
+See the [Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol)
+for configuration locations and status controls.
+
+## Codex CLI setup
+
+The Codex CLI supports both project-scoped and user-scoped TOML configuration.
+For project-scoped configuration (trusted projects only), write `<root>/.codex/config.toml`:
+
+```toml
+[mcp_servers.signalint]
+command = "npx"
+args = ["--no-install", "signalint-mcp"]
+startup_timeout_sec = 20
+cwd = "/path/to/project"
+```
+
+On native Windows, use `cmd` with arguments:
+
+```toml
+[mcp_servers.signalint]
+command = "cmd"
+args = ["/c", "npx", "--no-install", "signalint-mcp"]
+startup_timeout_sec = 20
+cwd = "C:\\path\\to\\project"
+```
+
+To configure Codex CLI globally (without pinning a working directory):
+
+```sh
+codex mcp add signalint -- npx --no-install signalint-mcp
+```
+
+See the [Codex MCP documentation](https://developers.openai.com/codex/mcp)
+for configuration options including timeouts, `env`, and tool approvals.
+
+## Antigravity setup
+
+Antigravity supports two verified configuration locations:
+- **Project-scoped (preferred):** `<root>/.agents/mcp_config.json`
+- **User-scoped (global fallback):** `~/.gemini/config/mcp_config.json`
+
+Project configuration in `<root>/.agents/mcp_config.json`:
 
 ```json
 {
@@ -180,75 +255,52 @@ Create `.cursor/mcp.json` in the checked project:
 }
 ```
 
-On native Windows use `"command": "cmd"` and
-`"args": ["/c", "npx", "--no-install", "signalint-mcp"]`. Open Cursor's MCP
-settings, enable `signalint`, and call `ping` followed by `check_project`.
+On native Windows, use `"command": "cmd"` and `"args": ["/c", "npx", "--no-install", "signalint-mcp"]`.
 
-See the [Cursor MCP documentation](https://docs.cursor.com/context/model-context-protocol)
-for configuration locations and status controls.
+> **Migration note:** Earlier versions wrote to `~/.gemini/antigravity/mcp_config.json`. If you have a legacy `signalint` entry in that file, delete it to avoid configuration shadowing. Run `npx signalint-mcp doctor` to check for and report legacy entries.
 
-## Codex CLI setup
+See [antigravity.google/docs/mcp](https://antigravity.google/docs/mcp) for documentation.
 
-The ChatGPT desktop app, Codex CLI, and IDE extension share a single
-configuration file. The quick-add command writes to `~/.codex/config.toml`
-(global) automatically:
+## VS Code setup
 
-```sh
-codex mcp add signalint -- npx --no-install signalint-mcp
-```
-
-For project-scoped configuration (trusted projects only), add to
-`.codex/config.toml` in the project root:
-
-```toml
-[mcp_servers.signalint]
-command = "npx"
-args = ["--no-install", "signalint-mcp"]
-```
-
-On native Windows, use `cmd` and pass `npx` as an argument:
-
-```toml
-[mcp_servers.signalint]
-command = "cmd"
-args = ["/c", "npx", "--no-install", "signalint-mcp"]
-```
-
-See the [Codex MCP documentation](https://developers.openai.com/codex/mcp)
-for all configuration options including `cwd`, `env`, and per-tool approval
-settings.
-
-## Setting up with Antigravity
-
-Antigravity uses its own MCP configuration file. The path that has been
-verified through dogfooding on Windows is:
-`%USERPROFILE%\.gemini\antigravity\mcp_config.json`.
-
-The `init` command can update this file after confirmation. The equivalent
-Windows configuration is:
+Add Signalint to `<root>/.vscode/mcp.json` using the `servers` key:
 
 ```json
 {
-  "mcpServers": {
+  "servers": {
     "signalint": {
-      "command": "cmd",
-      "args": ["/c", "npx", "--no-install", "signalint-mcp"],
-      "cwd": "<absolute-path-to-your-project>"
+      "command": "npx",
+      "args": ["--no-install", "signalint-mcp"]
     }
   }
 }
 ```
 
-On macOS or Linux, use `"command": "npx"` and
-`"args": ["--no-install", "signalint-mcp"]`. Restart or reconnect Antigravity
-after updating the configuration.
+## Multiple projects & troubleshooting
 
-**Note on Antigravity product variants:** Antigravity has split into separate
-products (IDE, CLI, SDK). Each variant may use a different config path — the
-IDE path above is the one confirmed working; other variants may use
-`~/.gemini/config/mcp_config.json` or a project-scoped `.agents/mcp_config.json`.
-See [antigravity.google/docs/mcp](https://antigravity.google/docs/mcp) for
-the authoritative list per product.
+### The global configuration trap
+When an MCP server is configured in a global user configuration file (`~/.claude.json`, `~/.cursor/mcp.json`, `~/.gemini/config/mcp_config.json`, or `~/.codex/config.toml`) with an absolute `cwd` path, the MCP server will **always** check the hardcoded project directory—regardless of which project or workspace is currently active. This causes silent false-positives or checking the wrong code.
+
+To prevent this:
+1. **Prefer project-scoped configuration:** Always keep the MCP config inside the project root (`.mcp.json`, `.cursor/mcp.json`, `.agents/mcp_config.json`, `.vscode/mcp.json`, or `.codex/config.toml`).
+2. **Never pin `cwd` in user configs:** Signalint `init` will never emit a `cwd` key when writing to a user-scoped configuration.
+3. **Environment variable override:** Set `SIGNALINT_PROJECT_ROOT=/path/to/project` to force Signalint to target a specific project directory when an MCP client does not launch from the project root.
+4. **Uninitialized projects:** By default, Signalint requires running `signalint init` so `signalint.config.json` exists. If you need to check an uninitialized project, set `SIGNALINT_ALLOW_UNINITIALIZED=1`.
+
+### Diagnosing configuration with `signalint doctor`
+
+Run `doctor` to inspect your project and detect common configuration issues:
+
+```sh
+npx signalint-mcp doctor
+```
+
+`doctor` checks:
+- Project root resolution and `signalint.config.json` presence.
+- JavaScript / TypeScript project markers.
+- Diagnostic engine availability (project-local vs. bundled copies) and versions.
+- Active MCP client configs, flagging any stale `cwd` entries that point to a different repository.
+- Legacy configuration files (such as `~/.gemini/antigravity/mcp_config.json`).
 
 ## Windows troubleshooting
 
@@ -358,6 +410,33 @@ run:
 node node_modules/signalint-mcp/examples/check-project.mjs .
 ```
 
+## Priority ladder
+
+Signalint orders diagnostic clusters by priority ascending (1 is most urgent, 5 is least urgent).
+The priority ladder evaluates severity, systemic scope across multiple files, rule frequency, and
+fix availability:
+
+| Priority | Meaning |
+|---|---|
+| **1** | Error, systemic (many issues across multiple files) |
+| **2** | Error, local, no structured fix known |
+| **3** | Error, structured fix available |
+| **4** | Warning, local, no structured fix known |
+| **5** | Warning, structured fix available or systemic-but-cosmetic |
+
+## Compression benchmark
+
+Measured against realistic multi-engine fixture suites (`pnpm bench`):
+
+| Representation | Size | Notes |
+|---|---|---|
+| (a) Raw engine output | 7,370 bytes | Compact CLI output (`oxlint --format agent` + `tsc --pretty false`) |
+| (b) Signalint normalized | 19,103 bytes | Complete structured JSON diagnostics with per-issue metadata |
+| (c) Signalint clustered | 1,477 bytes | High-density agent summary response with root causes and priorities |
+
+- **Reduction vs raw engine output:** 80.0%
+- **Reduction vs normalized diagnostics:** 92.3%
+
 ## GitHub Actions
 
 `action.yml` at the repository root wraps `signalint check` as a composite
@@ -373,10 +452,10 @@ the pull request diff:
 
 `fail-on-priority` defaults to `5`, which fails the job on any issue found,
 matching `signalint check`'s default behavior without the flag. Lower values
-only fail the job when a cluster is at least that urgent: priority 1 is an
-error with no structured fix, and priority increases toward 5 as issues
-become more fixable or more systemic (see `scorePriority` in
-`src/cluster/clusterEngine.ts`).
+only fail the job when a cluster is at least that urgent: priority 1 is a
+systemic error, priority 2 is a local error with no fix, priority 3 is an
+error with a structured fix, priority 4 is a local warning, and priority 5
+is a fixable or systemic-cosmetic warning (see the Priority ladder table above).
 
 ## Development
 

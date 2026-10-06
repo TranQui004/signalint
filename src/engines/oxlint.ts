@@ -1,7 +1,8 @@
 import { createRequire } from "node:module";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
+import { resolveEngine } from "../engineResolution.js";
 import {
   createIssueId,
   normalizeIssueMessage,
@@ -13,11 +14,12 @@ import {
   runEngineCommand,
   type CommandResult,
 } from "../subprocess.js";
+import { isRecord, normalizeFile, readString } from "../util/index.js";
 
-interface OxlintRunOptions {
-  cwd?: string;
+export interface OxlintRunOptions {
+  cwd?: string | undefined;
   signal?: AbortSignal | undefined;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 /** Parses Oxlint JSON output and assumes filenames are relative to the supplied working directory. */
@@ -135,25 +137,8 @@ function normalizeSeverity(severity: string): IssueSeverity {
   throw new Error(`Unsupported Oxlint severity: ${severity}`);
 }
 
-function normalizeFile(file: string, cwd: string): string {
-  const absoluteFile = isAbsolute(file) ? file : resolve(cwd, file);
-  return relative(cwd, absoluteFile).replaceAll("\\", "/");
-}
-
-function readString(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  if (typeof value !== "string") {
-    throw new Error(`Oxlint diagnostic field "${key}" was not a string.`);
-  }
-  return value;
-}
-
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function runOxlintProcess(
@@ -161,9 +146,8 @@ async function runOxlintProcess(
   cwd: string,
   options: OxlintRunOptions,
 ): Promise<CommandResult> {
-  const require = createRequire(import.meta.url);
-  const packagePath = require.resolve("oxlint/package.json");
-  const cliPath = resolve(dirname(packagePath), "bin", "oxlint");
+  const resolved = resolveEngine("oxlint", cwd);
+  const cliPath = resolved?.binPath ?? resolve(dirname(createRequire(import.meta.url).resolve("oxlint/package.json")), "bin", "oxlint");
   return runEngineCommand(process.execPath, createOxlintCliArgs(cliPath, paths), {
     cwd,
     engine: "oxlint",

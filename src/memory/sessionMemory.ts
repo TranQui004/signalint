@@ -12,7 +12,7 @@ import type {
 import {
   parseSessionJsonLines,
   type ParsedSessionLogEntry,
-} from "../sessionLog.js";
+} from "./sessionLog.js";
 import {
   readSessionLogTail,
   rotateSessionLogIfNeeded,
@@ -116,6 +116,8 @@ export class SessionMemory {
     this.needsLineBoundary = history.needsLineBoundary;
   }
 
+  private checkQueue: Promise<unknown> = Promise.resolve();
+
   /** Records one check, its payload/cache metrics, and the current loop warning. */
   public async recordCheck(
     issues: readonly NormalizedIssue[],
@@ -124,37 +126,43 @@ export class SessionMemory {
     startedAt: number = performance.now(),
     source: CheckSource = "project",
   ): Promise<CheckResponse> {
-    const timestamp = this.now();
-    const currentSignatures = new Set(issues.map(createIssueSignature));
-    const reappearedSignatures = this.recordAppearances(currentSignatures, timestamp);
-    this.activeSignatures = currentSignatures;
+    const operation = async (): Promise<CheckResponse> => {
+      const timestamp = this.now();
+      const currentSignatures = new Set(issues.map(createIssueSignature));
+      const reappearedSignatures = this.recordAppearances(currentSignatures, timestamp);
+      this.activeSignatures = currentSignatures;
 
-    let currentFileRulePairs = new Set<string>();
-    if (source === "files") {
-      currentFileRulePairs = new Set(issues.map(createFileRuleKey));
-      this.updateChurnCounts(currentFileRulePairs);
-    }
+      let currentFileRulePairs = new Set<string>();
+      if (source === "files") {
+        currentFileRulePairs = new Set(issues.map(createFileRuleKey));
+        this.updateChurnCounts(currentFileRulePairs);
+      }
 
-    const status = this.getStatus();
-    const responseWithWarning: CheckResponse = {
-      ...response,
-      loopWarning: status.signatures[0] ?? null,
-      fileRuleChurnWarning: status.fileRuleChurns[0] ?? null,
+      const status = this.getStatus();
+      const responseWithWarning: CheckResponse = {
+        ...response,
+        loopWarning: status.signatures[0] ?? null,
+        fileRuleChurnWarning: status.fileRuleChurns[0] ?? null,
+      };
+      await this.appendLog({
+        timestamp,
+        activeSignatures: [...currentSignatures].sort(),
+        activeFileRulePairs: [...currentFileRulePairs].sort(),
+        reappearedSignatures,
+        loopWarnings: status.signatures,
+        metrics: createLogMetrics(
+          issues,
+          responseWithWarning,
+          cache,
+          Math.max(0, performance.now() - startedAt),
+        ),
+      });
+      return responseWithWarning;
     };
-    await this.appendLog({
-      timestamp,
-      activeSignatures: [...currentSignatures].sort(),
-      activeFileRulePairs: [...currentFileRulePairs].sort(),
-      reappearedSignatures,
-      loopWarnings: status.signatures,
-      metrics: createLogMetrics(
-        issues,
-        responseWithWarning,
-        cache,
-        Math.max(0, performance.now() - startedAt),
-      ),
-    });
-    return responseWithWarning;
+
+    const next = this.checkQueue.then(operation, operation);
+    this.checkQueue = next.then(() => undefined, () => undefined);
+    return next;
   }
 
   /** Returns all signatures that disappeared and reappeared at least twice this session, plus all file/rule pairs that have triggered across 3+ check_files calls. */

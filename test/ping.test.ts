@@ -34,6 +34,6 @@ describe("Phase 0 MCP smoke test", () => {
     const pingTool = tools.tools.find((t) => t.name === "ping");
     expect(pingTool?.outputSchema).toBeDefined();
     expect(result.content).toEqual([{ type: "text", text: "pong" }]);
-    expect(result.structuredContent).toEqual({ pong: true });
+    expect(result.structuredContent).toEqual({ pong: true, projectRoot: expect.any(String) });
   });
 });

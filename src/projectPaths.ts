@@ -1,4 +1,4 @@
-import { realpath } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { isAbsolute, relative, resolve, sep, win32 } from "node:path";
 
 export const MAX_TOOL_PATHS = 512;
@@ -22,6 +22,21 @@ export class ProjectPathError extends Error {
   ) {
     super(message);
     this.name = "ProjectPathError";
+  }
+}
+
+/** Canonicalizes a path so symlinks/junctions, 8.3 short names and casing are
+ *  normalized identically across every code path (Node's JS realpathSync and
+ *  fs.promises.realpath disagree on Windows 8.3 names). */
+export function canonicalizePath(path: string): string {
+  try {
+    return realpathSync.native(path);
+  } catch {
+    try {
+      return realpathSync(path);
+    } catch {
+      return resolve(path);
+    }
   }
 }
 
@@ -58,11 +73,22 @@ export async function containProjectPath(
   return await canonicalizeContainedPath(absolutePath, projectRoot);
 }
 
-async function readCanonicalProjectRoot(cwd: string): Promise<string> {
+/** Resolves the canonical, realpath-contained project root directory asynchronously. */
+export async function readCanonicalProjectRoot(cwd: string): Promise<string> {
+  return readCanonicalProjectRootSync(cwd);
+}
+
+/** Resolves the canonical, realpath-contained project root directory synchronously. */
+export function readCanonicalProjectRootSync(cwd: string): string {
+  const resolved = resolve(cwd);
   try {
-    return await realpath(resolve(cwd));
+    return realpathSync.native(resolved);
   } catch (error: unknown) {
-    throw pathNotFoundError("Project root", error);
+    try {
+      return realpathSync(resolved);
+    } catch {
+      throw pathNotFoundError("Project root", error);
+    }
   }
 }
 
@@ -89,9 +115,13 @@ async function canonicalizeContainedPath(
 ): Promise<ResolvedProjectPath> {
   let canonicalPath: string;
   try {
-    canonicalPath = await realpath(path);
+    canonicalPath = realpathSync.native(path);
   } catch (error: unknown) {
-    throw pathNotFoundError("Requested path", error);
+    try {
+      canonicalPath = realpathSync(path);
+    } catch {
+      throw pathNotFoundError("Requested path", error);
+    }
   }
   assertContained(projectRoot, canonicalPath);
   const relativePath = relative(projectRoot, canonicalPath);

@@ -1,4 +1,4 @@
-import type { NormalizedIssue } from "./schema.js";
+import type { NormalizedIssue } from "../schema.js";
 
 /** Returns true for dependency paths that Signalint must never surface as diagnostics. */
 export function isDefaultExcludedPath(file: string): boolean {

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
-import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { basename, dirname, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
+import { resolveEngine } from "../engineResolution.js";
 import {
   createIssueId,
   normalizeIssueMessage,
@@ -16,11 +17,12 @@ import {
   type CommandResult,
 } from "../subprocess.js";
 import { containProjectPath, resolveProjectPath } from "../projectPaths.js";
+import { isRecord, normalizeFile } from "../util/index.js";
 
-interface TscRunOptions {
-  cwd?: string;
+export interface TscRunOptions {
+  cwd?: string | undefined;
   signal?: AbortSignal | undefined;
-  timeoutMs?: number;
+  timeoutMs?: number | undefined;
 }
 
 interface PendingDiagnostic {
@@ -225,7 +227,8 @@ async function readEffectiveProjectConfig(
   return config;
 }
 
-async function resolveProjectFile(path: string, cwd: string): Promise<string> {
+/** Resolves the effective tsconfig.json project file for a given target path within boundary. */
+export async function resolveProjectFile(path: string, cwd: string): Promise<string> {
   const projectRoot = (await resolveProjectPath(".", cwd)).absolutePath;
   const target = (await resolveProjectPath(path, cwd)).absolutePath;
   const targetStat = await stat(target);
@@ -263,17 +266,8 @@ async function findClosestProjectFile(directory: string, boundary: string): Prom
   }
 }
 
-function normalizeFile(file: string, cwd: string): string {
-  const absoluteFile = isAbsolute(file) ? file : resolve(cwd, file);
-  return relative(cwd, absoluteFile).replaceAll("\\", "/");
-}
-
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && "code" in error && error.code === "ENOENT";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 async function runTscProcess(
@@ -281,9 +275,8 @@ async function runTscProcess(
   cwd: string,
   options: Omit<TscRunOptions, "cwd">,
 ): Promise<CommandResult> {
-  const require = createRequire(import.meta.url);
-  const packagePath = require.resolve("typescript/package.json");
-  const cliPath = resolve(dirname(packagePath), "bin", "tsc");
+  const resolved = resolveEngine("tsc", cwd);
+  const cliPath = resolved?.binPath ?? resolve(dirname(createRequire(import.meta.url).resolve("typescript/package.json")), "bin", "tsc");
   return runEngineCommand(process.execPath, [cliPath, ...args], {
     cwd,
     engine: "tsc",

@@ -1,5 +1,5 @@
-import { rm, writeFile } from "node:fs/promises";
-import { resolve } from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -7,7 +7,7 @@ import {
   formatSessionStats,
   parseSessionLog,
   readSessionStats,
-} from "../src/stats.js";
+} from "../src/memory/stats.js";
 
 const SESSION_LOG = [
   {
@@ -85,6 +85,7 @@ describe("session statistics", () => {
     const first = createMetricLine(1, 100);
     const retained = createMetricLine(2, 200);
     const latest = createMetricLine(3, 300);
+    await mkdir(dirname(rotatedLogPath), { recursive: true });
     await writeFile(`${rotatedLogPath}.1`, `${first}\n${retained}\n`, "utf8");
     await writeFile(rotatedLogPath, `${retained}\n${latest}\n`, "utf8");
 

@@ -3,7 +3,6 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type {
   EngineOutputLimitResponse,
   IssueEngine,
-  TimeoutResponse,
 } from "./schema.js";
 
 type ActiveTerminator = () => Promise<void>;
@@ -27,14 +26,11 @@ export interface EngineCommandOptions {
 }
 
 export class EngineTimeoutError extends Error {
-  public readonly response: TimeoutResponse;
-
   /** Creates a structured timeout failure for one engine invocation. */
   public constructor(public readonly engine: IssueEngine, timeoutMs: number) {
     const message = `${engine} did not complete within ${formatDuration(timeoutMs)}`;
     super(message);
     this.name = "EngineTimeoutError";
-    this.response = { status: "timeout", engine, message };
   }
 }
 
@@ -283,7 +279,7 @@ function isEngineAttributedError(
   return (
     error instanceof Error &&
     "engine" in error &&
-    (error.engine === "oxlint" || error.engine === "tsc" || error.engine === "biome")
+    (error.engine === "oxlint" || error.engine === "tsc" || error.engine === "biome" || error.engine === "eslint")
   );
 }
 

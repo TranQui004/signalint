@@ -1,10 +1,15 @@
+import { createHash } from "node:crypto";
+
 import type {
   CheckResponse,
   Cluster,
+  EngineStatus,
   EngineStatuses,
+  IssueEngine,
   NormalizedIssue,
 } from "../schema.js";
 import { createSuccessfulEngineStatuses } from "../schema.js";
+import { compareIssues } from "../util/index.js";
 
 export interface ClusterResult {
   issues: NormalizedIssue[];
@@ -23,36 +28,78 @@ export function clusterIssues(
   rawIssues: readonly NormalizedIssue[],
   maxClusters: number = 10,
   engines: EngineStatuses = createSuccessfulEngineStatuses(),
+  projectRoot: string = process.cwd(),
 ): ClusterResult {
   if (!Number.isInteger(maxClusters) || maxClusters < 1) {
     throw new Error("maxClusters must be a positive integer.");
   }
 
   const pendingClusters = createPendingClusters(rawIssues).sort(comparePendingClusters);
-  const issueClusterIds = new Map<NormalizedIssue, string>();
-  const allClusters = pendingClusters.map((pending, index) => {
-    const clusterId = `c${String(index + 1)}`;
+  const collisionCounts = new Map<string, number>();
+  const issueClusterIds = new Map<string, string>();
+
+  const allClusters = pendingClusters.map((pending) => {
+    const severity = pending.issues.some((issue) => issue.severity === "error") ? "error" : "warning";
+    const ruleKey = [...new Set(pending.issues.map((i) => i.rule))].sort().join("");
+    const key = `${ruleKey}|${severity}|${String(pending.systemic)}`;
+    const baseHash = createHash("sha1").update(key).digest("hex").slice(0, 8);
+    const baseId = `c${baseHash}`;
+    const collisionIndex = collisionCounts.get(baseId) ?? 0;
+    collisionCounts.set(baseId, collisionIndex + 1);
+    const clusterId = collisionIndex === 0 ? baseId : `${baseId}-${String(collisionIndex)}`;
+
     for (const issue of pending.issues) {
-      issueClusterIds.set(issue, clusterId);
+      issueClusterIds.set(issue.issueId, clusterId);
     }
     return createCluster(pending, clusterId);
   });
+
   const issues = rawIssues.map((issue) => ({
     ...issue,
-    clusterId: requireClusterId(issueClusterIds.get(issue)),
+    clusterId: requireClusterId(issueClusterIds.get(issue.issueId)),
   }));
+
+  const engineEntries = Object.entries(engines) as [IssueEngine, EngineStatus][];
+  const failedEngines = engineEntries
+    .filter(([, s]) => s.status === "error")
+    .map(([e]) => e);
+
+  let status: "clean" | "issues_found" | "error";
+  let code: string | undefined;
+  let message: string | undefined;
+
+  if (failedEngines.length > 0) {
+    status = "error";
+    code = "engine_failed";
+    message = `Engine check failed: ${failedEngines.join(", ")}`;
+  } else {
+    const hasOkEngine = engineEntries.some(([, s]) => s.status === "ok");
+    if (!hasOkEngine) {
+      status = "error";
+      code = "nothing_checked";
+      message = "No paths were checked; nothing can be reported clean.";
+    } else if (rawIssues.length === 0) {
+      status = "clean";
+    } else {
+      status = "issues_found";
+    }
+  }
 
   return {
     issues,
     response: {
-      schemaVersion: "1.2",
-      status: rawIssues.length === 0 ? "clean" : "issues_found",
+      schemaVersion: "1.3",
+      status,
+      projectRoot,
       engines,
       totalIssues: rawIssues.length,
       clusters: allClusters.slice(0, maxClusters),
       truncated: allClusters.length > maxClusters,
       loopWarning: null,
       fileRuleChurnWarning: null,
+      checkId: computeCheckId(rawIssues),
+      ...(code !== undefined ? { code } : {}),
+      ...(message !== undefined ? { message } : {}),
     },
   };
 }
@@ -129,16 +176,31 @@ function scorePriority(
   issues: readonly NormalizedIssue[],
   systemic: boolean,
 ): number {
-  if (issues.some((issue) => issue.severity === "error" && !issue.fixable)) {
-    return 1;
+  const hasError = issues.some((issue) => issue.severity === "error");
+  const isFixable = issues.length > 0 && issues.every((issue) => issue.fixable);
+
+  if (hasError) {
+    if (systemic) {
+      return 1;
+    }
+    if (!isFixable) {
+      return 2;
+    }
+    return 3;
   }
-  if (issues.some((issue) => !issue.fixable)) {
-    return 2;
-  }
-  if (systemic) {
+
+  if (systemic || isFixable) {
     return 5;
   }
-  return issues.some((issue) => issue.severity === "error") ? 3 : 4;
+  return 4;
+}
+
+function computeCheckId(rawIssues: readonly NormalizedIssue[]): string {
+  const content = rawIssues
+    .map((i) => `${i.engine}:${i.file}:${i.line}:${i.col}:${i.rule}:${i.severity}:${i.message}`)
+    .sort()
+    .join("\n");
+  return createHash("sha1").update(content).digest("hex").slice(0, 8);
 }
 
 function createSuggestedAction(pending: PendingCluster, fileCount: number): string {
@@ -163,21 +225,6 @@ function comparePendingClusters(left: PendingCluster, right: PendingCluster): nu
     right.issues.length - left.issues.length ||
     left.rule.localeCompare(right.rule) ||
     compareIssues(left.issues[0], right.issues[0])
-  );
-}
-
-function compareIssues(
-  left: NormalizedIssue | undefined,
-  right: NormalizedIssue | undefined,
-): number {
-  if (left === undefined || right === undefined) {
-    return left === right ? 0 : left === undefined ? 1 : -1;
-  }
-  return (
-    left.file.localeCompare(right.file) ||
-    left.line - right.line ||
-    left.col - right.col ||
-    left.issueId.localeCompare(right.issueId)
   );
 }
 

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { ENGINE_REGISTRY, ALL_ENGINES } from "./engines/registry.js";
+import { ENGINE_REGISTRY } from "./engines/registry.js";
 import { resolveProjectFile } from "./engines/tsc.js";
 import { createLinkedAbortController } from "./abort.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
@@ -83,17 +83,6 @@ interface EngineCheckResult {
   cache: CacheStats;
 }
 
-const ENGINE_CONFIG_FILES: Record<CacheEngine, readonly string[]> = Object.fromEntries(
-  ALL_ENGINES.map((engine) => [engine, ENGINE_REGISTRY[engine].configFiles]),
-) as Record<CacheEngine, readonly string[]>;
-
-const DEFAULT_RUNNERS: EngineRunners = {
-  oxlint: (files, opts) => ENGINE_REGISTRY.oxlint.run(files, opts),
-  tsc: (opts) => ENGINE_REGISTRY.tsc.run(["."], opts),
-  biome: (files, opts) => ENGINE_REGISTRY.biome.run(files, opts),
-  eslint: (files, opts) => ENGINE_REGISTRY.eslint.run(files, opts),
-};
-
 const DEFAULT_ENGINES: EngineSelection = {
   oxlint: true,
   tsc: true,
@@ -122,7 +111,9 @@ export async function checkFilesWithStats(
   try {
     const resolvedFiles = await resolveProjectPaths(files, cwd);
     const snapshots = await mapConcurrent(resolvedFiles, 32, readSnapshot);
-    const runners = { ...DEFAULT_RUNNERS, ...options.runners };
+    const getLocalRunner = (engine: Exclude<IssueEngine, "tsc">): EngineRunner =>
+      options.runners?.[engine] ?? ((paths, opts) => ENGINE_REGISTRY[engine].run(paths, opts));
+    const tscRunner = options.runners?.tsc ?? ((opts) => ENGINE_REGISTRY.tsc.run(["."], opts));
     const engines = options.engines ?? DEFAULT_ENGINES;
     const timeoutsMs = options.timeoutsMs ?? DEFAULT_CONFIG.timeoutsMs;
     const fanout = await settleEngineTasks<EngineCheckResult>([
@@ -134,7 +125,7 @@ export async function checkFilesWithStats(
           snapshots.filter((snapshot) => isOxlintRelevant(snapshot.file)),
           cwd,
           cache,
-          runners.oxlint,
+          getLocalRunner("oxlint"),
           timeoutsMs.oxlint,
           linkedAbort.controller.signal,
         ),
@@ -146,7 +137,7 @@ export async function checkFilesWithStats(
           snapshots,
           cwd,
           cache,
-          runners.tsc,
+          tscRunner,
           timeoutsMs.tsc,
           linkedAbort.controller.signal,
           options.targetPath,
@@ -160,7 +151,7 @@ export async function checkFilesWithStats(
           snapshots.filter((snapshot) => isBiomeRelevant(snapshot.file)),
           cwd,
           cache,
-          (paths, opts) => runners.biome(paths, {
+          (paths, opts) => getLocalRunner("biome")(paths, {
             ...opts,
             includeFormatter: shouldIncludeBiomeFormatter(engines.biome),
           }),
@@ -176,7 +167,7 @@ export async function checkFilesWithStats(
           snapshots.filter((snapshot) => isEslintRelevant(snapshot.file)),
           cwd,
           cache,
-          runners.eslint,
+          getLocalRunner("eslint"),
           timeoutsMs.eslint,
           linkedAbort.controller.signal,
         ),
@@ -215,7 +206,7 @@ export async function computeEngineConfigHash(
       hash.update("\0");
     }
   } else {
-    for (const configFile of ENGINE_CONFIG_FILES[engine]) {
+    for (const configFile of ENGINE_REGISTRY[engine].configFiles) {
       hash.update(configFile);
       hash.update("\0");
       hash.update(await readConfig(configFile, cwd));

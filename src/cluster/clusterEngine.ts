@@ -61,7 +61,7 @@ export function clusterIssues(
 
   const engineEntries = Object.entries(engines) as [IssueEngine, EngineStatus][];
   const failedEngines = engineEntries
-    .filter(([_, s]) => s.status === "error")
+    .filter(([, s]) => s.status === "error")
     .map(([e]) => e);
 
   let status: "clean" | "issues_found" | "error";
@@ -73,7 +73,7 @@ export function clusterIssues(
     code = "engine_failed";
     message = `Engine check failed: ${failedEngines.join(", ")}`;
   } else {
-    const hasOkEngine = engineEntries.some(([_, s]) => s.status === "ok");
+    const hasOkEngine = engineEntries.some(([, s]) => s.status === "ok");
     if (!hasOkEngine) {
       status = "error";
       code = "nothing_checked";

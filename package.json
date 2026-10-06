@@ -47,7 +47,6 @@
     "dist/src",
     "examples",
     "glama.json",
-    "signalint.config.json",
     "README.md",
     "SECURITY.md",
     "LICENSE"

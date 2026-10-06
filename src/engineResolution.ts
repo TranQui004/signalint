@@ -12,34 +12,11 @@ export interface ResolvedEngine {
   isProjectLocal: boolean;
 }
 
-export interface EnginePackageInfo {
-  packageName: string;
-  binRelativePath: string;
-  bundledAvailable: boolean;
-}
+import { ENGINE_REGISTRY, type EngineSpec } from "./engines/registry.js";
 
-export const ENGINE_INFO: Record<IssueEngine, EnginePackageInfo> = {
-  oxlint: {
-    packageName: "oxlint",
-    binRelativePath: "bin/oxlint",
-    bundledAvailable: true,
-  },
-  tsc: {
-    packageName: "typescript",
-    binRelativePath: "bin/tsc",
-    bundledAvailable: true,
-  },
-  biome: {
-    packageName: "@biomejs/biome",
-    binRelativePath: "bin/biome",
-    bundledAvailable: true,
-  },
-  eslint: {
-    packageName: "eslint",
-    binRelativePath: "bin/eslint.js",
-    bundledAvailable: false,
-  },
-};
+export type EnginePackageInfo = Pick<EngineSpec, "packageName" | "binRelativePath" | "bundledAvailable">;
+
+export const ENGINE_INFO: Record<IssueEngine, EnginePackageInfo> = ENGINE_REGISTRY;
 
 const resolutionCache = new Map<string, ResolvedEngine | null>();
 

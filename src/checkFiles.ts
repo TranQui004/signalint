@@ -2,15 +2,12 @@ import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
-import { runOxlint } from "./adapters/oxlint.js";
-import { runBiome } from "./adapters/biome.js";
-import { resolveProjectFile, runTsc } from "./adapters/tsc.js";
-import { runEslint } from "./adapters/eslint.js";
+import { ENGINE_REGISTRY, ALL_ENGINES } from "./engines/registry.js";
+import { resolveProjectFile } from "./engines/tsc.js";
 import { createLinkedAbortController } from "./abort.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
 import {
   DEFAULT_CONFIG,
-  FLAT_ESLINT_CONFIG_FILES,
   isEngineEnabled,
   shouldIncludeBiomeFormatter,
   type EngineSelection,
@@ -86,18 +83,15 @@ interface EngineCheckResult {
   cache: CacheStats;
 }
 
-const ENGINE_CONFIG_FILES: Record<CacheEngine, readonly string[]> = {
-  oxlint: [".oxlintrc", ".oxlintrc.json", "oxlint.json"],
-  tsc: ["tsconfig.json"],
-  biome: ["biome.json", "biome.jsonc"],
-  eslint: FLAT_ESLINT_CONFIG_FILES,
-};
+const ENGINE_CONFIG_FILES: Record<CacheEngine, readonly string[]> = Object.fromEntries(
+  ALL_ENGINES.map((engine) => [engine, ENGINE_REGISTRY[engine].configFiles]),
+) as Record<CacheEngine, readonly string[]>;
 
 const DEFAULT_RUNNERS: EngineRunners = {
-  oxlint: runOxlint,
-  tsc: (options) => runTsc(["."], options),
-  biome: runBiome,
-  eslint: runEslint,
+  oxlint: (files, opts) => ENGINE_REGISTRY.oxlint.run(files, opts),
+  tsc: (opts) => ENGINE_REGISTRY.tsc.run(["."], opts),
+  biome: (files, opts) => ENGINE_REGISTRY.biome.run(files, opts),
+  eslint: (files, opts) => ENGINE_REGISTRY.eslint.run(files, opts),
 };
 
 const DEFAULT_ENGINES: EngineSelection = {
@@ -166,7 +160,7 @@ export async function checkFilesWithStats(
           snapshots.filter((snapshot) => isBiomeRelevant(snapshot.file)),
           cwd,
           cache,
-          (paths, opts) => (runners.biome ?? runBiome)(paths, {
+          (paths, opts) => runners.biome(paths, {
             ...opts,
             includeFormatter: shouldIncludeBiomeFormatter(engines.biome),
           }),
@@ -452,7 +446,7 @@ async function mapConcurrent<T, R>(
   concurrency: number,
   fn: (item: T) => Promise<R>,
 ): Promise<R[]> {
-  const results: R[] = new Array(items.length);
+  const results: R[] = Array.from({ length: items.length });
   let nextIndex = 0;
   const worker = async () => {
     while (nextIndex < items.length) {
@@ -469,23 +463,19 @@ async function mapConcurrent<T, R>(
 }
 
 function isTypeScriptRelevant(file: string): boolean {
-  return (
-    /\.(?:[cm]?[jt]sx?|json)$/.test(file) ||
-    file.endsWith("/package.json") ||
-    file === "package.json"
-  );
+  return ENGINE_REGISTRY.tsc.isRelevant(file);
 }
 
 function isOxlintRelevant(file: string): boolean {
-  return /\.[cm]?[jt]sx?$/.test(file);
+  return ENGINE_REGISTRY.oxlint.isRelevant(file);
 }
 
 function isBiomeRelevant(file: string): boolean {
-  return /\.(?:[cm]?[jt]sx?|jsonc?|css|g(?:raph)?ql)$/.test(file);
+  return ENGINE_REGISTRY.biome.isRelevant(file);
 }
 
 function isEslintRelevant(file: string): boolean {
-  return /\.[cm]?[jt]sx?$/.test(file);
+  return ENGINE_REGISTRY.eslint.isRelevant(file);
 }
 
 function isMissingFileError(error: unknown): error is NodeJS.ErrnoException {

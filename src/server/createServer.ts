@@ -1,0 +1,181 @@
+import { resolve } from "node:path";
+import { Server } from "@modelcontextprotocol/sdk/server/index.js";
+import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import {
+  CallToolRequestSchema,
+  ListToolsRequestSchema,
+  type CallToolResult,
+} from "@modelcontextprotocol/sdk/types.js";
+import { ZodError } from "zod";
+
+import {
+  checkConfiguredFilesWithStats,
+  collectProjectIssueResult,
+} from "../check/checkProject.js";
+import {
+  closeRuntimeResources,
+  registerProcessLifecycle,
+  writeFatalError,
+} from "../lifecycle.js";
+import { SessionMemory } from "../memory/sessionMemory.js";
+import {
+  ProjectPathError,
+  readCanonicalProjectRootSync,
+} from "../projectPaths.js";
+import {
+  wrapIssueProvider,
+  type IssueProvider,
+  type TestIssueProvider,
+  type ToolHandlerContext,
+} from "./context.js";
+import { createInputRefusal } from "./errors.js";
+import { handleCheckFiles, handleCheckProject } from "./handlers/check.js";
+import { handleIssueDetail } from "./handlers/issueDetail.js";
+import { handleLoopStatus } from "./handlers/loopStatus.js";
+import { handlePing } from "./handlers/ping.js";
+import { tools } from "./tools.js";
+
+export interface SignalintServerOptions {
+  cwd?: string;
+  fileIssueProvider?: TestIssueProvider;
+  projectIssueProvider?: TestIssueProvider;
+  sessionMemory?: SessionMemory;
+}
+
+/** Creates the Signalint MCP server with process-lifetime loop memory and optional test providers. */
+export function createServer(options: SignalintServerOptions = {}): Server {
+  const server = new Server(
+    {
+      name: "signalint",
+      version: "0.4.2",
+    },
+    {
+      capabilities: {
+        tools: {},
+      },
+    },
+  );
+
+  let projectRoot: string;
+  const envRoot = process.env.SIGNALINT_PROJECT_ROOT;
+  if (options.cwd !== undefined) {
+    try {
+      projectRoot = readCanonicalProjectRootSync(options.cwd);
+    } catch {
+      projectRoot = resolve(options.cwd);
+    }
+  } else if (envRoot !== undefined && envRoot.trim() !== "") {
+    try {
+      projectRoot = readCanonicalProjectRootSync(envRoot);
+    } catch (error: unknown) {
+      process.stderr.write(
+        `[signalint] Invalid SIGNALINT_PROJECT_ROOT: ${error instanceof Error ? error.message : String(error)}. Falling back to process.cwd().\n`,
+      );
+      try {
+        projectRoot = readCanonicalProjectRootSync(process.cwd());
+      } catch {
+        projectRoot = resolve(process.cwd());
+      }
+    }
+  } else {
+    try {
+      projectRoot = readCanonicalProjectRootSync(process.cwd());
+    } catch {
+      projectRoot = resolve(process.cwd());
+    }
+  }
+
+  process.stderr.write(`[signalint] project root: ${projectRoot}\n`);
+
+  const cwd = projectRoot;
+  const sessionMemory = options.sessionMemory ?? new SessionMemory({
+    logPath: resolve(cwd, ".signalint", "session.jsonl"),
+  });
+  const projectIssueProvider = options.projectIssueProvider === undefined
+    ? (paths: readonly string[], signal?: AbortSignal) =>
+        collectProjectIssueResult(paths, cwd, signal)
+    : wrapIssueProvider(options.projectIssueProvider);
+  const fileIssueProvider = options.fileIssueProvider === undefined
+    ? (files: readonly string[], signal?: AbortSignal) =>
+        checkConfiguredFilesWithStats(files, cwd, signal)
+    : wrapIssueProvider(options.fileIssueProvider);
+
+  registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider, cwd);
+  return server;
+}
+
+/** Starts Signalint over stdio and assumes stdin/stdout are owned by an MCP client. */
+export async function startServer(): Promise<void> {
+  const server = createServer();
+  const transport = new StdioServerTransport();
+  const unregisterLifecycle = registerProcessLifecycle(server);
+  try {
+    await server.connect(transport);
+  } catch (error: unknown) {
+    unregisterLifecycle();
+    await closeRuntimeResources(server).catch((closeError: unknown) => {
+      writeFatalError("startup cleanup failed", closeError);
+    });
+    throw error;
+  }
+}
+
+/** Registers all available MCP tool handlers on a configured server and session memory. */
+function registerToolHandlers(
+  server: Server,
+  sessionMemory: SessionMemory,
+  projectIssueProvider: IssueProvider,
+  fileIssueProvider: IssueProvider,
+  cwd: string,
+): void {
+  const context: ToolHandlerContext = {
+    cwd,
+    fileIssueProvider,
+    latestIssues: [],
+    projectIssueProvider,
+    sessionMemory,
+  };
+  server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools }));
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
+    try {
+      return await dispatchToolCall(
+        request.params.name,
+        request.params.arguments,
+        extra.signal,
+        context,
+      );
+    } catch (error: unknown) {
+      if (error instanceof ZodError || error instanceof ProjectPathError) {
+        return createInputRefusal(error, context.cwd);
+      }
+      throw error;
+    }
+  });
+}
+
+async function dispatchToolCall(
+  name: string,
+  argumentsValue: unknown,
+  signal: AbortSignal,
+  context: ToolHandlerContext,
+): Promise<CallToolResult> {
+  if (name === "ping") {
+    return await handlePing(context, argumentsValue);
+  }
+  if (name === "check_project") {
+    return await handleCheckProject(context, argumentsValue, signal);
+  }
+  if (name === "check_files") {
+    return await handleCheckFiles(context, argumentsValue, signal);
+  }
+  if (name === "get_issue_detail") {
+    return await handleIssueDetail(context, argumentsValue);
+  }
+  if (name === "get_loop_status") {
+    return await handleLoopStatus(context, argumentsValue);
+  }
+  return {
+    content: [{ type: "text", text: `Unknown tool: ${name}` }],
+    isError: true,
+  };
+}

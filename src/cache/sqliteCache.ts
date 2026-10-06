@@ -14,6 +14,7 @@ import {
 } from "../schema.js";
 import { resolveEngineVersion } from "../engineResolution.js";
 import { isRecord } from "../util/index.js";
+import { ENGINE_REGISTRY } from "../engines/registry.js";
 
 interface CacheRow {
   result: string;
@@ -36,13 +37,6 @@ interface PackageMetadata {
   name?: string;
   version: string;
 }
-
-const ENGINE_PACKAGES: Record<IssueEngine, string> = {
-  oxlint: "oxlint",
-  tsc: "typescript",
-  biome: "@biomejs/biome",
-  eslint: "eslint",
-};
 
 const openCaches = new Set<SqliteCache>();
 const require = createRequire(import.meta.url);
@@ -74,9 +68,10 @@ export function resolveCacheVersionInfo(
     return cached;
   }
   let engineVersion = resolveEngineVersion(engine, cwd);
-  if (engineVersion === "0.0.0" && ENGINE_PACKAGES[engine] !== undefined) {
+  const pkgName = ENGINE_REGISTRY[engine]?.packageName;
+  if (engineVersion === "0.0.0" && pkgName !== undefined) {
     try {
-      engineVersion = readPackageVersion(require.resolve(`${ENGINE_PACKAGES[engine]}/package.json`));
+      engineVersion = readPackageVersion(require.resolve(`${pkgName}/package.json`));
     } catch {
       // ignore
     }

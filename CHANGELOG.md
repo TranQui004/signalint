@@ -44,6 +44,13 @@ full detail.
 - Sanitized cached issue messages with `normalizeIssueMessage` before validation with `isNormalizedIssue`.
 - Bounded file-read fanout in `checkFilesWithStats` to 32 concurrent reads.
 - Bumped dependencies: `oxlint` to 1.87.0, `@biomejs/biome` to 2.5.15, `@modelcontextprotocol/sdk` to 1.32.1, `zod` to 4.6.5.
+- Modularized server architecture: split `src/index.ts` into dedicated `src/server/` components (`toolSchemas.ts`, `tools.ts`, `errors.ts`, `context.ts`, `createServer.ts`, and tool handlers), leaving `src/index.ts` as a thin entrypoint.
+- Consolidated engine configurations into a unified registry `src/engines/registry.ts` and moved engine adapters to `src/engines/` (`oxlint.ts`, `tsc.ts`, `biome.ts`, `eslint.ts`), ensuring adding a new engine touches exactly two files.
+- Relocated session log and statistics modules to `src/memory/` and check logic to `src/check/`.
+- Removed redundant second pass of `filterDefaultExcludedIssues` inside `runCheck`, preserving exclusion enforcement at the provider boundary.
+- Removed dev `signalint.config.json` from `package.json` publication `files`.
+- Removed `src/index.ts` exclusion from Vitest coverage configuration while maintaining full coverage thresholds.
+- Added `docs/known-limitations.md` documenting active limitations and recording closure of all Phase 0–5 risks with verification evidence.
 
 
 ## 0.4.2

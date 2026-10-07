@@ -87,6 +87,14 @@ export async function runDoctorCommand(options: DoctorOptions = {}): Promise<num
     );
   }
 
+  const tscEngine = engines.find((e) => e.name === "tsc");
+  if (tscEngine !== undefined && tscEngine.source === "not_installed") {
+    writeOutput(
+      `\n[WARNING] TypeScript is not installed.\n` +
+      `  Fix: Run 'npm i -D typescript' to enable type-checking.\n`,
+    );
+  }
+
   // 4. Check MCP clients
   writeOutput(`\nMCP client configurations:\n`);
   const staleCwdFindings: StaleCwdFinding[] = [];

@@ -46,6 +46,7 @@ export function clusterIssues(
   const { multiIssueClusters, singleIssues } = partitionIssues(rawIssues);
   multiIssueClusters.sort(comparePendingClusters);
 
+  const shortIdMap = computeShortIssueIds(rawIssues.map((i) => i.issueId));
   const topClusters = multiIssueClusters.slice(0, maxClusters);
   const overflowClusters = multiIssueClusters.slice(maxClusters);
   const demotedIssues = overflowClusters.flatMap((c) => c.issues);
@@ -53,7 +54,7 @@ export function clusterIssues(
   const issueClusterIds = new Map<string, string>();
   const collisionCounts = new Map<string, number>();
   const clusters = topClusters.map((pending) =>
-    buildCluster(pending, collisionCounts, issueClusterIds),
+    buildCluster(pending, collisionCounts, issueClusterIds, shortIdMap),
   );
 
   const issues = rawIssues.map((issue) => {
@@ -63,7 +64,7 @@ export function clusterIssues(
 
   const allRemaining = [...singleIssues, ...demotedIssues].sort(compareRemainingIssues);
   const { remainingIssues, omittedIssueCount, nextStep, truncated } =
-    formatRemaining(allRemaining);
+    formatRemaining(allRemaining, shortIdMap);
 
   const statusInfo = determineStatus(engines, rawIssues.length);
   const isCompact = options.compact ?? (process.env.SIGNALINT_COMPACT === "1");
@@ -146,6 +147,7 @@ function buildCluster(
   pending: PendingCluster,
   collisionCounts: Map<string, number>,
   issueClusterIds: Map<string, string>,
+  shortIdMap: Map<string, string>,
 ): Cluster {
   const severity = pending.issues.some((i) => i.severity === "error") ? "error" : "warning";
   const ruleKey = [...new Set(pending.issues.map((i) => i.rule))].sort().join("");
@@ -159,23 +161,26 @@ function buildCluster(
   for (const issue of pending.issues) {
     issueClusterIds.set(issue.issueId, clusterId);
   }
-  return createCluster(pending, clusterId);
+  return createCluster(pending, clusterId, shortIdMap);
 }
 
-function formatRemaining(allRemaining: NormalizedIssue[]): {
+function formatRemaining(
+  allRemaining: NormalizedIssue[],
+  shortIdMap: Map<string, string>,
+): {
   remainingIssues: RemainingIssue[];
   omittedIssueCount: number;
   nextStep?: string;
   truncated: boolean;
 } {
-  let remainingIssues = allRemaining.map(toRemainingIssue);
+  let remainingIssues = allRemaining.map((issue) => toRemainingIssue(issue, shortIdMap));
   let omittedIssueCount = 0;
   let nextStep: string | undefined;
 
   if (remainingIssues.length > MAX_REMAINING_ISSUES) {
     omittedIssueCount = remainingIssues.length - MAX_REMAINING_ISSUES;
     remainingIssues = remainingIssues.slice(0, MAX_REMAINING_ISSUES);
-    nextStep = "Call check_files on affected paths or get_issue_detail on listed issue IDs.";
+    nextStep = "Call get_issue_detail to retrieve omitted issues or full details, or check_files on affected paths.";
   }
 
   return {
@@ -237,9 +242,12 @@ function groupByRule(
   return groups;
 }
 
-function toRemainingIssue(issue: NormalizedIssue): RemainingIssue {
+function toRemainingIssue(
+  issue: NormalizedIssue,
+  shortIdMap: Map<string, string>,
+): RemainingIssue {
   return {
-    issueId: issue.issueId,
+    issueId: shortIdMap.get(issue.issueId) ?? issue.issueId.slice(0, 12),
     file: issue.file,
     line: issue.line,
     col: issue.col,
@@ -261,7 +269,11 @@ function compareRemainingIssues(left: NormalizedIssue, right: NormalizedIssue): 
   );
 }
 
-function createCluster(pending: PendingCluster, clusterId: string): Cluster {
+function createCluster(
+  pending: PendingCluster,
+  clusterId: string,
+  shortIdMap: Map<string, string>,
+): Cluster {
   const issueCount = pending.issues.length;
   const fileCount = countFiles(pending.issues);
   const cluster: Cluster = {
@@ -277,7 +289,7 @@ function createCluster(pending: PendingCluster, clusterId: string): Cluster {
     cluster.suggestedAction = suggestedAction;
   }
   if (issueCount > 2) {
-    cluster.sampleIssueIds = takeDistinctIssueIds(pending.issues, 2);
+    cluster.sampleIssueIds = takeDistinctIssueIds(pending.issues, 2, shortIdMap);
   }
   return cluster;
 }
@@ -295,8 +307,32 @@ function createRootCauseSummary(
 function takeDistinctIssueIds(
   issues: readonly NormalizedIssue[],
   limit: number,
+  shortIdMap: Map<string, string>,
 ): string[] {
-  return [...new Set(issues.map((issue) => issue.issueId))].slice(0, limit);
+  return [...new Set(issues.map((issue) => shortIdMap.get(issue.issueId) ?? issue.issueId.slice(0, 12)))].slice(0, limit);
+}
+
+/** Computes unique short issue IDs (default 12 hex chars, extended if colliding). */
+export function computeShortIssueIds(
+  issueIds: readonly string[],
+  minPrefixLength: number = 12,
+): Map<string, string> {
+  const uniqueIds = [...new Set(issueIds)];
+  const shortMap = new Map<string, string>();
+
+  for (const id of uniqueIds) {
+    let len = Math.min(minPrefixLength, id.length);
+    let prefix = id.slice(0, len);
+    while (
+      len < id.length &&
+      uniqueIds.some((other) => other !== id && other.startsWith(prefix))
+    ) {
+      len += 1;
+      prefix = id.slice(0, len);
+    }
+    shortMap.set(id, prefix);
+  }
+  return shortMap;
 }
 
 function scorePriority(

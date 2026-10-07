@@ -25,9 +25,14 @@ function resolveIssueDetail(
   issues: readonly NormalizedIssue[],
   reference: IssueReference,
 ): NormalizedIssue[] | StaleReferenceResponse {
-  const [key, value] = "clusterId" in reference
-    ? ["clusterId", reference.clusterId] as const
-    : ["issueId", reference.issueId] as const;
-  const matches = issues.filter((issue) => issue[key] === value);
-  return matches.length === 0 ? STALE_REFERENCE_RESPONSE : matches;
+  if ("clusterId" in reference) {
+    const matches = issues.filter((issue) => issue.clusterId === reference.clusterId);
+    return matches.length === 0 ? STALE_REFERENCE_RESPONSE : matches;
+  }
+  const exact = issues.filter((issue) => issue.issueId === reference.issueId);
+  if (exact.length > 0) {
+    return exact;
+  }
+  const prefixMatches = issues.filter((issue) => issue.issueId.startsWith(reference.issueId));
+  return prefixMatches.length === 0 ? STALE_REFERENCE_RESPONSE : prefixMatches;
 }

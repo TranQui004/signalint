@@ -6,7 +6,7 @@ import { runDoctorCommand } from "./doctor.js";
 import { runInitCommand } from "./init.js";
 import { checkProjectWithIssues } from "./index.js";
 import { isMainModule } from "./mainModule.js";
-import type { CheckResponse, NormalizedIssue } from "./schema.js";
+import type { CheckResponse, NormalizedIssue, RemainingIssue } from "./schema.js";
 import { formatSessionStats, readSessionStats } from "./memory/stats.js";
 
 const CHECK_USAGE =
@@ -157,7 +157,11 @@ function shouldFailCheck(response: CheckResponse, failOnPriority: number | undef
     return response.status !== "clean";
   }
   const clusterFailed = response.clusters.some((cluster) => cluster.priority <= failOnPriority);
-  const remainingFailed = (response.remainingIssues ?? []).some((issue) => {
+  const remainingIssues =
+    response.remainingIssues ??
+    (response as unknown as { remaining?: RemainingIssue[] }).remaining ??
+    [];
+  const remainingFailed = remainingIssues.some((issue) => {
     const priority = issue.priority ?? (issue.severity === "error" ? (issue.fixable ? 3 : 2) : (issue.fixable ? 5 : 4));
     return priority <= failOnPriority;
   });

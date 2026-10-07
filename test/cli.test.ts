@@ -98,6 +98,10 @@ describe("signalint check --compact", () => {
     expect(parsed.v).toBe("1.4");
     expect(parsed.projectRoot).toBeUndefined();
     expect(parsed.total).toBeDefined();
+    expect(parsed.totalIssues).toBeUndefined();
+    expect(parsed.remainingIssues).toBeUndefined();
+    expect(parsed.omittedIssueCount).toBeUndefined();
+    expect(parsed.schemaVersion).toBeUndefined();
   });
 });
 

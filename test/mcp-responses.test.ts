@@ -268,6 +268,39 @@ describe("MCP response amendments", () => {
       }),
     );
   });
+
+  it("serves minified MCP tool payloads without indentation or newlines across tools", async () => {
+    const issue = makeIssue();
+    const client = await connectServer(() => Promise.resolve([issue]));
+
+    const checkProjectResult = (await client.callTool({
+      name: "check_project",
+      arguments: { paths: ["."] },
+    })).content as Array<{ type: string; text: string }>;
+
+    expect(checkProjectResult[0]?.text.includes("\n")).toBe(false);
+
+    const checkFilesResult = (await client.callTool({
+      name: "check_files",
+      arguments: { files: ["src/current.ts"] },
+    })).content as Array<{ type: string; text: string }>;
+
+    expect(checkFilesResult[0]?.text.includes("\n")).toBe(false);
+
+    const issueDetailResult = (await client.callTool({
+      name: "get_issue_detail",
+      arguments: { issueId: issue.issueId },
+    })).content as Array<{ type: string; text: string }>;
+
+    expect(issueDetailResult[0]?.text.includes("\n")).toBe(false);
+
+    const loopStatusResult = (await client.callTool({
+      name: "get_loop_status",
+      arguments: {},
+    })).content as Array<{ type: string; text: string }>;
+
+    expect(loopStatusResult[0]?.text.includes("\n")).toBe(false);
+  });
 });
 
 async function connectServer(

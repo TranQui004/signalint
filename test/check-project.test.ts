@@ -31,6 +31,8 @@ describe("check_project MCP integration", () => {
       arguments: { paths: ["test/fixtures/sample-project"] },
     });
     const response = readResponse(result.content);
+    const textContent = (result.content as Array<{ text: string }>)[0]?.text ?? "";
+    expect(textContent.includes("\n")).toBe(false);
 
     expect(response.status).toBe("issues_found");
     expect(response.schemaVersion).toBe("1.4");

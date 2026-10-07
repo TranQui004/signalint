@@ -215,6 +215,82 @@ describe("Cluster Engine", () => {
     expect(new Set(sampleIssueIds).size).toBe(sampleIssueIds.length);
     expect(sampleIssueIds).toEqual(["duplicate-id", "unique-id"]);
   });
+
+  it("ensures compact response is strictly smaller than normal response on >= 20 remaining issues", () => {
+    const issues = Array.from({ length: 25 }, (_, index) =>
+      makeIssue(
+        `rem-${String(index)}`,
+        `src/file-${String(index)}.ts`,
+        `rule-${String(index)}`,
+        "warning",
+        false,
+      ),
+    );
+
+    const normal = clusterIssues(issues, 10, undefined, process.cwd(), { compact: false });
+    const compact = clusterIssues(issues, 10, undefined, process.cwd(), { compact: true });
+
+    const normalBytes = Buffer.byteLength(JSON.stringify(normal.response), "utf8");
+    const compactBytes = Buffer.byteLength(JSON.stringify(compact.response), "utf8");
+
+    expect(compactBytes).toBeLessThan(normalBytes);
+  });
+
+  it("validates a 1.4-compact payload containing only short keys under isCheckResponse", () => {
+    const compactPayload = {
+      v: "1.4",
+      status: "issues_found",
+      engines: { oxlint: { status: "ok" } },
+      total: 25,
+      clusters: [],
+      remaining: [
+        {
+          issueId: "id-1",
+          file: "src/test.ts",
+          line: 1,
+          col: 1,
+          rule: "no-unused-vars",
+          severity: "warning",
+          fixable: false,
+          priority: 4,
+        },
+      ],
+      omitted: 0,
+      truncated: false,
+      checkId: "check-123",
+    };
+
+    expect(isCheckResponse(compactPayload)).toBe(true);
+    expect("schemaVersion" in compactPayload).toBe(false);
+    expect("totalIssues" in compactPayload).toBe(false);
+    expect("remainingIssues" in compactPayload).toBe(false);
+    expect("omittedIssueCount" in compactPayload).toBe(false);
+  });
+
+  it("emits only short keys in compact mode without duplicating remaining or total", () => {
+    const issues = Array.from({ length: 20 }, (_, index) =>
+      makeIssue(
+        `rem-${String(index)}`,
+        `src/file-${String(index)}.ts`,
+        `rule-${String(index)}`,
+        "warning",
+        false,
+      ),
+    );
+
+    const result = clusterIssues(issues, 10, undefined, process.cwd(), { compact: true });
+    const keys = Object.keys(result.response);
+
+    expect(keys).toContain("v");
+    expect(keys).toContain("total");
+    expect(keys).toContain("remaining");
+    expect(keys).toContain("omitted");
+    expect(keys).not.toContain("schemaVersion");
+    expect(keys).not.toContain("totalIssues");
+    expect(keys).not.toContain("remainingIssues");
+    expect(keys).not.toContain("omittedIssueCount");
+    expect(isCheckResponse(result.response)).toBe(true);
+  });
 });
 
 async function readIssueFixture(): Promise<NormalizedIssue[]> {

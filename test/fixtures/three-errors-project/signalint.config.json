@@ -1,0 +1,8 @@
+{
+  "engines": {
+    "oxlint": false,
+    "tsc": true,
+    "biome": false,
+    "eslint": false
+  }
+}

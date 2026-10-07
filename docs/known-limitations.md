@@ -24,6 +24,12 @@ Incremental cache invalidation monitors known root and top-level configuration f
 When running `check_files` on a subset of files, whole-program `tsc` results are cached. If an unpassed dependency file changes, Signalint invalidates the whole-program cache by fingerprinting all project TypeScript files (hashing relative paths, file sizes, and modification timestamps).
 - **Limitation:** External package type declarations in `node_modules` (unless tsconfig or lockfile changes trigger an engine config hash mismatch) are not tracked by the file-mtime scan to avoid expensive node_modules traversal. Running `check_project` will perform a clean check across the workspace.
 
+### Scope Filtering and Cluster Cap Interaction in `check_files`
+When running `check_files` on specific files, whole-program `tsc` executes over the entire project to guarantee cross-file type correctness. However, diagnostics are filtered down to the requested files *before* clustering is applied:
+- `totalIssues` strictly counts issues belonging to the requested files.
+- Clustering and the 10-cluster cap operate solely on issues within the requested scope.
+- Issues discovered in unrequested files are excluded from clustering and surfaced via `filteredOutIssueCount` (and compact `filteredOut`), with `nextStep` pointing the agent to `check_project`.
+
 ---
 
 ## Risk Register & Resolution Log

@@ -141,6 +141,9 @@ export const checkOutputSchema = {
       items: remainingIssueOutputSchema,
     },
     omittedIssueCount: { type: "integer" as const },
+    filteredOutIssueCount: { type: "integer" as const },
+    filteredOutCount: { type: "integer" as const },
+    filteredOut: { type: "integer" as const },
     nextStep: { type: "string" as const },
     truncated: { type: "boolean" as const },
     loopWarning: {

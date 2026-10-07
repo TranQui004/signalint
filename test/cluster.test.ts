@@ -291,6 +291,34 @@ describe("Cluster Engine", () => {
     expect(keys).not.toContain("omittedIssueCount");
     expect(isCheckResponse(result.response)).toBe(true);
   });
+
+  it("surfaces filteredOutIssueCount and points nextStep to check_project", () => {
+    const issues = [makeIssue("issue-1", "src/a.ts", "rule-a", "warning", false)];
+    const result = clusterIssues(issues, 10, undefined, process.cwd(), {
+      filteredOutIssueCount: 5,
+    });
+
+    expect(result.response.totalIssues).toBe(1);
+    expect(result.response.filteredOutIssueCount).toBe(5);
+    expect(result.response.filteredOutCount).toBe(5);
+    expect(result.response.nextStep).toContain("check_project");
+    expect(result.response.nextStep).toContain("5 issue(s)");
+    expect(isCheckResponse(result.response)).toBe(true);
+  });
+
+  it("surfaces short key filteredOut in compact mode", () => {
+    const issues = [makeIssue("issue-1", "src/a.ts", "rule-a", "warning", false)];
+    const result = clusterIssues(issues, 10, undefined, process.cwd(), {
+      compact: true,
+      filteredOutIssueCount: 3,
+    });
+
+    const parsed = result.response as unknown as Record<string, unknown>;
+    expect(parsed.v).toBe("1.4");
+    expect(parsed.filteredOut).toBe(3);
+    expect(parsed.nextStep).toContain("check_project");
+    expect(isCheckResponse(result.response)).toBe(true);
+  });
 });
 
 async function readIssueFixture(): Promise<NormalizedIssue[]> {

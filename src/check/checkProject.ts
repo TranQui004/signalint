@@ -24,12 +24,13 @@ import type {
   EngineStatuses,
   NormalizedIssue,
 } from "../schema.js";
-import { compareIssues } from "../util/index.js";
+import { compareIssues, isPathMatching } from "../util/index.js";
 
 export interface IssueProviderResult {
   issues: NormalizedIssue[];
   cache: CacheStats;
   engines: EngineStatuses;
+  filteredOutIssueCount?: number;
 }
 
 /** Runs configured adapters and returns the compact clustered project response. */
@@ -208,10 +209,15 @@ export async function checkConfiguredFilesWithStats(
     signal,
     timeoutsMs: config.timeoutsMs,
   });
+  const allIssues = filterDefaultExcludedIssues(result.issues)
+    .filter((issue) => !isIgnoredPath(issue.file, config.ignore));
+  const scopedIssues = allIssues.filter((issue) => isPathMatching(issue.file, safeFiles));
+  const filteredOutIssueCount = allIssues.length - scopedIssues.length;
+
   return {
-    issues: filterDefaultExcludedIssues(result.issues)
-      .filter((issue) => !isIgnoredPath(issue.file, config.ignore)),
+    issues: scopedIssues,
     cache: result.cache,
     engines: result.engines,
+    filteredOutIssueCount,
   };
 }

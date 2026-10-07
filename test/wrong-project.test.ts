@@ -42,10 +42,10 @@ describe("Phase 0 acceptance tests (wrong project and safety nets)", () => {
     expect(response.status).toBe("error");
     expect(response.code).toBe("nothing_checked");
     expect(response.message).toBe("No paths were checked; nothing can be reported clean.");
-    expect(response.engines.oxlint.status).toBe("disabled");
-    expect(response.engines.tsc.status).toBe("disabled");
-    expect(response.engines.biome.status).toBe("disabled");
-    expect(response.engines.eslint.status).toBe("disabled");
+    expect(response.engines.oxlint?.status).toBe("disabled");
+    expect(response.engines.tsc?.status).toBe("disabled");
+    expect(response.engines.biome).toBeUndefined();
+    expect(response.engines.eslint).toBeUndefined();
   });
 
   it("3. Stdio integration: server started with cwd = fixtureProjectA returns projectRoot === realpath(fixtureProjectA)", async () => {

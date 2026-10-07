@@ -7,7 +7,7 @@ import { readErrorEngine } from "../subprocess.js";
 /** Formats a text result alongside its structuredContent matching MCP conventions. */
 export function createTextResult(value: unknown): CallToolResult {
   return {
-    content: [{ type: "text", text: JSON.stringify(value, null, 2) }],
+    content: [{ type: "text", text: JSON.stringify(value) }],
     structuredContent: createStructuredContent(value),
   };
 }

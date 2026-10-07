@@ -1,7 +1,5 @@
-import { createRequire } from "node:module";
-import { dirname, resolve } from "node:path";
-
 import { DEFAULT_CONFIG } from "../config.js";
+import { EngineDisabledError } from "../engineFanout.js";
 import { resolveEngine } from "../engineResolution.js";
 import {
   createIssueId,
@@ -59,6 +57,9 @@ export async function runOxlint(
 
     return issues;
   } catch (error: unknown) {
+    if (error instanceof EngineDisabledError) {
+      throw error;
+    }
     throw attributeEngineError("oxlint", error);
   }
 }
@@ -147,8 +148,13 @@ async function runOxlintProcess(
   options: OxlintRunOptions,
 ): Promise<CommandResult> {
   const resolved = resolveEngine("oxlint", cwd);
-  const cliPath = resolved?.binPath ?? resolve(dirname(createRequire(import.meta.url).resolve("oxlint/package.json")), "bin", "oxlint");
-  return runEngineCommand(process.execPath, createOxlintCliArgs(cliPath, paths), {
+  if (resolved === undefined) {
+    throw new EngineDisabledError(
+      "oxlint",
+      "Oxlint is not installed in this project. Install oxlint (or configure ESLint/Biome) to enable it.",
+    );
+  }
+  return runEngineCommand(process.execPath, createOxlintCliArgs(resolved.binPath, paths), {
     cwd,
     engine: "oxlint",
     signal: options.signal,

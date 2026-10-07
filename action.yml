@@ -7,6 +7,10 @@ branding:
   color: blue
 
 inputs:
+  version:
+    description: signalint-mcp version to install.
+    required: false
+    default: "1.0.0"
   fail-on-priority:
     description: >-
       Fail the job only if a cluster's priority (1 = most urgent, 5 = least
@@ -29,7 +33,7 @@ runs:
 
     - name: Install signalint-mcp
       shell: bash
-      run: npm install --global signalint-mcp
+      run: npm install --global "signalint-mcp@${{ inputs.version }}"
 
     - name: Run Signalint
       shell: bash

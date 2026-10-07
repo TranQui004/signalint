@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { ENGINE_REGISTRY } from "./engines/registry.js";
@@ -261,6 +261,67 @@ async function checkFileLocalEngine(
   };
 }
 
+function isTscSourceFile(file: string): boolean {
+  return /\.[cm]?[jt]sx?$/.test(file);
+}
+
+/**
+ * Computes a deterministic fingerprint of the whole-program TypeScript files
+ * by hashing the sorted file list plus each file's size and mtime.
+ */
+export async function computeTscProgramFingerprint(
+  cwd: string,
+  targetTsconfigPath?: string,
+): Promise<string> {
+  const hash = createHash("sha256");
+  const targetDir = targetTsconfigPath !== undefined ? dirname(targetTsconfigPath) : cwd;
+  const files: string[] = [];
+
+  async function walk(dir: string, relativePrefix: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (
+        entry.name === "node_modules" ||
+        entry.name === ".git" ||
+        entry.name === ".signalint" ||
+        entry.name === "dist"
+      ) {
+        continue;
+      }
+      const relPath = relativePrefix === "" ? entry.name : `${relativePrefix}/${entry.name}`;
+      if (entry.isDirectory()) {
+        await walk(resolve(dir, entry.name), relPath);
+      } else if (entry.isFile() && isTscSourceFile(relPath)) {
+        files.push(relPath);
+      }
+    }
+  }
+
+  await walk(targetDir, "");
+  files.sort();
+
+  for (const file of files) {
+    try {
+      const fileStat = await stat(resolve(targetDir, file));
+      hash.update(file);
+      hash.update("\0");
+      hash.update(String(fileStat.size));
+      hash.update("\0");
+      hash.update(String(fileStat.mtimeMs));
+      hash.update("\0");
+    } catch {
+      // File removed concurrently
+    }
+  }
+
+  return hash.digest("hex");
+}
+
 async function checkWholeProgramTsc(
   snapshots: readonly FileSnapshot[],
   cwd: string,
@@ -280,8 +341,10 @@ async function checkWholeProgramTsc(
     }
   }
   const configHash = await computeEngineConfigHash("tsc", cwd, targetTsconfigPath);
-  cache.invalidateEngine("tsc", configHash);
-  const latestResult = cache.getEngineResult("tsc", configHash);
+  const programFingerprint = await computeTscProgramFingerprint(cwd, targetTsconfigPath);
+  const stateHash = `${configHash}:${programFingerprint}`;
+  cache.invalidateEngine("tsc", configHash, undefined, stateHash);
+  const latestResult = cache.getEngineResult("tsc", stateHash);
   const relevantSnapshots = snapshots.filter((snapshot) => isTypeScriptRelevant(snapshot.file));
   const misses = relevantSnapshots.filter((snapshot) => {
     const key = createCacheKey(snapshot.content, "tsc", configHash);
@@ -300,7 +363,7 @@ async function checkWholeProgramTsc(
     const key = createCacheKey(snapshot.content, "tsc", configHash);
     cache.set(key, []);
   }
-  cache.setEngineResult("tsc", configHash, freshIssues);
+  cache.setEngineResult("tsc", stateHash, freshIssues);
   return {
     issues: freshIssues,
     cache: {

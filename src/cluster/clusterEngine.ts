@@ -7,8 +7,9 @@ import type {
   EngineStatuses,
   IssueEngine,
   NormalizedIssue,
+  RemainingIssue,
 } from "../schema.js";
-import { createSuccessfulEngineStatuses } from "../schema.js";
+import { createDefaultEngineStatuses } from "../schema.js";
 import { compareIssues } from "../util/index.js";
 
 export interface ClusterResult {
@@ -23,109 +24,190 @@ interface PendingCluster {
   systemic: boolean;
 }
 
-/** Clusters raw issues with the Section 10 heuristic and assigns every issue a clusterId. */
+export interface ClusterOptions {
+  compact?: boolean;
+}
+
+const MAX_REMAINING_ISSUES = 100;
+
+/** Clusters raw issues with schema 1.4 bounded clusters and remaining flat records. */
 export function clusterIssues(
   rawIssues: readonly NormalizedIssue[],
   maxClusters: number = 10,
-  engines: EngineStatuses = createSuccessfulEngineStatuses(),
+  engines: EngineStatuses = createDefaultEngineStatuses(),
   projectRoot: string = process.cwd(),
+  options: ClusterOptions = {},
 ): ClusterResult {
   if (!Number.isInteger(maxClusters) || maxClusters < 1) {
     throw new Error("maxClusters must be a positive integer.");
   }
 
-  const pendingClusters = createPendingClusters(rawIssues).sort(comparePendingClusters);
-  const collisionCounts = new Map<string, number>();
+  const { multiIssueClusters, singleIssues } = partitionIssues(rawIssues);
+  multiIssueClusters.sort(comparePendingClusters);
+
+  const topClusters = multiIssueClusters.slice(0, maxClusters);
+  const overflowClusters = multiIssueClusters.slice(maxClusters);
+  const demotedIssues = overflowClusters.flatMap((c) => c.issues);
+
   const issueClusterIds = new Map<string, string>();
+  const collisionCounts = new Map<string, number>();
+  const clusters = topClusters.map((pending) =>
+    buildCluster(pending, collisionCounts, issueClusterIds),
+  );
 
-  const allClusters = pendingClusters.map((pending) => {
-    const severity = pending.issues.some((issue) => issue.severity === "error") ? "error" : "warning";
-    const ruleKey = [...new Set(pending.issues.map((i) => i.rule))].sort().join("");
-    const key = `${ruleKey}|${severity}|${String(pending.systemic)}`;
-    const baseHash = createHash("sha1").update(key).digest("hex").slice(0, 8);
-    const baseId = `c${baseHash}`;
-    const collisionIndex = collisionCounts.get(baseId) ?? 0;
-    collisionCounts.set(baseId, collisionIndex + 1);
-    const clusterId = collisionIndex === 0 ? baseId : `${baseId}-${String(collisionIndex)}`;
-
-    for (const issue of pending.issues) {
-      issueClusterIds.set(issue.issueId, clusterId);
-    }
-    return createCluster(pending, clusterId);
+  const issues = rawIssues.map((issue) => {
+    const clusterId = issueClusterIds.get(issue.issueId);
+    return clusterId !== undefined ? { ...issue, clusterId } : { ...issue };
   });
 
-  const issues = rawIssues.map((issue) => ({
-    ...issue,
-    clusterId: requireClusterId(issueClusterIds.get(issue.issueId)),
-  }));
+  const allRemaining = [...singleIssues, ...demotedIssues].sort(compareRemainingIssues);
+  const { remainingIssues, omittedIssueCount, nextStep, truncated } =
+    formatRemaining(allRemaining);
 
-  const engineEntries = Object.entries(engines) as [IssueEngine, EngineStatus][];
-  const failedEngines = engineEntries
-    .filter(([, s]) => s.status === "error")
-    .map(([e]) => e);
+  const statusInfo = determineStatus(engines, rawIssues.length);
+  const isCompact = options.compact ?? (process.env.SIGNALINT_COMPACT === "1");
 
-  let status: "clean" | "issues_found" | "error";
-  let code: string | undefined;
-  let message: string | undefined;
+  const response: CheckResponse = isCompact
+    ? ({
+        v: "1.4",
+        status: statusInfo.status,
+        engines: trimEngines(engines),
+        total: rawIssues.length,
+        clusters,
+        remaining: remainingIssues,
+        ...(omittedIssueCount !== undefined ? { omitted: omittedIssueCount } : {}),
+        ...(nextStep !== undefined ? { nextStep } : {}),
+        truncated,
+        checkId: computeCheckId(rawIssues),
+        ...(statusInfo.code !== undefined ? { code: statusInfo.code } : {}),
+        ...(statusInfo.message !== undefined ? { message: statusInfo.message } : {}),
+      } as unknown as CheckResponse)
+    : {
+        schemaVersion: "1.4",
+        status: statusInfo.status,
+        projectRoot,
+        engines: trimEngines(engines),
+        totalIssues: rawIssues.length,
+        clusters,
+        remainingIssues,
+        ...(omittedIssueCount !== undefined ? { omittedIssueCount } : {}),
+        ...(nextStep !== undefined ? { nextStep } : {}),
+        truncated,
+        checkId: computeCheckId(rawIssues),
+        ...(statusInfo.code !== undefined ? { code: statusInfo.code } : {}),
+        ...(statusInfo.message !== undefined ? { message: statusInfo.message } : {}),
+      };
 
-  if (failedEngines.length > 0) {
-    status = "error";
-    code = "engine_failed";
-    message = `Engine check failed: ${failedEngines.join(", ")}`;
-  } else {
-    const hasOkEngine = engineEntries.some(([, s]) => s.status === "ok");
-    if (!hasOkEngine) {
-      status = "error";
-      code = "nothing_checked";
-      message = "No paths were checked; nothing can be reported clean.";
-    } else if (rawIssues.length === 0) {
-      status = "clean";
+  return { issues, response };
+}
+
+function partitionIssues(rawIssues: readonly NormalizedIssue[]): {
+  multiIssueClusters: PendingCluster[];
+  singleIssues: NormalizedIssue[];
+} {
+  const groups = groupByRule(rawIssues);
+  const multiIssueClusters: PendingCluster[] = [];
+  const singleIssues: NormalizedIssue[] = [];
+
+  for (const rule of [...groups.keys()].sort()) {
+    const issues = [...(groups.get(rule) ?? [])].sort(compareIssues);
+    if (issues.length >= 2) {
+      const systemic = issues.length > 3 && countFiles(issues) > 2;
+      multiIssueClusters.push({
+        issues,
+        priority: scorePriority(issues, systemic),
+        rule,
+        systemic,
+      });
     } else {
-      status = "issues_found";
+      singleIssues.push(...issues);
     }
+  }
+
+  return { multiIssueClusters, singleIssues };
+}
+
+function buildCluster(
+  pending: PendingCluster,
+  collisionCounts: Map<string, number>,
+  issueClusterIds: Map<string, string>,
+): Cluster {
+  const severity = pending.issues.some((i) => i.severity === "error") ? "error" : "warning";
+  const ruleKey = [...new Set(pending.issues.map((i) => i.rule))].sort().join("");
+  const key = `${ruleKey}|${severity}|${String(pending.systemic)}`;
+  const baseHash = createHash("sha1").update(key).digest("hex").slice(0, 8);
+  const baseId = `c${baseHash}`;
+  const collisionIndex = collisionCounts.get(baseId) ?? 0;
+  collisionCounts.set(baseId, collisionIndex + 1);
+  const clusterId = collisionIndex === 0 ? baseId : `${baseId}-${String(collisionIndex)}`;
+
+  for (const issue of pending.issues) {
+    issueClusterIds.set(issue.issueId, clusterId);
+  }
+  return createCluster(pending, clusterId);
+}
+
+function formatRemaining(allRemaining: NormalizedIssue[]): {
+  remainingIssues: RemainingIssue[];
+  omittedIssueCount: number;
+  nextStep?: string;
+  truncated: boolean;
+} {
+  let remainingIssues = allRemaining.map(toRemainingIssue);
+  let omittedIssueCount = 0;
+  let nextStep: string | undefined;
+
+  if (remainingIssues.length > MAX_REMAINING_ISSUES) {
+    omittedIssueCount = remainingIssues.length - MAX_REMAINING_ISSUES;
+    remainingIssues = remainingIssues.slice(0, MAX_REMAINING_ISSUES);
+    nextStep = "Call check_files on affected paths or get_issue_detail on listed issue IDs.";
   }
 
   return {
-    issues,
-    response: {
-      schemaVersion: "1.3",
-      status,
-      projectRoot,
-      engines,
-      totalIssues: rawIssues.length,
-      clusters: allClusters.slice(0, maxClusters),
-      truncated: allClusters.length > maxClusters,
-      loopWarning: null,
-      fileRuleChurnWarning: null,
-      checkId: computeCheckId(rawIssues),
-      ...(code !== undefined ? { code } : {}),
-      ...(message !== undefined ? { message } : {}),
-    },
+    remainingIssues,
+    omittedIssueCount,
+    ...(nextStep !== undefined ? { nextStep } : {}),
+    truncated: omittedIssueCount > 0,
   };
 }
 
-function createPendingClusters(
-  rawIssues: readonly NormalizedIssue[],
-): PendingCluster[] {
-  const groups = groupByRule(rawIssues);
-  const clusters: PendingCluster[] = [];
-  for (const rule of [...groups.keys()].sort()) {
-    const issues = [...(groups.get(rule) ?? [])].sort(compareIssues);
-    const systemic = issues.length > 3 && countFiles(issues) > 2;
-    if (systemic) {
-      clusters.push({ issues, priority: scorePriority(issues, true), rule, systemic: true });
-    } else {
-      for (const issue of issues) {
-        clusters.push({
-          issues: [issue],
-          priority: scorePriority([issue], false),
-          rule,
-          systemic: false,
-        });
-      }
+function determineStatus(
+  engines: EngineStatuses,
+  issueCount: number,
+): { status: "clean" | "issues_found" | "error"; code?: string; message?: string } {
+  const engineEntries = Object.entries(engines) as [IssueEngine, EngineStatus | undefined][];
+  const failedEngines = engineEntries
+    .filter(([, s]) => s?.status === "error")
+    .map(([e]) => e);
+
+  if (failedEngines.length > 0) {
+    return {
+      status: "error",
+      code: "engine_failed",
+      message: `Engine check failed: ${failedEngines.join(", ")}`,
+    };
+  }
+
+  const hasOkEngine = engineEntries.some(([, s]) => s?.status === "ok");
+  if (!hasOkEngine) {
+    return {
+      status: "error",
+      code: "nothing_checked",
+      message: "No paths were checked; nothing can be reported clean.",
+    };
+  }
+
+  return issueCount === 0 ? { status: "clean" } : { status: "issues_found" };
+}
+
+function trimEngines(engines: EngineStatuses): EngineStatuses {
+  const trimmed: EngineStatuses = {};
+  for (const [key, status] of Object.entries(engines) as [IssueEngine, EngineStatus | undefined][]) {
+    if (status !== undefined && (status.status !== "disabled" || status.message !== undefined)) {
+      trimmed[key] = status;
     }
   }
-  return clusters;
+  return Object.keys(trimmed).length > 0 ? trimmed : engines;
 }
 
 function groupByRule(
@@ -140,19 +222,49 @@ function groupByRule(
   return groups;
 }
 
+function toRemainingIssue(issue: NormalizedIssue): RemainingIssue {
+  return {
+    issueId: issue.issueId,
+    file: issue.file,
+    line: issue.line,
+    col: issue.col,
+    rule: issue.rule,
+    severity: issue.severity,
+    fixable: issue.fixable,
+  };
+}
+
+function compareRemainingIssues(left: NormalizedIssue, right: NormalizedIssue): number {
+  const leftPriority = scorePriority([left], false);
+  const rightPriority = scorePriority([right], false);
+  return (
+    leftPriority - rightPriority ||
+    left.file.localeCompare(right.file) ||
+    left.line - right.line ||
+    left.col - right.col ||
+    left.issueId.localeCompare(right.issueId)
+  );
+}
+
 function createCluster(pending: PendingCluster, clusterId: string): Cluster {
   const issueCount = pending.issues.length;
   const fileCount = countFiles(pending.issues);
-  return {
+  const cluster: Cluster = {
     clusterId,
     rootCauseSummary: createRootCauseSummary(issueCount, pending.rule, fileCount),
     ruleIds: [pending.rule],
     issueCount,
     fileCount,
     priority: pending.priority,
-    suggestedAction: createSuggestedAction(pending, fileCount),
-    sampleIssueIds: takeDistinctIssueIds(pending.issues, 2),
   };
+  const suggestedAction = createSuggestedAction(pending, fileCount);
+  if (suggestedAction !== undefined) {
+    cluster.suggestedAction = suggestedAction;
+  }
+  if (issueCount > 2) {
+    cluster.sampleIssueIds = takeDistinctIssueIds(pending.issues, 2);
+  }
+  return cluster;
 }
 
 function createRootCauseSummary(
@@ -203,20 +315,13 @@ function computeCheckId(rawIssues: readonly NormalizedIssue[]): string {
   return createHash("sha1").update(content).digest("hex").slice(0, 8);
 }
 
-function createSuggestedAction(pending: PendingCluster, fileCount: number): string {
-  if (pending.systemic && pending.issues.every((issue) => issue.fixable)) {
-    return `Apply structured fixes for ${pending.rule} across ${String(fileCount)} files`;
+function createSuggestedAction(pending: PendingCluster, fileCount: number): string | undefined {
+  if (pending.issues.every((issue) => issue.fixable)) {
+    return pending.systemic
+      ? `Apply structured fixes for ${pending.rule} across ${String(fileCount)} files`
+      : `Apply the structured fix for ${pending.rule} in ${pending.issues[0]?.file ?? "file"}`;
   }
-  if (pending.systemic) {
-    return `Review the shared cause of ${pending.rule} across ${String(fileCount)} files`;
-  }
-  const issue = pending.issues[0];
-  if (issue === undefined) {
-    throw new Error("Cannot suggest an action for an empty cluster.");
-  }
-  return issue.fixable
-    ? `Apply the structured fix for ${pending.rule} in ${issue.file}`
-    : `Review ${pending.rule} in ${issue.file} at line ${String(issue.line)}`;
+  return undefined;
 }
 
 function comparePendingClusters(left: PendingCluster, right: PendingCluster): number {
@@ -230,11 +335,4 @@ function comparePendingClusters(left: PendingCluster, right: PendingCluster): nu
 
 function countFiles(issues: readonly NormalizedIssue[]): number {
   return new Set(issues.map((issue) => issue.file)).size;
-}
-
-function requireClusterId(clusterId: string | undefined): string {
-  if (clusterId === undefined) {
-    throw new Error("Every issue must be assigned to a cluster.");
-  }
-  return clusterId;
 }

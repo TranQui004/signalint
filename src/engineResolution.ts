@@ -17,7 +17,14 @@ import { ENGINE_REGISTRY, type EngineSpec } from "./engines/registry.js";
 
 export type EnginePackageInfo = Pick<EngineSpec, "packageName" | "binRelativePath" | "bundledAvailable">;
 
-export const ENGINE_INFO: Record<IssueEngine, EnginePackageInfo> = ENGINE_REGISTRY;
+export const ENGINE_INFO: Record<IssueEngine, EnginePackageInfo> = new Proxy(
+  {} as Record<IssueEngine, EnginePackageInfo>,
+  {
+    get(_target, prop: string | symbol) {
+      return ENGINE_REGISTRY[prop as IssueEngine];
+    },
+  },
+);
 
 const resolutionCache = new Map<string, ResolvedEngine | null>();
 

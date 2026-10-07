@@ -211,6 +211,32 @@ describe("Phase 2 acceptance benchmark", () => {
         `unchanged tsc calls=0; changed=${changedFile}\n`,
     );
   });
+
+  it("invalidates whole-program tsc cache when an unpassed project file changes", async () => {
+    const cache = createMemoryCache();
+    const passedFile = "src/index.ts";
+    const unpassedFile = "src/generated/file01.ts";
+    const oxlintRunner = vi.fn(createRunner("oxlint"));
+    const tscRunner = vi.fn(createWholeProgramRunner());
+    const runners = { oxlint: oxlintRunner, tsc: tscRunner };
+
+    await checkFiles([passedFile], { cwd: fixtureRoot, cache, runners });
+    expect(tscRunner).toHaveBeenCalledTimes(1);
+    tscRunner.mockClear();
+
+    await checkFiles([passedFile], { cwd: fixtureRoot, cache, runners });
+    expect(tscRunner).not.toHaveBeenCalled();
+
+    const unpassedPath = resolve(fixtureRoot, unpassedFile);
+    const original = await readFile(unpassedPath, "utf8");
+    try {
+      await writeFile(unpassedPath, `${original}\nexport const depChanged = 1;\n`, "utf8");
+      await checkFiles([passedFile], { cwd: fixtureRoot, cache, runners });
+      expect(tscRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await writeFile(unpassedPath, original, "utf8");
+    }
+  });
 });
 
 function createMemoryCache(maxRows?: number): SqliteCache {

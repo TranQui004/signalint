@@ -39,7 +39,7 @@ afterEach(async () => {
 describe("MCP response amendments", () => {
   it("versions check responses and returns stale for expired cluster and issue IDs", async () => {
     const issue = makeIssue();
-    let currentIssues: NormalizedIssue[] = [issue];
+    let currentIssues: NormalizedIssue[] = [issue, { ...issue, issueId: "other-issue-id" }];
     const client = await connectServer(() => Promise.resolve(currentIssues));
 
     const firstCheck = parseText(await callTool(client, "check_project", { paths: ["."] }));
@@ -47,7 +47,7 @@ describe("MCP response amendments", () => {
     if (!isCheckResponse(firstCheck)) {
       throw new Error("Expected a Check Response.");
     }
-    expect(firstCheck.schemaVersion).toBe("1.3");
+    expect(firstCheck.schemaVersion).toBe("1.4");
     const clusterId = firstCheck.clusters[0]?.clusterId;
     if (clusterId === undefined) {
       throw new Error("Expected a clustered fixture issue.");
@@ -153,7 +153,8 @@ describe("MCP response amendments", () => {
 
   it("declares outputSchema for all five tools and returns matching structuredContent", async () => {
     const issue = makeIssue();
-    const client = await connectServer(() => Promise.resolve([issue]));
+    const issue2 = { ...issue, issueId: "other-sample-issue" };
+    const client = await connectServer(() => Promise.resolve([issue, issue2]));
 
     const toolsList = await client.listTools();
     expect(toolsList.tools).toHaveLength(5);
@@ -188,7 +189,7 @@ describe("MCP response amendments", () => {
       arguments: { clusterId, checkId },
     });
     expect(detailWithValidCheckId.structuredContent).toEqual({
-      issues: [{ ...issue, clusterId }],
+      issues: [{ ...issue, clusterId }, { ...issue2, clusterId }],
     });
 
     const detailWithStaleCheckId = await client.callTool({
@@ -205,9 +206,9 @@ describe("MCP response amendments", () => {
       arguments: { clusterId },
     });
     expect(detailResult.structuredContent).toEqual({
-      issues: [{ ...issue, clusterId }],
+      issues: [{ ...issue, clusterId }, { ...issue2, clusterId }],
     });
-    expect(parseText(detailResult.content)).toEqual([{ ...issue, clusterId }]);
+    expect(parseText(detailResult.content)).toEqual([{ ...issue, clusterId }, { ...issue2, clusterId }]);
 
     const loopResult = await client.callTool({
       name: "get_loop_status",
@@ -266,6 +267,39 @@ describe("MCP response amendments", () => {
         code: "path_outside_project",
       }),
     );
+  });
+
+  it("serves minified MCP tool payloads without indentation or newlines across tools", async () => {
+    const issue = makeIssue();
+    const client = await connectServer(() => Promise.resolve([issue]));
+
+    const checkProjectResult = (await client.callTool({
+      name: "check_project",
+      arguments: { paths: ["."] },
+    })).content as Array<{ type: string; text: string }>;
+
+    expect(checkProjectResult[0]?.text.includes("\n")).toBe(false);
+
+    const checkFilesResult = (await client.callTool({
+      name: "check_files",
+      arguments: { files: ["src/current.ts"] },
+    })).content as Array<{ type: string; text: string }>;
+
+    expect(checkFilesResult[0]?.text.includes("\n")).toBe(false);
+
+    const issueDetailResult = (await client.callTool({
+      name: "get_issue_detail",
+      arguments: { issueId: issue.issueId },
+    })).content as Array<{ type: string; text: string }>;
+
+    expect(issueDetailResult[0]?.text.includes("\n")).toBe(false);
+
+    const loopStatusResult = (await client.callTool({
+      name: "get_loop_status",
+      arguments: {},
+    })).content as Array<{ type: string; text: string }>;
+
+    expect(loopStatusResult[0]?.text.includes("\n")).toBe(false);
   });
 });
 

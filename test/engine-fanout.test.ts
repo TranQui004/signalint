@@ -63,15 +63,14 @@ describe("engine fan-out", () => {
 
     const response = await checkProject(["."], partialProjectRoot);
 
-    expect(response.schemaVersion).toBe("1.3");
+    expect(response.schemaVersion).toBe("1.4");
     expect(response.status).toBe("error");
     expect(response.code).toBe("engine_failed");
     expect(response.totalIssues).toBeGreaterThan(0);
     expect(response.engines.oxlint).toEqual({ status: "ok" });
-    expect(response.engines.tsc.status).toBe("error");
-    expect(response.engines.tsc.message).toBeTruthy();
-    expect(response.engines.biome).toEqual({ status: "disabled" });
-    expect(response.engines.eslint).toEqual({ status: "disabled" });
+    expect(response.engines.tsc?.status).toBe("error");
+    expect(response.engines.biome).toBeUndefined();
+    expect(response.engines.eslint).toBeUndefined();
   });
 });
 

@@ -10,9 +10,10 @@ import type { CheckResponse, NormalizedIssue } from "./schema.js";
 import { formatSessionStats, readSessionStats } from "./memory/stats.js";
 
 const CHECK_USAGE =
-  "Usage: signalint check [path ...] [--format json|github] [--fail-on-priority <N>]\n";
+  "Usage: signalint check [path ...] [--format json|github] [--compact] [--fail-on-priority <N>]\n";
 
 interface ParsedCheckArgs {
+  compact: boolean;
   failOnPriority: number | undefined;
   format: "json" | "github";
   paths: string[];
@@ -26,7 +27,7 @@ export async function runCli(
 ): Promise<number> {
   const [command, ...rest] = args;
   if (command === "--help" || command === "-h" || command === undefined) {
-    process.stdout.write("Usage: signalint <init | check [path ...] | stats | doctor>\n");
+    process.stdout.write("Usage: signalint <init | check [path ...] | stats [--json] | doctor>\n");
     return 0;
   }
   if (command === "init") {
@@ -37,8 +38,13 @@ export async function runCli(
     return await runInitCommand({ cwd, homeDir });
   }
   if (command === "stats") {
+    if (rest.length === 1 && rest[0] === "--json") {
+      const stats = await readSessionStats(resolve(cwd, ".signalint", "session.jsonl"));
+      process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
+      return 0;
+    }
     if (rest.length > 0) {
-      process.stderr.write("Usage: signalint stats\n");
+      process.stderr.write("Usage: signalint stats [--json]\n");
       return 2;
     }
     process.stdout.write(
@@ -55,7 +61,7 @@ export async function runCli(
   }
   if (command !== "check") {
     process.stderr.write(
-      `Unknown command: ${command}\nUsage: signalint <init | check [path ...] | stats | doctor>\n`,
+      `Unknown command: ${command}\nUsage: signalint <init | check [path ...] | stats [--json] | doctor>\n`,
     );
     return 2;
   }
@@ -69,6 +75,7 @@ export async function runCli(
   const { issues, response } = await checkProjectWithIssues(
     parsed.paths.length === 0 ? ["."] : parsed.paths,
     cwd,
+    { compact: parsed.compact },
   );
   writeCheckOutput(parsed.format, issues, response);
   return shouldFailCheck(response, parsed.failOnPriority) ? 1 : 0;
@@ -79,9 +86,14 @@ function parseCheckArgs(args: readonly string[]): ParsedCheckArgs | undefined {
   const paths: string[] = [];
   let format: "json" | "github" = "json";
   let failOnPriority: number | undefined;
+  let compact = process.env.SIGNALINT_COMPACT === "1";
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (arg === "--compact") {
+      compact = true;
+      continue;
+    }
     if (arg === "--format") {
       const value = args[index + 1];
       if (value !== "json" && value !== "github") {
@@ -105,7 +117,7 @@ function parseCheckArgs(args: readonly string[]): ParsedCheckArgs | undefined {
     }
   }
 
-  return { failOnPriority, format, paths };
+  return { compact, failOnPriority, format, paths };
 }
 
 /** Writes either the default JSON response or GitHub Actions annotations for each issue. */
@@ -144,7 +156,12 @@ function shouldFailCheck(response: CheckResponse, failOnPriority: number | undef
   if (failOnPriority === undefined) {
     return response.status !== "clean";
   }
-  return response.clusters.some((cluster) => cluster.priority <= failOnPriority);
+  const clusterFailed = response.clusters.some((cluster) => cluster.priority <= failOnPriority);
+  const remainingFailed = (response.remainingIssues ?? []).some((issue) => {
+    const priority = issue.priority ?? (issue.severity === "error" ? (issue.fixable ? 3 : 2) : (issue.fixable ? 5 : 4));
+    return priority <= failOnPriority;
+  });
+  return clusterFailed || remainingFailed;
 }
 
 /** Runs the CLI with a concise stderr failure instead of an uncaught Node stack dump. */

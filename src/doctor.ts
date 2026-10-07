@@ -7,16 +7,17 @@ import { CLIENT_REGISTRY, getLegacyAntigravityConfigPath, type McpClientSpec } f
 import { canonicalizePath, readCanonicalProjectRoot } from "./projectPaths.js";
 import { isRecord } from "./util/index.js";
 
-export interface DoctorOptions {
-  cwd?: string | undefined;
-  homeDir?: string | undefined;
-  writeOutput?: ((message: string) => void) | undefined;
-}
-
-interface EngineInfo {
+export interface EngineInfo {
   name: string;
   source: "project" | "bundled" | "not_installed";
   version: string | undefined;
+}
+
+export interface DoctorOptions {
+  cwd?: string | undefined;
+  homeDir?: string | undefined;
+  inspectEngines?: ((projectRoot: string) => Promise<EngineInfo[]>) | undefined;
+  writeOutput?: ((message: string) => void) | undefined;
 }
 
 interface StaleCwdFinding {
@@ -67,13 +68,23 @@ export async function runDoctorCommand(options: DoctorOptions = {}): Promise<num
 
   // 3. Check engines
   writeOutput(`\nDiagnostics engines:\n`);
-  const engines = await inspectEngines(projectRoot);
+  const engines = await (options.inspectEngines ?? inspectEngines)(projectRoot);
   for (const engine of engines) {
     if (engine.source === "not_installed") {
       writeOutput(`  - ${engine.name}: not installed\n`);
     } else {
       writeOutput(`  - ${engine.name}: ${engine.source} copy (${engine.version ?? "unknown version"})\n`);
     }
+  }
+
+  const hasAvailableLinter = engines.some(
+    (e) => (e.name === "oxlint" || e.name === "biome" || e.name === "eslint") && e.source !== "not_installed",
+  );
+  if (!hasAvailableLinter) {
+    writeOutput(
+      `\n[WARNING] No linter available.\n` +
+      `  Fix: Run 'npm i -D oxlint' to install the fallback linter, or point Signalint at the project's ESLint/Biome.\n`,
+    );
   }
 
   // 4. Check MCP clients
@@ -128,6 +139,7 @@ async function inspectEngines(projectRoot: string): Promise<EngineInfo[]> {
     await inspectEngine("oxlint", "oxlint/package.json", projectRoot),
     await inspectEngine("tsc", "typescript/package.json", projectRoot),
     await inspectEngine("biome", "@biomejs/biome/package.json", projectRoot),
+    await inspectEngine("eslint", "eslint/package.json", projectRoot),
   ];
 }
 

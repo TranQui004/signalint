@@ -44,10 +44,11 @@ export async function checkProject(
 export async function checkProjectWithIssues(
   paths: readonly string[],
   cwd: string = process.cwd(),
+  options: { compact?: boolean } = {},
 ): Promise<ClusterResult> {
   const result = await collectProjectIssueResult(paths, cwd);
   const projectRoot = await readCanonicalProjectRoot(cwd);
-  return clusterIssues(result.issues, 10, result.engines, projectRoot);
+  return clusterIssues(result.issues, 10, result.engines, projectRoot, options);
 }
 
 /** Runs enabled project adapters and excludes diagnostics matching configured ignore globs. */

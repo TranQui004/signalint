@@ -161,6 +161,7 @@ export class SqliteCache {
     engine: IssueEngine,
     currentConfigHash: string,
     versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
+    stateConfigHash: string = currentConfigHash,
   ): number {
     const enginePattern = `%:${engine}:%`;
     const currentPattern = `%:${createVersionedSuffix(engine, currentConfigHash, versions)}`;
@@ -169,7 +170,7 @@ export class SqliteCache {
       .run(enginePattern, currentPattern);
     this.database
       .prepare("DELETE FROM engine_state WHERE engine = ? AND config_hash != ?")
-      .run(engine, createEngineStateHash(currentConfigHash, versions));
+      .run(engine, createEngineStateHash(stateConfigHash, versions));
     return Number(result.changes);
   }
 

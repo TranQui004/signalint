@@ -20,6 +20,10 @@ Signalint supports JavaScript and TypeScript ecosystems only (ESLint, Oxlint, Ty
 ### Engine Configuration Discovery
 Incremental cache invalidation monitors known root and top-level configuration files defined in `ENGINE_REGISTRY` (e.g. `tsconfig.json`, `.oxlintrc.json`, `biome.json`, `eslint.config.js`). Deeply nested config files or dynamic `extends` chains outside the project root are not parsed dynamically for cache key hashing.
 
+### Whole-Program TypeScript Invalidation in `check_files`
+When running `check_files` on a subset of files, whole-program `tsc` results are cached. If an unpassed dependency file changes, Signalint invalidates the whole-program cache by fingerprinting all project TypeScript files (hashing relative paths, file sizes, and modification timestamps).
+- **Limitation:** External package type declarations in `node_modules` (unless tsconfig or lockfile changes trigger an engine config hash mismatch) are not tracked by the file-mtime scan to avoid expensive node_modules traversal. Running `check_project` will perform a clean check across the workspace.
+
 ---
 
 ## Risk Register & Resolution Log

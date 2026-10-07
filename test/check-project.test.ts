@@ -33,18 +33,16 @@ describe("check_project MCP integration", () => {
     const response = readResponse(result.content);
 
     expect(response.status).toBe("issues_found");
-    expect(response.schemaVersion).toBe("1.3");
+    expect(response.schemaVersion).toBe("1.4");
     expect(typeof response.projectRoot).toBe("string");
     expect(response.engines).toEqual({
       oxlint: { status: "ok" },
       tsc: { status: "ok" },
-      biome: { status: "disabled" },
-      eslint: { status: "disabled" },
     });
     expect(response.totalIssues).toBe(2);
-    expect(response.clusters).toHaveLength(2);
-    expect(response.clusters.map((cluster) => cluster.priority)).toEqual([2, 4]);
-    expect(response.clusters.every((cluster) => cluster.clusterId.startsWith("c"))).toBe(true);
+    expect(response.clusters).toHaveLength(0);
+    expect(response.remainingIssues).toHaveLength(2);
+    expect(response.remainingIssues?.map((i) => i.severity)).toEqual(["error", "warning"]);
   });
 
   it("reuses SQLite cache across consecutive check_project calls", async () => {

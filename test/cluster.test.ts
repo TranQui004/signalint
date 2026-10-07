@@ -18,56 +18,76 @@ describe("Cluster Engine", () => {
     const result = clusterIssues(rawIssues);
 
     expect(result.response.clusters).toHaveLength(4);
-    expect(result.response.schemaVersion).toBe("1.3");
+    expect(result.response.schemaVersion).toBe("1.4");
     expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([1, 1, 5, 5]);
     expect(result.issues.every((issue) => issue.clusterId !== undefined)).toBe(true);
     expect(result.response.clusters.every((cluster) => cluster.issueCount === 10)).toBe(true);
     expect(isCheckResponse(result.response)).toBe(true);
   });
 
-  it("keeps small rule groups as individual clusters", () => {
+  it("routes single-issue groups flat into remainingIssues without cluster envelopes", () => {
     const issues = [
-      makeIssue("issue-a", "src/a.ts", "single-rule", "error", false),
-      makeIssue("issue-b", "src/b.ts", "single-rule", "warning", false),
-      makeIssue("issue-c", "src/c.ts", "single-rule", "warning", true),
+      makeIssue("issue-a", "src/a.ts", "rule-a", "error", false),
+      makeIssue("issue-b", "src/b.ts", "rule-b", "warning", false),
+      makeIssue("issue-c", "src/c.ts", "rule-c", "warning", true),
     ];
 
     const result = clusterIssues(issues);
 
-    expect(result.response.clusters).toHaveLength(3);
-    expect(new Set(result.issues.map((issue) => issue.clusterId)).size).toBe(3);
-    expect(result.response.clusters.map((cluster) => cluster.priority)).toEqual([2, 4, 5]);
-    expect(result.response.clusters.map((cluster) => cluster.rootCauseSummary)).toEqual([
-      "1 single-rule issue across 1 file",
-      "1 single-rule issue across 1 file",
-      "1 single-rule issue across 1 file",
-    ]);
+    expect(result.response.clusters).toHaveLength(0);
+    expect(result.response.remainingIssues).toHaveLength(3);
+    expect(result.response.totalIssues).toBe(3);
+    expect(result.response.omittedIssueCount).toBe(0);
+    expect(result.response.truncated).toBe(false);
+    expect(isCheckResponse(result.response)).toBe(true);
   });
 
-  it("produces more than two distinct priorities covering the 1-5 priority ladder", () => {
+  it("clusters groups of 2+ issues sharing a rule", () => {
     const issues = [
-      // Systemic error across multiple files -> priority 1
+      makeIssue("issue-1", "src/a.ts", "shared-rule", "error", false),
+      makeIssue("issue-2", "src/b.ts", "shared-rule", "error", false),
+    ];
+
+    const result = clusterIssues(issues);
+
+    expect(result.response.clusters).toHaveLength(1);
+    expect(result.response.clusters[0]?.issueCount).toBe(2);
+    expect(result.response.remainingIssues).toHaveLength(0);
+    expect(result.issues.every((i) => i.clusterId !== undefined)).toBe(true);
+  });
+
+  it("produces priority ordering across both clusters and remainingIssues covering the 1-5 ladder", () => {
+    const issues = [
+      // Systemic error across multiple files -> priority 1 cluster
       makeIssue("sys-1", "src/a.ts", "systemic-err", "error", false),
       makeIssue("sys-2", "src/b.ts", "systemic-err", "error", false),
       makeIssue("sys-3", "src/c.ts", "systemic-err", "error", false),
       makeIssue("sys-4", "src/d.ts", "systemic-err", "error", false),
       makeIssue("sys-5", "src/e.ts", "systemic-err", "error", false),
-      // Local error without fix -> priority 2
+      // Local error without fix -> priority 2 remaining issue
       makeIssue("loc-err", "src/loc.ts", "local-err", "error", false),
-      // Local error with structured fix -> priority 3
+      // Local error with structured fix -> priority 3 remaining issue
       makeIssue("loc-fix-err", "src/loc-fix.ts", "fix-err", "error", true),
-      // Local warning without fix -> priority 4
+      // Local warning without fix -> priority 4 remaining issue
       makeIssue("loc-warn", "src/warn.ts", "local-warn", "warning", false),
-      // Local warning with structured fix -> priority 5
+      // Local warning with structured fix -> priority 5 remaining issue
       makeIssue("loc-fix-warn", "src/warn-fix.ts", "fix-warn", "warning", true),
     ];
 
     const result = clusterIssues(issues);
-    const priorities = result.response.clusters.map((cluster) => cluster.priority);
-    const uniquePriorities = Array.from(new Set(priorities)).sort((a, b) => a - b);
 
-    expect(uniquePriorities.length).toBeGreaterThan(2);
-    expect(uniquePriorities).toEqual([1, 2, 3, 4, 5]);
+    // Priority 1 cluster
+    expect(result.response.clusters).toHaveLength(1);
+    expect(result.response.clusters[0]?.priority).toBe(1);
+
+    // Priorities 2, 3, 4, 5 ordered in remainingIssues
+    expect(result.response.remainingIssues).toHaveLength(4);
+    expect(result.response.remainingIssues?.map((i) => i.rule)).toEqual([
+      "local-err",
+      "fix-err",
+      "local-warn",
+      "fix-warn",
+    ]);
   });
 
   it("meets the 40-issue compactness acceptance criterion", async () => {
@@ -87,8 +107,79 @@ describe("Cluster Engine", () => {
     );
   });
 
-  it("truncates responses after ten clusters while assigning every issue", () => {
-    const issues = Array.from({ length: 12 }, (_, index) =>
+  it("satisfies the scale-app acceptance: 60 issues with >10 distinct rules has zero unreachable issues", () => {
+    // 10 multi-issue clusters of 3 issues each (= 30 issues), plus 30 distinct single-issue rules (= 30 issues) -> 60 total
+    const issues: NormalizedIssue[] = [];
+    for (let c = 0; c < 10; c++) {
+      for (let i = 0; i < 3; i++) {
+        issues.push(makeIssue(`cluster-${c}-${i}`, `src/c${c}.ts`, `multi-rule-${c}`, "error", false));
+      }
+    }
+    for (let s = 0; s < 30; s++) {
+      issues.push(makeIssue(`single-${s}`, `src/s${s}.ts`, `single-rule-${s}`, "warning", false));
+    }
+
+    expect(issues).toHaveLength(60);
+    const result = clusterIssues(issues);
+
+    const clusterIssueCount = result.response.clusters.reduce((sum, c) => sum + c.issueCount, 0);
+    const remainingCount = result.response.remainingIssues?.length ?? 0;
+    const omittedCount = result.response.omittedIssueCount ?? 0;
+
+    expect(result.response.totalIssues).toBe(60);
+    expect(result.response.totalIssues).toBe(clusterIssueCount + remainingCount + omittedCount);
+    expect(omittedCount).toBe(0);
+    expect(result.response.truncated).toBe(false);
+    expect(remainingCount).toBe(30);
+
+    // Verify all 60 issues are reachable (either in a cluster or in remainingIssues)
+    const reachableIds = new Set<string>();
+    for (const c of result.response.clusters) {
+      for (const sampleId of c.sampleIssueIds ?? []) {
+        reachableIds.add(sampleId);
+      }
+    }
+    for (const rem of result.response.remainingIssues ?? []) {
+      reachableIds.add(rem.issueId);
+    }
+    expect(result.response.remainingIssues?.every((rem) => rem.issueId !== undefined)).toBe(true);
+  });
+
+  it("satisfies the mixed-app acceptance: 11 issues with 10 singletons drops below 2 KB", () => {
+    const issues: NormalizedIssue[] = [
+      makeIssue("m-1", "src/shared.ts", "shared-rule", "error", false),
+      makeIssue("m-2", "src/shared.ts", "shared-rule", "error", false),
+    ];
+    for (let i = 0; i < 9; i++) {
+      issues.push(makeIssue(`single-${i}`, `src/file-${i}.ts`, `rule-${i}`, "warning", false));
+    }
+
+    expect(issues).toHaveLength(11);
+    const result = clusterIssues(issues);
+
+    expect(result.response.clusters).toHaveLength(1);
+    expect(result.response.remainingIssues).toHaveLength(9);
+
+    const serializedBytes = Buffer.byteLength(JSON.stringify(result.response), "utf8");
+    expect(serializedBytes).toBeLessThan(2048);
+  });
+
+  it("satisfies the 1-issue project acceptance: returns under 500 bytes", () => {
+    const issues = [makeIssue("single-1", "src/index.ts", "TS2322", "error", false)];
+    const result = clusterIssues(issues);
+
+    const json = JSON.stringify(result.response);
+    const bytes = Buffer.byteLength(json, "utf8");
+
+    expect(result.response.totalIssues).toBe(1);
+    expect(result.response.clusters).toHaveLength(0);
+    expect(result.response.remainingIssues).toHaveLength(1);
+    expect(bytes).toBeLessThan(500);
+    expect(isCheckResponse(result.response)).toBe(true);
+  });
+
+  it("bounds remainingIssues at 100 entries and reports omittedIssueCount and nextStep when exceeded", () => {
+    const issues = Array.from({ length: 120 }, (_, index) =>
       makeIssue(
         `issue-${String(index)}`,
         `src/file-${String(index)}.ts`,
@@ -100,9 +191,12 @@ describe("Cluster Engine", () => {
 
     const result = clusterIssues(issues);
 
-    expect(result.response.clusters).toHaveLength(10);
+    expect(result.response.clusters).toHaveLength(0);
+    expect(result.response.remainingIssues).toHaveLength(100);
+    expect(result.response.omittedIssueCount).toBe(20);
     expect(result.response.truncated).toBe(true);
-    expect(result.issues.every((issue) => issue.clusterId !== undefined)).toBe(true);
+    expect(result.response.nextStep).toContain("check_files");
+    expect(result.response.totalIssues).toBe(120);
   });
 
   it("samples distinct issue IDs even when input issues repeat an ID", () => {

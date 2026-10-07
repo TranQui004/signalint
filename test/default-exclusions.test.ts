@@ -70,8 +70,9 @@ describe("Default exclusions", () => {
     const response = await callCheckProject(client);
 
     expect(response.totalIssues).toBe(1);
-    expect(response.clusters).toHaveLength(1);
-    expect(response.clusters[0]?.sampleIssueIds).toEqual(["user-code"]);
+    expect(response.clusters).toHaveLength(0);
+    expect(response.remainingIssues).toHaveLength(1);
+    expect(response.remainingIssues?.[0]?.issueId).toBe("user-code");
   });
 });
 

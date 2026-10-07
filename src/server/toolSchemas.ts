@@ -43,8 +43,32 @@ export const clusterOutputSchema = {
     "issueCount",
     "fileCount",
     "priority",
-    "suggestedAction",
-    "sampleIssueIds",
+  ],
+  additionalProperties: false,
+};
+
+export const remainingIssueOutputSchema = {
+  type: "object" as const,
+  properties: {
+    issueId: { type: "string" as const },
+    file: { type: "string" as const },
+    line: { type: "integer" as const },
+    col: { type: "integer" as const },
+    rule: { type: "string" as const },
+    severity: {
+      type: "string" as const,
+      enum: ["error", "warning"] as const,
+    },
+    fixable: { type: "boolean" as const },
+  },
+  required: [
+    "issueId",
+    "file",
+    "line",
+    "col",
+    "rule",
+    "severity",
+    "fixable",
   ],
   additionalProperties: false,
 };
@@ -91,7 +115,7 @@ export const pingOutputSchema = {
 export const checkOutputSchema = {
   type: "object" as const,
   properties: {
-    schemaVersion: { type: "string" as const, enum: ["1.3"] as const },
+    schemaVersion: { type: "string" as const, enum: ["1.3", "1.4"] as const },
     status: {
       type: "string" as const,
       enum: ["clean", "issues_found", "error"] as const,
@@ -105,7 +129,6 @@ export const checkOutputSchema = {
         biome: engineStatusOutputSchema,
         eslint: engineStatusOutputSchema,
       },
-      required: ["oxlint", "tsc", "biome", "eslint"],
       additionalProperties: false,
     },
     totalIssues: { type: "integer" as const },
@@ -113,6 +136,12 @@ export const checkOutputSchema = {
       type: "array" as const,
       items: clusterOutputSchema,
     },
+    remainingIssues: {
+      type: "array" as const,
+      items: remainingIssueOutputSchema,
+    },
+    omittedIssueCount: { type: "integer" as const },
+    nextStep: { type: "string" as const },
     truncated: { type: "boolean" as const },
     loopWarning: {
       oneOf: [

@@ -1,9 +1,9 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
-import { createRequire } from "node:module";
 import { basename, dirname, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
+import { EngineDisabledError } from "../engineFanout.js";
 import { resolveEngine } from "../engineResolution.js";
 import {
   createIssueId,
@@ -101,6 +101,9 @@ export async function runTsc(
 
     return issues;
   } catch (error: unknown) {
+    if (error instanceof EngineDisabledError) {
+      throw error;
+    }
     throw attributeEngineError("tsc", error);
   }
 }
@@ -276,8 +279,13 @@ async function runTscProcess(
   options: Omit<TscRunOptions, "cwd">,
 ): Promise<CommandResult> {
   const resolved = resolveEngine("tsc", cwd);
-  const cliPath = resolved?.binPath ?? resolve(dirname(createRequire(import.meta.url).resolve("typescript/package.json")), "bin", "tsc");
-  return runEngineCommand(process.execPath, [cliPath, ...args], {
+  if (resolved === undefined) {
+    throw new EngineDisabledError(
+      "tsc",
+      "TypeScript is not installed in this project. Install typescript to enable it.",
+    );
+  }
+  return runEngineCommand(process.execPath, [resolved.binPath, ...args], {
     cwd,
     engine: "tsc",
     signal: options.signal,

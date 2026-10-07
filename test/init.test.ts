@@ -64,6 +64,27 @@ describe("signalint init", () => {
     expect(config.engines).toEqual({ oxlint: true, tsc: false, biome: false, eslint: false });
   });
 
+  it("warns when no linter is available during init", async () => {
+    const root = await createTemporaryProject();
+    const engineResolution = await import("../src/engineResolution.js");
+    const spy = vi.spyOn(engineResolution, "resolveEngine").mockReturnValue(undefined);
+    const output: string[] = [];
+
+    try {
+      await runInitCommand({
+        cwd: root,
+        homeDir: root,
+        interactive: false,
+        platform: "linux",
+        writeOutput: (msg) => output.push(msg),
+      });
+
+      expect(output.join("")).toContain("No linter available. Run 'npm i -D oxlint'");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
   it("asks which client when multiple configs are present and preserves other servers", async () => {
     const root = await createTemporaryProject();
     await writeFile(join(root, ".mcp.json"), '{"mcpServers":{"claudeOther":{}}}\n', "utf8");

@@ -10,6 +10,35 @@ full detail.
 > response `schemaVersion` from `1.2` to `1.3`, and adds ESLint as a fourth
 > diagnostic engine.
 
+## Unreleased
+
+- Bumped `schemaVersion` to `"1.4"` while maintaining backward compatibility with `"1.3"`.
+- Added `remainingIssues`, `omittedIssueCount`, and `nextStep` to `CheckResponse`.
+- Fixed silent information loss from the 10-cluster cap:
+  - Groups of 2+ issues remain clustered; single-issue groups and clusters past the top 10 limit are routed to flat `remainingIssues` (~90 bytes each).
+  - Bounded `remainingIssues` to 100 entries, setting `omittedIssueCount` and actionable `nextStep` directions when exceeded.
+  - `truncated` now flags `true` only when `omittedIssueCount > 0`.
+- Trimmed the fixed envelope:
+  - Omitted empty `disabled` engines from `engines`.
+  - Omitted `sampleIssueIds` when cluster `issueCount <= 2`.
+  - Omitted `suggestedAction` when unfixable / derivable from summary.
+  - Reduced 1-issue project response floor from ~853 bytes to under 500 bytes and mixed-app fixture from ~4,507 bytes to under 2 KB.
+- Added opt-in compact mode (`signalint check --compact` and `SIGNALINT_COMPACT=1`) shortening keys and omitting `projectRoot`.
+- Reduced install footprint:
+  - Reclassified `typescript` and `oxlint` as `optionalDependencies` and optional `peerDependencies`.
+  - Gracefully degrade `tsc` and `oxlint` with `{ status: "disabled", message: "..." }` when unresolvable instead of crashing.
+  - Added "no linter available" detection and actionable guidance in `signalint doctor` and `signalint init`.
+  - Pinned `action.yml` install step with a `version` input defaulting to `"1.0.0"`.
+- Whole-program `tsc` cache invalidation:
+  - Fingerprints all TypeScript source files (file list + mtime + size) to invalidate cached whole-program tsc results in `check_files` when unpassed dependencies are modified.
+- CLI:
+  - Added `signalint stats --json` for machine-readable JSON session metrics.
+  - Added `--compact` flag to `signalint check`.
+- Documentation:
+  - Added `docs/benchmarks.md` with measured fixture comparisons and break-even guidance.
+  - Added "When not to use Signalint" section to `README.md`.
+  - Documented whole-program tsc cache invalidation and boundaries in `docs/known-limitations.md`.
+
 ## 1.0.0 - 2026-10-06
 
 

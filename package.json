@@ -74,15 +74,25 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.0",
-    "oxlint": "1.86.0",
-    "typescript": "7.0.2",
     "zod": "4.6.5"
   },
+  "optionalDependencies": {
+    "oxlint": "1.86.0",
+    "typescript": "7.0.2"
+  },
   "peerDependencies": {
-    "@biomejs/biome": "2.5.15"
+    "@biomejs/biome": "2.5.15",
+    "oxlint": "1.86.0",
+    "typescript": "7.0.2"
   },
   "peerDependenciesMeta": {
     "@biomejs/biome": {
+      "optional": true
+    },
+    "oxlint": {
+      "optional": true
+    },
+    "typescript": {
       "optional": true
     }
   },
@@ -90,6 +100,8 @@
     "@biomejs/biome": "2.5.15",
     "@types/node": "26.1.1",
     "@vitest/coverage-v8": "4.1.10",
+    "oxlint": "1.86.0",
+    "typescript": "7.0.2",
     "vitest": "4.1.10"
   },
   "packageManager": "pnpm@11.9.0"

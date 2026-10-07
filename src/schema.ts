@@ -23,8 +23,19 @@ export interface Cluster {
   issueCount: number;
   fileCount: number;
   priority: number;
-  suggestedAction: string;
-  sampleIssueIds: string[];
+  suggestedAction?: string;
+  sampleIssueIds?: string[];
+}
+
+export interface RemainingIssue {
+  issueId: string;
+  file: string;
+  line: number;
+  col: number;
+  rule: string;
+  severity: IssueSeverity;
+  fixable: boolean;
+  priority?: number;
 }
 
 export interface LoopWarning {
@@ -54,31 +65,49 @@ export interface EngineStatus {
   message?: string;
 }
 
-export type EngineStatuses = Record<IssueEngine, EngineStatus>;
+export type EngineStatuses = Partial<Record<IssueEngine, EngineStatus>>;
 
 /**
  * `schemaVersion` moved from "1.0" to "1.1" to add per-engine `EngineStatus`.
- * Before 1.1, a `Promise.all` fan-out meant one failing engine rejected the
- * whole check and discarded diagnostics other engines had already produced;
- * `engines` now reports `ok | error | disabled` per engine so completed
- * results survive a sibling engine's failure or timeout. See
- * docs/history/README.md for the pre-publish review that triggered this.
- *
  * `schemaVersion` moved from "1.1" to "1.2" to add `fileRuleChurnWarning`.
- * This field tracks (file, rule) pairs that have triggered across 3+ separate
- * `check_files` calls in a session, providing a distinct signal when an agent
- * is stuck on a particular file even if the exact diagnostic message varies.
+ * `schemaVersion` moved from "1.2" to "1.3" to support structured engine-output-limit.
+ * `schemaVersion` moved from "1.3" to "1.4" to eliminate information loss
+ * from the 10-cluster cap. Responses now list remaining issues in a flat,
+ * compact `remainingIssues` array, cap them at 100 entries, report omitted
+ * counts in `omittedIssueCount`, and route single-issue groups flat instead
+ * of wrapping them in ~400-byte cluster envelopes.
  */
 export interface CheckResponse {
-  schemaVersion: "1.3";
+  schemaVersion: "1.3" | "1.4";
   status: "clean" | "issues_found" | "error";
-  projectRoot: string;
+  projectRoot?: string;
   engines: EngineStatuses;
   totalIssues: number;
   clusters: Cluster[];
+  remainingIssues?: RemainingIssue[];
+  omittedIssueCount?: number;
+  nextStep?: string;
   truncated: boolean;
-  loopWarning: LoopWarning | null;
-  fileRuleChurnWarning: FileRuleChurnWarning | null;
+  loopWarning?: LoopWarning | null;
+  fileRuleChurnWarning?: FileRuleChurnWarning | null;
+  checkId?: string;
+  code?: string;
+  message?: string;
+}
+
+export interface CompactCheckResponse {
+  v: "1.4";
+  status: "clean" | "issues_found" | "error";
+  projectRoot?: string;
+  engines: EngineStatuses;
+  total: number;
+  clusters: Cluster[];
+  remaining?: RemainingIssue[];
+  omitted?: number;
+  nextStep?: string;
+  truncated: boolean;
+  loopWarning?: LoopWarning | null;
+  fileRuleChurnWarning?: FileRuleChurnWarning | null;
   checkId?: string;
   code?: string;
   message?: string;
@@ -152,26 +181,66 @@ export function isNormalizedIssue(value: unknown): value is NormalizedIssue {
   );
 }
 
-/** Returns whether an unknown value exactly satisfies the Phase 3 Check Response shape. */
-export function isCheckResponse(value: unknown): value is CheckResponse {
+/** Returns whether an unknown value satisfies the compact flat remaining-issue shape. */
+export function isRemainingIssue(value: unknown): value is RemainingIssue {
   if (!isRecord(value)) {
     return false;
   }
   return (
-    value.schemaVersion === "1.3" &&
-    (value.status === "clean" || value.status === "issues_found" || value.status === "error") &&
-    typeof value.projectRoot === "string" &&
+    typeof value.issueId === "string" &&
+    typeof value.file === "string" &&
+    Number.isInteger(value.line) &&
+    Number.isInteger(value.col) &&
+    typeof value.rule === "string" &&
+    (value.severity === "error" || value.severity === "warning") &&
+    typeof value.fixable === "boolean" &&
+    (value.priority === undefined || Number.isInteger(value.priority))
+  );
+}
+
+/** Returns whether an unknown value satisfies the Check Response shape (1.3 or 1.4, full or compact). */
+export function isCheckResponse(value: unknown): value is CheckResponse {
+  if (!isRecord(value)) {
+    return false;
+  }
+  const isV13OrV14 = value.schemaVersion === "1.3" || value.schemaVersion === "1.4";
+  const isCompactV14 = value.v === "1.4";
+  if (!isV13OrV14 && !isCompactV14) {
+    return false;
+  }
+  const statusValid = value.status === "clean" || value.status === "issues_found" || value.status === "error";
+  const rootValid = value.projectRoot === undefined || typeof value.projectRoot === "string";
+  const total = isCompactV14 ? (value.total ?? value.totalIssues) : value.totalIssues;
+  const remaining = isCompactV14 ? (value.remaining ?? value.remainingIssues) : value.remainingIssues;
+  const omitted = isCompactV14 ? (value.omitted ?? value.omittedIssueCount) : value.omittedIssueCount;
+
+  return (
+    statusValid &&
+    rootValid &&
     isEngineStatuses(value.engines) &&
-    Number.isInteger(value.totalIssues) &&
+    Number.isInteger(total) &&
     Array.isArray(value.clusters) &&
     value.clusters.every(isCluster) &&
+    (remaining === undefined || (Array.isArray(remaining) && remaining.every(isRemainingIssue))) &&
+    (omitted === undefined || Number.isInteger(omitted)) &&
+    (value.nextStep === undefined || typeof value.nextStep === "string") &&
     typeof value.truncated === "boolean" &&
-    (value.loopWarning === null || isLoopWarning(value.loopWarning)) &&
-    (value.fileRuleChurnWarning === null || isFileRuleChurnWarning(value.fileRuleChurnWarning)) &&
+    (value.loopWarning === null || value.loopWarning === undefined || isLoopWarning(value.loopWarning)) &&
+    (value.fileRuleChurnWarning === null || value.fileRuleChurnWarning === undefined || isFileRuleChurnWarning(value.fileRuleChurnWarning)) &&
     (value.checkId === undefined || typeof value.checkId === "string") &&
     (value.code === undefined || typeof value.code === "string") &&
     (value.message === undefined || typeof value.message === "string")
   );
+}
+
+/** Creates an independent status map with default enabled engines marked ok, and disabled marked disabled. */
+export function createDefaultEngineStatuses(): EngineStatuses {
+  return {
+    oxlint: { status: "ok" },
+    tsc: { status: "ok" },
+    biome: { status: "disabled" },
+    eslint: { status: "disabled" },
+  };
 }
 
 /** Creates an independent status map with every engine marked as successful. */
@@ -243,9 +312,10 @@ function isCluster(value: unknown): value is Cluster {
     Number.isInteger(value.issueCount) &&
     Number.isInteger(value.fileCount) &&
     Number.isInteger(value.priority) &&
-    typeof value.suggestedAction === "string" &&
-    Array.isArray(value.sampleIssueIds) &&
-    value.sampleIssueIds.every((issueId) => typeof issueId === "string")
+    (value.suggestedAction === undefined || typeof value.suggestedAction === "string") &&
+    (value.sampleIssueIds === undefined ||
+      (Array.isArray(value.sampleIssueIds) &&
+        value.sampleIssueIds.every((issueId) => typeof issueId === "string")))
   );
 }
 
@@ -259,15 +329,17 @@ function isLoopWarning(value: unknown): value is LoopWarning {
 }
 
 function isEngineStatuses(value: unknown): value is EngineStatuses {
-  const expectedKeys = ["oxlint", "tsc", "biome", "eslint"];
+  const allowedKeys = new Set(["oxlint", "tsc", "biome", "eslint"]);
+  if (!isRecord(value)) {
+    return false;
+  }
+  const keys = Object.keys(value);
+  if (keys.length === 0) {
+    return false;
+  }
   return (
-    isRecord(value) &&
-    Object.keys(value).length === expectedKeys.length &&
-    Object.keys(value).every((key) => expectedKeys.includes(key)) &&
-    isEngineStatus(value.oxlint) &&
-    isEngineStatus(value.tsc) &&
-    isEngineStatus(value.biome) &&
-    isEngineStatus(value.eslint)
+    keys.every((key) => allowedKeys.has(key)) &&
+    Object.values(value).every(isEngineStatus)
   );
 }
 

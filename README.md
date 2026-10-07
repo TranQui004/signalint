@@ -90,6 +90,16 @@ When a coding agent requests diagnostics on a project, raw compiler and linter o
 
 The agent receives a concise summary with priority-ordered clusters and sample issue IDs. When deeper detail is needed for a specific cluster or issue, the agent calls `get_issue_detail` without re-running the whole-project scan.
 
+## When not to use Signalint
+
+Signalint is built specifically to compress diagnostic feedback for coding agents operating inside token-constrained context windows. It may not be the right fit for:
+
+- **Projects already served by a fast IDE + CI loop:** If human developers are working in VS Code or WebStorm with instant inline squiggles and fast CI runs, raw compiler feedback is already immediate.
+- **Projects under ~10 diagnostics per check:** On small diagnostic sets, the fixed JSON envelope (~500–850 bytes) is comparable to or larger than raw output. Signalint pays for itself when diagnostics share root causes or exceed ~15 issues.
+- **Projects relying on custom ESLint plugin rules:** While Signalint can invoke project-local ESLint, Oxlint is the primary high-speed linter and does not execute arbitrary third-party ESLint plugin rules.
+- **Monorepos without a root solution-style `tsconfig.json`:** TypeScript checks resolve from the target project root's `tsconfig.json`. Monorepos with fragmented sub-packages not linked via project references are not yet automatically scanned across package boundaries.
+- **Anyone needing autofix or security scanning:** Signalint exposes strictly read-only MCP tools (`readOnlyHint: true`) and produces diagnostic feedback; it does not write fixes to disk or perform SAST / dependency vulnerability scans.
+
 ## Requirements
 
 - Node.js 22.12 or later (uses built-in `node:sqlite`)

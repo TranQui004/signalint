@@ -67,6 +67,7 @@ export interface CheckFilesResult {
   issues: NormalizedIssue[];
   cache: CacheStats;
   engines: EngineStatuses;
+  filteredOutIssueCount?: number;
 }
 
 interface FileSnapshot {

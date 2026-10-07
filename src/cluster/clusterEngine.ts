@@ -25,7 +25,8 @@ interface PendingCluster {
 }
 
 export interface ClusterOptions {
-  compact?: boolean;
+  compact?: boolean | undefined;
+  filteredOutIssueCount?: number | undefined;
 }
 
 const MAX_REMAINING_ISSUES = 100;
@@ -67,6 +68,13 @@ export function clusterIssues(
   const statusInfo = determineStatus(engines, rawIssues.length);
   const isCompact = options.compact ?? (process.env.SIGNALINT_COMPACT === "1");
 
+  const filteredOutIssueCount = options.filteredOutIssueCount ?? 0;
+  let effectiveNextStep = nextStep;
+  if (filteredOutIssueCount > 0) {
+    const hint = `Run check_project to inspect ${String(filteredOutIssueCount)} issue(s) outside requested files.`;
+    effectiveNextStep = nextStep !== undefined ? `${nextStep} ${hint}` : hint;
+  }
+
   const response: CheckResponse = isCompact
     ? ({
         v: "1.4",
@@ -76,7 +84,8 @@ export function clusterIssues(
         clusters,
         remaining: remainingIssues,
         ...(omittedIssueCount !== undefined ? { omitted: omittedIssueCount } : {}),
-        ...(nextStep !== undefined ? { nextStep } : {}),
+        ...(filteredOutIssueCount > 0 ? { filteredOut: filteredOutIssueCount } : {}),
+        ...(effectiveNextStep !== undefined ? { nextStep: effectiveNextStep } : {}),
         truncated,
         checkId: computeCheckId(rawIssues),
         ...(statusInfo.code !== undefined ? { code: statusInfo.code } : {}),
@@ -91,7 +100,13 @@ export function clusterIssues(
         clusters,
         remainingIssues,
         ...(omittedIssueCount !== undefined ? { omittedIssueCount } : {}),
-        ...(nextStep !== undefined ? { nextStep } : {}),
+        ...(filteredOutIssueCount > 0
+          ? {
+              filteredOutIssueCount,
+              filteredOutCount: filteredOutIssueCount,
+            }
+          : {}),
+        ...(effectiveNextStep !== undefined ? { nextStep: effectiveNextStep } : {}),
         truncated,
         checkId: computeCheckId(rawIssues),
         ...(statusInfo.code !== undefined ? { code: statusInfo.code } : {}),

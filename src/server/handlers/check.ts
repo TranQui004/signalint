@@ -87,6 +87,7 @@ async function runCheck(
       10,
       result.engines,
       projectRoot,
+      { filteredOutIssueCount: result.filteredOutIssueCount },
     );
     const response = await sessionMemory.recordCheck(
       clustered.issues,

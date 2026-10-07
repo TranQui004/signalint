@@ -86,6 +86,8 @@ export interface CheckResponse {
   clusters: Cluster[];
   remainingIssues?: RemainingIssue[];
   omittedIssueCount?: number;
+  filteredOutIssueCount?: number;
+  filteredOutCount?: number;
   nextStep?: string;
   truncated: boolean;
   loopWarning?: LoopWarning | null;
@@ -104,6 +106,9 @@ export interface CompactCheckResponse {
   clusters: Cluster[];
   remaining?: RemainingIssue[];
   omitted?: number;
+  filteredOut?: number;
+  filteredOutIssueCount?: number;
+  filteredOutCount?: number;
   nextStep?: string;
   truncated: boolean;
   loopWarning?: LoopWarning | null;
@@ -213,6 +218,9 @@ export function isCheckResponse(value: unknown): value is CheckResponse {
   const total = isCompactV14 ? (value.total ?? value.totalIssues) : value.totalIssues;
   const remaining = isCompactV14 ? (value.remaining ?? value.remainingIssues) : value.remainingIssues;
   const omitted = isCompactV14 ? (value.omitted ?? value.omittedIssueCount) : value.omittedIssueCount;
+  const filteredOut = isCompactV14
+    ? (value.filteredOut ?? value.filteredOutIssueCount ?? value.filteredOutCount)
+    : (value.filteredOutIssueCount ?? value.filteredOutCount ?? value.filteredOut);
 
   return (
     statusValid &&
@@ -223,6 +231,7 @@ export function isCheckResponse(value: unknown): value is CheckResponse {
     value.clusters.every(isCluster) &&
     (remaining === undefined || (Array.isArray(remaining) && remaining.every(isRemainingIssue))) &&
     (omitted === undefined || Number.isInteger(omitted)) &&
+    (filteredOut === undefined || Number.isInteger(filteredOut)) &&
     (value.nextStep === undefined || typeof value.nextStep === "string") &&
     typeof value.truncated === "boolean" &&
     (value.loopWarning === null || value.loopWarning === undefined || isLoopWarning(value.loopWarning)) &&

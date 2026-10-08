@@ -106,6 +106,7 @@ Signalint is built specifically to compress diagnostic feedback for coding agent
 
 - Node.js 22.12 or later (uses built-in `node:sqlite`)
 - A JavaScript or TypeScript project; TypeScript checks require a `tsconfig.json`
+- At least one supported engine installed in the checked project (`npm i -D typescript oxlint`); otherwise `check` returns `nothing_checked`
 - pnpm 11.9.0 for source development
 
 ## Install
@@ -118,7 +119,13 @@ npm install --save-dev signalint-mcp
 
 ### Install size & package footprint
 
-Signalint declares `oxlint`, `typescript`, and `@biomejs/biome` as optional peer dependencies (`peerDependenciesMeta.*.optional: true`). When installing Signalint in a repository that already has its own compiler and linter, npm and pnpm do not install duplicate bundled engines by default:
+Signalint declares `oxlint`, `typescript`, and `@biomejs/biome` as optional peer dependencies (`peerDependenciesMeta.*.optional: true`). Since 1.1.0, Signalint ships no engines and the checked project installs its own, for example:
+
+```sh
+npm i -D typescript oxlint      # add @biomejs/biome and/or eslint if you use them
+```
+
+When installing Signalint, package managers do not install peer engines by default, keeping the package footprint small:
 
 | Package manager | Default `node_modules` install size |
 |---|---|
@@ -179,7 +186,7 @@ Signalint supports four diagnostic engines:
 - **Biome (`biome`)**: Fast linter and formatter. Suppresses formatter diagnostics by default and captures safe fix recommendations from advices.
 - **ESLint (`eslint`)**: Flat config (`eslint.config.*`) linter. Signalint does not bundle ESLint — it resolves your project's local ESLint installation without extra dependencies and reports true fixable diagnostics (`fixable: true`).
 
-**Resolution order:** For each engine, Signalint checks the target project's `node_modules` first (`require.resolve` / `node_modules/.bin`), ensuring diagnostics match the project's own tool versions. If the project does not have the engine installed, Signalint falls back to its bundled copy (for `oxlint`, `tsc`, `biome`) or marks it disabled with an actionable message (for `eslint`). The resolved engine version is hashed into cache keys to ensure cache invalidation across tool upgrades.
+**Resolution order:** For each engine, Signalint checks the target project's `node_modules` first (`require.resolve` / `node_modules/.bin`), ensuring diagnostics match the project's own tool versions. If the project does not have the engine installed, Signalint marks it **disabled** with an actionable message indicating which package to install—true for all four engines, ESLint included. (The legacy bundled fallback only resolves a copy when one happens to sit next to Signalint's own installation; users must not rely on it.) The resolved engine version is hashed into cache keys to ensure cache invalidation across tool upgrades.
 
 ## Supported clients
 
@@ -332,7 +339,7 @@ npx --yes -p signalint-mcp signalint doctor
 `doctor` checks:
 - Project root resolution and `signalint.config.json` presence.
 - JavaScript / TypeScript project markers.
-- Diagnostic engine availability (project-local vs. bundled copies) and versions.
+- Diagnostic engine availability (project-local installs only — Signalint ships no engines) and versions.
 - Active MCP client configs, flagging any stale `cwd` entries that point to a different repository.
 - Legacy configuration files (such as `~/.gemini/antigravity/mcp_config.json`).
 
@@ -379,9 +386,9 @@ within 60s" }` under `engines`, while completed engines' diagnostics are preserv
 ## Known Limitations
 
 - Signalint supports JavaScript and TypeScript projects only.
-- The bundled engines are Oxlint, TypeScript, and Biome. ESLint is supported only
-  when the checked project has a flat config (`eslint.config.*`) and installs
-  ESLint itself; v1 does not support arbitrary custom engines.
+- Signalint bundles no engine; TypeScript, Oxlint, Biome, and ESLint must be
+  installed in the checked project, and ESLint additionally requires a flat
+  config (`eslint.config.*`); v1 does not support arbitrary custom engines.
 - Signalint reports whether an issue has a structured fix, but v1 does not apply
   fixes.
 - Signalint is not a SAST or security scanner.

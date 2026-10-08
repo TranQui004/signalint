@@ -6,8 +6,11 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { McpPayloadMode } from "../src/config.js";
 import { createServer } from "../src/index.js";
 import { SessionMemory } from "../src/memory/sessionMemory.js";
+import { createHumanSummary } from "../src/server/errors.js";
+import { resolveToolOutputSchema } from "../src/server/toolSchemas.js";
 import {
   isCheckResponse,
   isEngineOutputLimitResponse,
@@ -375,6 +378,173 @@ describe("MCP response amendments", () => {
   });
 });
 
+describe("configurable MCP payload modes across tools", () => {
+  it("defaults to both mode, preserving byte-for-byte response shape and outputSchema", async () => {
+    const issue = makeIssue();
+    const client = await connectServer(() => Promise.resolve([issue]), undefined, "both");
+
+    const toolsList = await client.listTools();
+    expect(toolsList.tools).toHaveLength(5);
+    for (const tool of toolsList.tools) {
+      expect(tool.outputSchema).toBeDefined();
+    }
+
+    // 1. ping
+    const pingRes = await client.callTool({ name: "ping", arguments: {} });
+    expect(pingRes.structuredContent).toEqual({ pong: true, projectRoot: expect.any(String) });
+    expect(pingRes.content).toEqual([{ type: "text", text: "pong" }]);
+
+    // 2. check_project
+    const checkRes = await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    expect(checkRes.structuredContent).toBeDefined();
+    const checkText = getFirstText(checkRes.content);
+    expect(checkText).not.toContain("\n");
+    expect(JSON.parse(checkText)).toEqual(checkRes.structuredContent);
+
+    // 3. check_files
+    const checkFilesRes = await client.callTool({ name: "check_files", arguments: { files: ["package.json"] } });
+    expect(checkFilesRes.structuredContent).toBeDefined();
+    const filesText = getFirstText(checkFilesRes.content);
+    expect(filesText).not.toContain("\n");
+    expect(JSON.parse(filesText)).toEqual(checkFilesRes.structuredContent);
+
+    // 4. get_issue_detail
+    const detailRes = await client.callTool({ name: "get_issue_detail", arguments: { issueId: issue.issueId } });
+    const detailText = getFirstText(detailRes.content);
+    expect(detailText).not.toContain("\n");
+    expect(detailRes.structuredContent).toEqual({ issues: JSON.parse(detailText) });
+
+    // 5. get_loop_status
+    const loopRes = await client.callTool({ name: "get_loop_status", arguments: {} });
+    expect(loopRes.structuredContent).toBeDefined();
+    const loopText = getFirstText(loopRes.content);
+    expect(loopText).not.toContain("\n");
+    expect(JSON.parse(loopText)).toEqual(loopRes.structuredContent);
+  });
+
+  it("emits only text content and suppresses structuredContent and outputSchema in text mode", async () => {
+    const issue = makeIssue();
+    const client = await connectServer(() => Promise.resolve([issue]), undefined, "text");
+
+    const toolsList = await client.listTools();
+    expect(toolsList.tools).toHaveLength(5);
+    for (const tool of toolsList.tools) {
+      expect(tool.outputSchema).toBeUndefined();
+    }
+
+    // 1. ping
+    const pingRes = await client.callTool({ name: "ping", arguments: {} });
+    expect("structuredContent" in pingRes).toBe(false);
+    expect(pingRes.content).toEqual([{ type: "text", text: "pong" }]);
+
+    // 2. check_project
+    const checkRes = await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    expect("structuredContent" in checkRes).toBe(false);
+    const checkText = getFirstText(checkRes.content);
+    expect(checkText).not.toContain("\n");
+    const parsedCheck = JSON.parse(checkText) as CheckResponse;
+    expect(parsedCheck.status).toBe("issues_found");
+    expect(parsedCheck.totalIssues).toBe(1);
+
+    // 3. check_files
+    const checkFilesRes = await client.callTool({ name: "check_files", arguments: { files: ["package.json"] } });
+    expect("structuredContent" in checkFilesRes).toBe(false);
+    const filesText = getFirstText(checkFilesRes.content);
+    expect(filesText).not.toContain("\n");
+    expect(JSON.parse(filesText)).toMatchObject({ status: "issues_found" });
+
+    // 4. get_issue_detail
+    const detailRes = await client.callTool({ name: "get_issue_detail", arguments: { issueId: issue.issueId } });
+    expect("structuredContent" in detailRes).toBe(false);
+    const detailText = getFirstText(detailRes.content);
+    expect(detailText).not.toContain("\n");
+    expect(JSON.parse(detailText)).toHaveLength(1);
+
+    // 5. get_loop_status
+    const loopRes = await client.callTool({ name: "get_loop_status", arguments: {} });
+    expect("structuredContent" in loopRes).toBe(false);
+    const loopText = getFirstText(loopRes.content);
+    expect(loopText).not.toContain("\n");
+    expect(JSON.parse(loopText)).toMatchObject({ looping: false });
+  });
+
+  it("emits structuredContent and single-line human summary without newlines in structured mode", async () => {
+    const issue = makeIssue();
+    const client = await connectServer(() => Promise.resolve([issue]), undefined, "structured");
+
+    const toolsList = await client.listTools();
+    expect(toolsList.tools).toHaveLength(5);
+    for (const tool of toolsList.tools) {
+      expect(tool.outputSchema).toBeDefined();
+    }
+
+    // 1. ping
+    const pingRes = await client.callTool({ name: "ping", arguments: {} });
+    expect(pingRes.structuredContent).toEqual({ pong: true, projectRoot: expect.any(String) });
+    expect(pingRes.content).toEqual([{ type: "text", text: "pong" }]);
+
+    // 2. check_project
+    const checkRes = await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    expect(checkRes.structuredContent).toBeDefined();
+    expect(isCheckResponse(checkRes.structuredContent)).toBe(true);
+    const checkText = getFirstText(checkRes.content);
+    expect(checkText).not.toContain("\n");
+    expect(checkText).not.toContain("{");
+    expect(checkText).toBe("1 issue found.");
+
+    // 3. check_files
+    const checkFilesRes = await client.callTool({ name: "check_files", arguments: { files: ["package.json"] } });
+    expect(checkFilesRes.structuredContent).toBeDefined();
+    const filesText = getFirstText(checkFilesRes.content);
+    expect(filesText).not.toContain("\n");
+    expect(filesText).toBe("1 issue found.");
+
+    // 4. get_issue_detail
+    const detailRes = await client.callTool({ name: "get_issue_detail", arguments: { issueId: issue.issueId } });
+    expect(detailRes.structuredContent).toBeDefined();
+    const detailText = getFirstText(detailRes.content);
+    expect(detailText).not.toContain("\n");
+    expect(detailText).not.toContain("{");
+    expect(detailText).toBe("Found 1 issue.");
+
+    // 5. get_loop_status
+    const loopRes = await client.callTool({ name: "get_loop_status", arguments: {} });
+    expect(loopRes.structuredContent).toBeDefined();
+    const loopText = getFirstText(loopRes.content);
+    expect(loopText).not.toContain("\n");
+    expect(loopText).not.toContain("{");
+    expect(loopText).toBe("No loops detected.");
+  });
+
+  it("formats human summaries correctly and handles all summary variants without newlines", () => {
+    expect(createHumanSummary([])).toBe("Found 0 issues.");
+    expect(createHumanSummary([makeIssue()])).toBe("Found 1 issue.");
+    expect(createHumanSummary({ status: "clean" })).toBe("Clean: 0 issues found.");
+    expect(createHumanSummary({ status: "issues_found", totalIssues: 5 })).toBe("5 issues found.");
+    expect(createHumanSummary({ status: "error", message: "Failed\ncheck" })).toBe("Error: Failed check");
+    expect(createHumanSummary({ status: "error", code: "engine_failed" })).toBe("Error: engine_failed");
+    expect(createHumanSummary({ status: "stale", message: "Expired\nreference" })).toBe("Stale: Expired reference");
+    expect(createHumanSummary({ looping: true })).toBe("Looping detected.");
+    expect(createHumanSummary({ message: "Hello\r\nWorld" })).toBe("Hello World");
+    expect(createHumanSummary({ other: 123 })).toBe("OK");
+    expect(createHumanSummary("not an object")).toBe("OK");
+  });
+
+  it("resolves tool output schema only when structured content is enabled", () => {
+    const dummySchema = { type: "object" };
+    expect(resolveToolOutputSchema(dummySchema, "text")).toBeUndefined();
+    expect(resolveToolOutputSchema(dummySchema, "both")).toBe(dummySchema);
+    expect(resolveToolOutputSchema(dummySchema, "structured")).toBe(dummySchema);
+  });
+});
+
+function getFirstText(content: unknown): string {
+  if (!Array.isArray(content) || !isRecord(content[0]) || typeof content[0].text !== "string") {
+    throw new Error("MCP tool did not return text content.");
+  }
+  return content[0].text;
+}
+
 async function connectServer(
   provider: () => Promise<
     | NormalizedIssue[]
@@ -385,10 +555,13 @@ async function connectServer(
       }
   >,
   memory?: SessionMemory | undefined,
+  payloadMode?: McpPayloadMode | undefined,
 ): Promise<Client> {
   const server = createServer({
     projectIssueProvider: provider,
+    fileIssueProvider: provider,
     sessionMemory: memory ?? new SessionMemory({ logPath }),
+    payloadMode,
   });
   servers.push(server);
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

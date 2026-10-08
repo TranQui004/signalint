@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { CLIENT_REGISTRY, getLegacyAntigravityConfigPath, type McpClientSpec } from "./clients/registry.js";
+import { loadSignalintConfig, resolveMcpPayloadMode, type SignalintConfig } from "./config.js";
 import { canonicalizePath, readCanonicalProjectRoot } from "./projectPaths.js";
 import { isRecord } from "./util/index.js";
 
@@ -48,13 +49,22 @@ export async function runDoctorCommand(options: DoctorOptions = {}): Promise<num
 
   // 1. Check signalint.config.json
   const hasConfigFile = await pathExists(resolve(projectRoot, "signalint.config.json"));
+  let config: SignalintConfig | undefined;
   if (hasConfigFile) {
     writeOutput(`[OK] Configuration: signalint.config.json found.\n`);
+    try {
+      config = await loadSignalintConfig(projectRoot);
+    } catch {
+      // Preserve any config parse errors for other diagnostics
+    }
   } else {
     hasBlockingProblem = true;
     writeOutput(`[ERROR] Configuration: signalint.config.json is missing in ${projectRoot}.\n`);
     writeOutput(`  Fix: Run 'npx signalint-mcp init' in ${projectRoot} before running checks.\n`);
   }
+
+  const payloadMode = resolveMcpPayloadMode(config?.mcpPayload);
+  writeOutput(`MCP payload mode: ${payloadMode}\n`);
 
   // 2. Check project markers
   const isJsProject = await hasJsProjectMarkers(projectRoot);

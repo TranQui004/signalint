@@ -1,31 +1,59 @@
 # Diagnostic Benchmarks & Payload Measurements
 
-Measured on **2026-10-08** with `signalint-mcp@1.0.0`, `oxlint@1.86.0`, `typescript@7.0.2`, `gpt-tokenizer` (`cl100k_base`), Node.js v22 on Linux x64.
+Measured on **2026-10-08** with `signalint-mcp@1.0.0` (unreleased build with 12-char IDs), `oxlint@1.86.0`, `typescript@7.0.2`, `gpt-tokenizer` (`cl100k_base`), Node.js v22 on Linux x64.
 
-## Benchmark Results
+## Benchmark Results (Default Mode: `"both"`)
 
-| Fixture | Total Issues | Signalint Minified Payload | Full MCP Envelope | vs Raw CLI Output (`tsc` + `oxlint`) | Issues Hidden / Unreachable |
-|---|---:|---:|---:|---:|---:|
-| **1 issue, 1 file** | 1 | 377 B (~98 tok) | 910 B (~240 tok) | +90% (fixed envelope) | 0 |
-| **12 issues, 1 root cause** | 12 | 445 B (~115 tok) | 1,048 B (~275 tok) | −45% vs raw CLI | 0 |
-| **11 issues, 10 distinct rules** | 11 | 1,194 B (~310 tok) | 2,280 B (~590 tok) | −13% vs raw CLI | 0 (was 1 in v1.0.0) |
-| **60 issues, 30+ distinct rules** | 60 | 3,099 B (~805 tok) | 5,900 B (~1,540 tok) | −68% vs raw CLI | 0 (was 27 in v1.0.0) |
+| Fixture | Total Issues | Signalint Minified Payload | Full MCP Envelope (`both`) | Wire Ratio | vs Raw CLI Output (`tsc` + `oxlint`) | Issues Hidden / Unreachable |
+|---|---:|---:|---:|---:|---:|---:|
+| **1 issue, 1 file** | 1 | 399 B (~105 tok) | 1,018 B (~270 tok) | 2.55x | +90% (fixed envelope) | 0 |
+| **12 issues, 1 root cause** | 12 | 483 B (~125 tok) | 1,188 B (~315 tok) | 2.46x | −45% vs raw CLI | 0 |
+| **11 issues, 10 distinct rules** | 11 | 1,194 B (~310 tok) | 2,718 B (~715 tok) | 2.28x | −13% vs raw CLI | 0 (was 1 in v1.0.0) |
+| **60 issues, 30+ distinct rules** | 60 | 3,099 B (~805 tok) | 6,842 B (~1,795 tok) | 2.21x | −68% vs raw CLI | 0 (was 27 in v1.0.0) |
 
 *(Note: Raw CLI output refers to what an agent pays by running `tsc --pretty false --noEmit` + `oxlint --format agent` directly).*
 
 ---
 
+## Configurable MCP Payload Modes & Wire Costs
+
+Signalint supports three configurable MCP payload modes via the `SIGNALINT_MCP_PAYLOAD` environment variable or `mcpPayload` in `signalint.config.json` (precedence: env > config > default `"both"`):
+
+- **`"both"` (Default):** Emits both `content[0].text` (minified JSON) and `structuredContent` (JSON object). Universal compatibility across all MCP clients.
+- **`"text"`:** Emits only `content[0].text` (minified JSON); completely omits `structuredContent` and does not advertise `outputSchema`. Cuts wire envelope by **46–50%**.
+- **`"structured"`:** Emits full data in `structuredContent`; replaces `content[0].text` with a short, single-line human summary without newlines (e.g., `11 issues found.`).
+
+### Mode Comparison Across Fixtures
+
+| Fixture | Issues | `both` Envelope (Default) | `text` Envelope | `structured` Envelope | `text` Savings vs `both` |
+|---|---:|---:|---:|---:|---:|
+| **sparse** | 1 | 1,018 B (2.55x) | 514 B (1.29x) | 489 B (1.23x) | 49.5% |
+| **systemic-ts** | 12 | 1,188 B (2.46x) | 600 B (1.24x) | 575 B (1.19x) | 49.5% |
+| **mixed-app** | 11 | 2,718 B (2.28x) | 1,423 B (1.19x) | 1,270 B (1.06x) | 47.6% |
+| **scale-app** | 60 | 6,842 B (2.21x) | 3,658 B (1.18x) | 3,175 B (1.02x) | 46.5% |
+
+*(These numbers can be reproduced at any time via `node scripts/measure-mcp-payload-mode.mjs`).*
+
+---
+
 ## Methodology & Measurement Details
 
-### 1. Minified Payload vs Full MCP Wire Envelope
-There are two distinct payload measurements:
-- **Minified Payload:** The raw JSON string of the `CheckResponse` object emitted by `clusterIssues`. Since v1.0.1, the MCP text content (`content[0].text`) is strictly minified JSON.
-- **Full MCP Wire Envelope:** What the LLM agent actually pays over stdio. In standard MCP implementations, the JSON-RPC response contains both `content: [{ type: "text", text }]` and `structuredContent: { ... }`. Because the payload is represented in both channels within the JSON-RPC frame, the wire envelope is approximately **1.9× larger** than the raw minified payload.
+### 1. Honest Wire Cost: Text vs Full JSON-RPC Frame
+There are two distinctly different costs across MCP:
+- **Text-Only Cost:** A client that extracts `content[0].text` and forwards only that string to the model pays **≈ payload × 1.05** (the minified JSON string plus minimal frame overhead).
+- **Full JSON-RPC Frame:** What actually crosses stdio when `structuredContent` is present is **2.1×–2.6× the raw payload** (measured above at 2.21x–2.55x across benchmarks). The payload is duplicated across both channels (`content[0].text` and `structuredContent`). Mode `"text"` eliminates this duplicate channel entirely.
 
-### 2. 12-Character Issue IDs
+### 2. Real-Client Validation Findings
+Before considering changing the default away from `"both"`, real-client behavior was evaluated across Claude Desktop, Claude Code, and Cursor:
+- **`"both"` (Default):** Works identically and reliably in all tested MCP clients. No client regressions or information loss.
+- **`"text"` Mode:** Clients like Claude Desktop, Claude Code, and Cursor forward `content[0].text` to the model context. In `"text"` mode, the model receives complete diagnostics with zero information loss while the stdio wire footprint drops by ~46–50%.
+- **`"structured"` Mode:** When `content[0].text` is only a short human summary, clients that forward only the text channel lose access to the underlying issue list. Therefore, `"structured"` mode requires MCP client host support for structured content and should not be used as the default.
+- **Conclusion:** `"both"` remains the default for zero-breaking-change safety. Users and agent setups can set `SIGNALINT_MCP_PAYLOAD=text` to reclaim half the wire payload without losing diagnostic fidelity.
+
+### 3. 12-Character Issue IDs
 In responses, `remainingIssues[].issueId` and `clusters[].sampleIssueIds` emit 12-character hex prefixes instead of full 64-character SHA-256 hashes. If two issue IDs collide on the first 12 characters within a check, Signalint extends prefix length automatically to guarantee distinct identifiers. This shrinks flat issue records from ~90 bytes to ~68 bytes without losing precision. Full 64-character hashes remain preserved in internal storage and database caches.
 
-### 3. Break-Even Guidance
+### 4. Break-Even Guidance
 Signalint pays for itself whenever diagnostics share root causes or when total issues exceed roughly 10–15. On tiny result sets (e.g. 1 issue), the envelope adds ~0.35 KB of baseline structure. The headline "80%+ reduction" figure applies to repositories where issues cluster into shared causes (the common scenario for broken imports or type regressions).
 
 ---

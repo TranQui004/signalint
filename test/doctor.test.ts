@@ -285,6 +285,41 @@ describe("signalint doctor", () => {
     expect(combined).toContain("TypeScript is not installed");
     expect(combined).toContain("Run 'npm i -D typescript'");
   });
+
+  it("reports active MCP payload mode from config and env override", async () => {
+    const root = await createTemporaryProject();
+    const homeDir = await createTemporaryProject();
+    await writeFile(join(root, "signalint.config.json"), '{"mcpPayload":"text"}\n', "utf8");
+    await writeFile(join(root, "package.json"), '{"name":"test"}\n', "utf8");
+
+    // 1. Without env var, uses config value "text"
+    const output1: string[] = [];
+    await runDoctorCommand({
+      cwd: root,
+      homeDir,
+      writeOutput: (msg) => output1.push(msg),
+    });
+    expect(output1.join("")).toContain("MCP payload mode: text");
+
+    // 2. With env var, env overrides config
+    const origEnv = process.env.SIGNALINT_MCP_PAYLOAD;
+    try {
+      process.env.SIGNALINT_MCP_PAYLOAD = "structured";
+      const output2: string[] = [];
+      await runDoctorCommand({
+        cwd: root,
+        homeDir,
+        writeOutput: (msg) => output2.push(msg),
+      });
+      expect(output2.join("")).toContain("MCP payload mode: structured");
+    } finally {
+      if (origEnv !== undefined) {
+        process.env.SIGNALINT_MCP_PAYLOAD = origEnv;
+      } else {
+        delete process.env.SIGNALINT_MCP_PAYLOAD;
+      }
+    }
+  });
 });
 
 async function createTemporaryProject(): Promise<string> {

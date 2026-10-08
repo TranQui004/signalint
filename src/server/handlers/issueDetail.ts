@@ -16,9 +16,9 @@ export async function handleIssueDetail(
     reference.checkId !== undefined &&
     (context.latestCheckId === undefined || reference.checkId !== context.latestCheckId)
   ) {
-    return createTextResult(STALE_REFERENCE_RESPONSE);
+    return createTextResult(STALE_REFERENCE_RESPONSE, context.payloadMode);
   }
-  return createTextResult(resolveIssueDetail(context.latestIssues, reference));
+  return createTextResult(resolveIssueDetail(context.latestIssues, reference), context.payloadMode);
 }
 
 function resolveIssueDetail(

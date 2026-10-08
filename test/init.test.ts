@@ -40,6 +40,7 @@ describe("signalint init", () => {
       engines: { oxlint: false, tsc: true, biome: true, eslint: false },
       ignore: ["node_modules/**", "dist/**", ".signalint/**"],
       timeoutsMs: { oxlint: 30_000, tsc: 60_000, biome: 30_000, eslint: 30_000 },
+      mcpPayload: "both",
     });
     expect(output.join("")).toContain("Detected project tooling: tsconfig.json, biome.json.");
     expect(output.join("")).toContain("Claude Code");

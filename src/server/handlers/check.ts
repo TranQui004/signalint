@@ -16,6 +16,7 @@ import {
   type IssueProvider,
   type ToolHandlerContext,
 } from "../context.js";
+import { type McpPayloadMode, resolveMcpPayloadMode } from "../../config.js";
 import { createTextResult, logCheckFailure } from "../errors.js";
 
 /** Handles check_project tool invocation. */
@@ -51,7 +52,7 @@ async function runContextCheck(
   context: ToolHandlerContext,
   source: "project" | "files" = "project",
 ): Promise<CallToolResult> {
-  const safetyRefusal = await checkProjectSafety(context.cwd);
+  const safetyRefusal = await checkProjectSafety(context.cwd, context.payloadMode);
   if (safetyRefusal !== undefined) {
     return safetyRefusal;
   }
@@ -66,6 +67,7 @@ async function runContextCheck(
     },
     source,
     context.cwd,
+    context.payloadMode,
   );
 }
 
@@ -77,6 +79,7 @@ async function runCheck(
   saveIssues: (issues: NormalizedIssue[], checkId?: string) => void,
   source: "project" | "files" = "project",
   projectRoot: string = process.cwd(),
+  payloadMode: McpPayloadMode = resolveMcpPayloadMode(),
 ): Promise<CallToolResult> {
   const startedAt = performance.now();
   try {
@@ -97,15 +100,15 @@ async function runCheck(
       source,
     );
     saveIssues(clustered.issues, clustered.response.checkId);
-    return createTextResult(response);
+    return createTextResult(response, payloadMode);
   } catch (error: unknown) {
     if (error instanceof EngineOutputLimitError) {
       logCheckFailure(error);
-      return { ...createTextResult(error.response), isError: true };
+      return { ...createTextResult(error.response, payloadMode), isError: true };
     }
     if (error instanceof ProjectPathError) {
       return {
-        ...createTextResult({ status: "error", code: error.code, message: error.message, projectRoot }),
+        ...createTextResult({ status: "error", code: error.code, message: error.message, projectRoot }, payloadMode),
         isError: true,
       };
     }

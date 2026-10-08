@@ -10,5 +10,5 @@ export async function handleLoopStatus(
   argumentsValue: unknown,
 ): Promise<CallToolResult> {
   parseLoopStatusArguments(argumentsValue);
-  return createTextResult(context.sessionMemory.getStatus());
+  return createTextResult(context.sessionMemory.getStatus(), context.payloadMode);
 }

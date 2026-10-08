@@ -540,7 +540,6 @@ runtime reachability, and the conditions that require reassessment.
 - [CHANGELOG.md](CHANGELOG.md) — notable changes by release.
 - [RELEASE.md](RELEASE.md) — release checklist: version bumps, tagging, and
   publish targets.
-- [docs/history/](docs/history/) — original build plan and pre-launch audit trail.
 
 ## License
 

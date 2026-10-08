@@ -3,10 +3,6 @@
 Signalint is a local stdio MCP server that turns diagnostics from existing
 JavaScript and TypeScript tools into a compact, versioned response for coding
 agents. This document describes the current implementation.
-
-For the historical design rationale — why each decision was made, and what was
-deliberately deferred — see [`docs/history/`](docs/history/).
-
 ## Layers
 
 ```text
@@ -167,4 +163,3 @@ explicit stale reference response defined in `src/schema.ts`.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and pull request process.
 - [AGENTS.md](AGENTS.md) — coding standards enforced in this repository.
 - [SECURITY.md](SECURITY.md) — threat model and trust boundaries.
-- [docs/history/](docs/history/) — original build plan and audit trail.

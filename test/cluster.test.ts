@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { clusterIssues } from "../src/cluster/clusterEngine.js";
+import { clusterIssues, computeShortIssueIds } from "../src/cluster/clusterEngine.js";
 import {
   isCheckResponse,
   isNormalizedIssue,
@@ -318,6 +318,53 @@ describe("Cluster Engine", () => {
     expect(parsed.filteredOut).toBe(3);
     expect(parsed.nextStep).toContain("check_project");
     expect(isCheckResponse(result.response)).toBe(true);
+  });
+
+  it("shortens issueIds in remainingIssues and sampleIssueIds to 12 hex characters", () => {
+    const fullId1 = "111111111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const fullId2 = "222222222222bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+    const fullId3 = "333333333333cccccccccccccccccccccccccccccccccccccccccccccccccccc";
+    const issues = [
+      makeIssue(fullId1, "src/a.ts", "rule-a", "error", false),
+      makeIssue(fullId2, "src/b.ts", "rule-a", "error", false),
+      makeIssue(fullId3, "src/c.ts", "rule-a", "error", false),
+    ];
+    const result = clusterIssues(issues);
+    expect(result.response.clusters).toHaveLength(1);
+    const cluster = result.response.clusters[0]!;
+    expect(cluster.sampleIssueIds).toBeDefined();
+    expect(cluster.sampleIssueIds).toHaveLength(2);
+    expect(cluster.sampleIssueIds?.[0]).toBe("111111111111");
+    expect(cluster.sampleIssueIds?.[1]).toBe("222222222222");
+
+    const singleIssue = makeIssue(
+      "444444444444dddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "src/d.ts",
+      "rule-d",
+      "warning",
+      false,
+    );
+    const singleResult = clusterIssues([singleIssue]);
+    expect(singleResult.response.remainingIssues?.[0]?.issueId).toBe("444444444444");
+  });
+
+  describe("computeShortIssueIds", () => {
+    it("handles non-colliding IDs and IDs shorter than 12 chars", () => {
+      const map = computeShortIssueIds(["short", "another-id", "12345678901234567890"]);
+      expect(map.get("short")).toBe("short");
+      expect(map.get("another-id")).toBe("another-id");
+      expect(map.get("12345678901234567890")).toBe("123456789012");
+    });
+
+    it("extends prefix length when 12-character prefixes collide", () => {
+      const idA = "1234567890ab00000000";
+      const idB = "1234567890ab11111111";
+      const idC = "1234567890ab12222222";
+      const map = computeShortIssueIds([idA, idB, idC]);
+      expect(map.get(idA)).toBe("1234567890ab0");
+      expect(map.get(idB)).toBe("1234567890ab11");
+      expect(map.get(idC)).toBe("1234567890ab12");
+    });
   });
 });
 

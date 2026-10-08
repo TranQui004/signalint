@@ -260,6 +260,31 @@ describe("signalint doctor", () => {
     expect(combined).toContain("No linter available");
     expect(combined).toContain("Run 'npm i -D oxlint'");
   });
+
+  it("warns when TypeScript is not installed", async () => {
+    const root = await createTemporaryProject();
+    const homeDir = await createTemporaryProject();
+    await writeFile(join(root, "signalint.config.json"), "{}\n", "utf8");
+    await writeFile(join(root, "package.json"), '{"name":"test"}\n', "utf8");
+
+    const output: string[] = [];
+    const code = await runDoctorCommand({
+      cwd: root,
+      homeDir,
+      inspectEngines: async () => [
+        { name: "oxlint", source: "bundled", version: "1.86.0" },
+        { name: "tsc", source: "not_installed", version: undefined },
+        { name: "biome", source: "not_installed", version: undefined },
+        { name: "eslint", source: "not_installed", version: undefined },
+      ],
+      writeOutput: (msg) => output.push(msg),
+    });
+
+    expect(code).toBe(0);
+    const combined = output.join("");
+    expect(combined).toContain("TypeScript is not installed");
+    expect(combined).toContain("Run 'npm i -D typescript'");
+  });
 });
 
 async function createTemporaryProject(): Promise<string> {

@@ -301,6 +301,78 @@ describe("MCP response amendments", () => {
 
     expect(loopStatusResult[0]?.text.includes("\n")).toBe(false);
   });
+
+  it("resolves both short id and full 64-char id through get_issue_detail", async () => {
+    const fullId = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+    const issue: NormalizedIssue = {
+      ...makeIssue(),
+      issueId: fullId,
+    };
+    const client = await connectServer(async () => [issue]);
+
+    const checkResult = parseText(await callTool(client, "check_project", { paths: ["."] })) as CheckResponse;
+    expect(checkResult.remainingIssues).toHaveLength(1);
+    const shortId = checkResult.remainingIssues?.[0]?.issueId;
+    expect(shortId).toBe(fullId.slice(0, 12));
+
+    const shortDetail = parseText(await callTool(client, "get_issue_detail", { issueId: shortId }));
+    expect(Array.isArray(shortDetail)).toBe(true);
+    expect(shortDetail).toHaveLength(1);
+    expect((shortDetail as NormalizedIssue[])[0]?.issueId).toBe(fullId);
+
+    const fullDetail = parseText(await callTool(client, "get_issue_detail", { issueId: fullId }));
+    expect(Array.isArray(fullDetail)).toBe(true);
+    expect(fullDetail).toHaveLength(1);
+    expect((fullDetail as NormalizedIssue[])[0]?.issueId).toBe(fullId);
+  });
+
+  it("resolves two colliding 12-char prefix issues correctly without shadowing", async () => {
+    const prefix12 = "abcdef012345";
+    const fullIdA = `${prefix12}0000000000000000000000000000000000000000000000000000`;
+    const fullIdB = `${prefix12}1111111111111111111111111111111111111111111111111111`;
+    const issueA: NormalizedIssue = {
+      ...makeIssue(),
+      issueId: fullIdA,
+      file: "src/a.ts",
+    };
+    const issueB: NormalizedIssue = {
+      ...makeIssue(),
+      issueId: fullIdB,
+      file: "src/b.ts",
+      rule: "fixture-rule-b",
+    };
+    const client = await connectServer(async () => [issueA, issueB]);
+
+    const checkResult = parseText(await callTool(client, "check_project", { paths: ["."] })) as CheckResponse;
+    expect(checkResult.remainingIssues).toHaveLength(2);
+
+    const emittedIdA = checkResult.remainingIssues?.find((i) => i.file === "src/a.ts")?.issueId;
+    const emittedIdB = checkResult.remainingIssues?.find((i) => i.file === "src/b.ts")?.issueId;
+
+    expect(emittedIdA).toBeDefined();
+    expect(emittedIdB).toBeDefined();
+    expect(emittedIdA).not.toBe(emittedIdB);
+    expect(emittedIdA).toBe(`${prefix12}0`);
+    expect(emittedIdB).toBe(`${prefix12}1`);
+
+    const detailA = parseText(await callTool(client, "get_issue_detail", { issueId: emittedIdA })) as NormalizedIssue[];
+    expect(detailA).toHaveLength(1);
+    expect(detailA[0]?.issueId).toBe(fullIdA);
+    expect(detailA[0]?.file).toBe("src/a.ts");
+
+    const detailB = parseText(await callTool(client, "get_issue_detail", { issueId: emittedIdB })) as NormalizedIssue[];
+    expect(detailB).toHaveLength(1);
+    expect(detailB[0]?.issueId).toBe(fullIdB);
+    expect(detailB[0]?.file).toBe("src/b.ts");
+
+    const detailFullA = parseText(await callTool(client, "get_issue_detail", { issueId: fullIdA })) as NormalizedIssue[];
+    expect(detailFullA).toHaveLength(1);
+    expect(detailFullA[0]?.issueId).toBe(fullIdA);
+
+    const detailFullB = parseText(await callTool(client, "get_issue_detail", { issueId: fullIdB })) as NormalizedIssue[];
+    expect(detailFullB).toHaveLength(1);
+    expect(detailFullB[0]?.issueId).toBe(fullIdB);
+  });
 });
 
 async function connectServer(

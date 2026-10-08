@@ -76,10 +76,6 @@
     "@modelcontextprotocol/sdk": "1.32.0",
     "zod": "4.6.5"
   },
-  "optionalDependencies": {
-    "oxlint": "1.86.0",
-    "typescript": "7.0.2"
-  },
   "peerDependencies": {
     "@biomejs/biome": "2.5.15",
     "oxlint": "1.86.0",

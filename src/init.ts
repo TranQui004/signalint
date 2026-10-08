@@ -169,6 +169,13 @@ export async function runInitCommand(options: InitCommandOptions = {}): Promise<
     );
   }
 
+  const hasTsc = Boolean(resolveEngine("tsc", cwd));
+  if (!hasTsc && detection.tsconfig) {
+    writeOutput(
+      `\n[WARNING] TypeScript is not installed. Run 'npm i -D typescript' to enable type-checking.\n\n`,
+    );
+  }
+
   const interactive = options.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
   await ensureGitignore(cwd, options.prompts, interactive, writeOutput);
 

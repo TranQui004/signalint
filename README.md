@@ -39,23 +39,23 @@ When a coding agent requests diagnostics on a project, raw compiler and linter o
 ]
 ```
 
-### Clustered response returned to agent (2 clusters · 1,477 bytes · 80.0% reduction vs raw, 92.3% vs normalized)
+### Clustered response returned to agent (2 clusters · 655 bytes minified / 954 bytes pretty · 86.4% reduction vs raw, 94.8% vs normalized)
+
+> *Measurement note (2026-10-08, signalint v1.0.0, oxlint v1.86.0, tsc v7.0.2):* This hero example was measured on a fixture where nearly all 52 issues share two systemic root causes — a best case, not an average. See [docs/benchmarks.md](docs/benchmarks.md) for full breakdown across mixed and multi-rule repositories.
 
 ```json
 {
-  "schemaVersion": "1.3",
+  "schemaVersion": "1.4",
   "status": "issues_found",
   "projectRoot": "/path/to/project",
   "engines": {
     "oxlint": { "status": "ok" },
-    "tsc": { "status": "ok" },
-    "biome": { "status": "disabled" },
-    "eslint": { "status": "disabled" }
+    "tsc": { "status": "ok" }
   },
   "totalIssues": 52,
   "clusters": [
     {
-      "clusterId": "c4588ddaf",
+      "clusterId": "c4588dda",
       "rootCauseSummary": "21 TS2322 issues across 11 files",
       "ruleIds": ["TS2322"],
       "issueCount": 21,
@@ -63,12 +63,12 @@ When a coding agent requests diagnostics on a project, raw compiler and linter o
       "priority": 1,
       "suggestedAction": "Review the shared cause of TS2322 across 11 files",
       "sampleIssueIds": [
-        "b2dbbc348dd564e942cc317d434c39d4ac3a1a925d3d53fe23d5d184ce8b820a",
-        "86420b99c641b881656faaef5277a866653df413d75d97dd3376cc4b694b7779"
+        "b2dbbc348dd5",
+        "86420b99c641"
       ]
     },
     {
-      "clusterId": "c8920ad67",
+      "clusterId": "c8920ad6",
       "rootCauseSummary": "31 no-unused-vars issues across 11 files",
       "ruleIds": ["no-unused-vars"],
       "issueCount": 31,
@@ -76,15 +76,17 @@ When a coding agent requests diagnostics on a project, raw compiler and linter o
       "priority": 5,
       "suggestedAction": "Review the shared cause of no-unused-vars across 11 files",
       "sampleIssueIds": [
-        "62989a92f29313f73f660b3a5fd8be185556f50ed4f20c58a782a0ce4a74b4bb",
-        "5fd3182b7608409594f0382a63d009a06fcd10daf2442a182e1765d0884cddf6"
+        "62989a92f293",
+        "5fd3182b7608"
       ]
     }
   ],
+  "remainingIssues": [],
+  "omittedIssueCount": 0,
   "truncated": false,
+  "checkId": "7e3c2bd2",
   "loopWarning": null,
-  "fileRuleChurnWarning": null,
-  "checkId": "7e3c2bd2"
+  "fileRuleChurnWarning": null
 }
 ```
 
@@ -113,6 +115,27 @@ Install Signalint in the project it should check:
 ```sh
 npm install --save-dev signalint-mcp
 ```
+
+### Install size & package footprint
+
+Signalint declares `oxlint`, `typescript`, and `@biomejs/biome` as optional peer dependencies (`peerDependenciesMeta.*.optional: true`). When installing Signalint in a repository that already has its own compiler and linter, npm and pnpm do not install duplicate bundled engines by default:
+
+| Package manager | Default `node_modules` install size |
+|---|---|
+| `npm install --save-dev signalint-mcp` | ~27 MB |
+| `pnpm add -D signalint-mcp` | ~27 MB |
+
+**Commands used to measure:**
+```sh
+npm pack
+mkdir test-install && cd test-install
+npm init -y
+npm install --no-audit --no-fund ../signalint-mcp-<version>.tgz
+node -e 'const fs = require("fs"), path = require("path"); function sz(d){let s=0;for(const e of fs.readdirSync(d,{withFileTypes:true})){const f=path.join(d,e.name);s+=e.isDirectory()?sz(f):fs.statSync(f).size;}return s;}console.log((sz("node_modules")/(1024*1024)).toFixed(1)+" MB");'
+# Outputs: ~17 MB on Windows / ~27 MB on Linux with native platform bindings
+```
+
+If the project does not have `oxlint` or `typescript` installed, run `npx signalint-mcp doctor` to view status and installation hints.
 
 Run the setup command from that project root. It detects TypeScript, Oxlint,
 Biome, flat ESLint, and Prettier configuration, writes `signalint.config.json`,

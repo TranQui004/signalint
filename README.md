@@ -135,7 +135,7 @@ node -e 'const fs = require("fs"), path = require("path"); function sz(d){let s=
 # Outputs: ~17 MB on Windows / ~27 MB on Linux with native platform bindings
 ```
 
-If the project does not have `oxlint` or `typescript` installed, run `npx signalint-mcp doctor` to view status and installation hints.
+If the project does not have `oxlint` or `typescript` installed, run `npx --yes -p signalint-mcp signalint doctor` to view status and installation hints.
 
 Run the setup command from that project root. It detects TypeScript, Oxlint,
 Biome, flat ESLint, and Prettier configuration, writes `signalint.config.json`,
@@ -291,7 +291,7 @@ Project configuration in `<root>/.agents/mcp_config.json`:
 
 On native Windows, use `"command": "cmd"` and `"args": ["/c", "npx", "--no-install", "signalint-mcp"]`.
 
-> **Migration note:** Earlier versions wrote to `~/.gemini/antigravity/mcp_config.json`. If you have a legacy `signalint` entry in that file, delete it to avoid configuration shadowing. Run `npx signalint-mcp doctor` to check for and report legacy entries.
+> **Migration note:** Earlier versions wrote to `~/.gemini/antigravity/mcp_config.json`. If you have a legacy `signalint` entry in that file, delete it to avoid configuration shadowing. Run `npx --yes -p signalint-mcp signalint doctor` to check for and report legacy entries.
 
 See [antigravity.google/docs/mcp](https://antigravity.google/docs/mcp) for documentation.
 
@@ -326,7 +326,7 @@ To prevent this:
 Run `doctor` to inspect your project and detect common configuration issues:
 
 ```sh
-npx signalint-mcp doctor
+npx --yes -p signalint-mcp signalint doctor
 ```
 
 `doctor` checks:

@@ -164,3 +164,52 @@ describe("signalint check --fail-on-priority", () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("Usage: signalint check"));
   });
 });
+
+describe("signalint help and version CLI", () => {
+  it("prints usage and returns 0 for --help, -h, help, and no arguments", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    for (const flags of [["--help"], ["-h"], ["help"], []]) {
+      stdout.mockClear();
+      await expect(runCli(flags)).resolves.toBe(0);
+      expect(stdout).toHaveBeenCalledWith(
+        expect.stringContaining("Usage: signalint <init | check [path ...] | stats [--json] | doctor>"),
+      );
+    }
+  });
+
+  it("prints version and returns 0 for --version and -v", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    for (const flags of [["--version"], ["-v"]]) {
+      stdout.mockClear();
+      await expect(runCli(flags)).resolves.toBe(0);
+      expect(stdout).toHaveBeenCalledWith(expect.stringMatching(/^\d+\.\d+\.\d+\n$/));
+    }
+  });
+
+  it("prints unknown command error and returns 2 for unrecognized command", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    await expect(runCli(["not-a-command"])).resolves.toBe(2);
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringContaining("Unknown command: not-a-command"),
+    );
+  });
+
+  it("rejects extra arguments to doctor, init, and stats", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    await expect(runCli(["doctor", "unexpected"])).resolves.toBe(2);
+    expect(stderr).toHaveBeenCalledWith("Usage: signalint doctor\n");
+
+    stderr.mockClear();
+    await expect(runCli(["init", "unexpected"])).resolves.toBe(2);
+    expect(stderr).toHaveBeenCalledWith("Usage: signalint init\n");
+
+    stderr.mockClear();
+    await expect(runCli(["stats", "unexpected"])).resolves.toBe(2);
+    expect(stderr).toHaveBeenCalledWith("Usage: signalint stats [--json]\n");
+  });
+});
+

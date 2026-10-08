@@ -65,9 +65,9 @@ is safe: published artifacts on npm and MCP Registry are idempotently detected.
 - Smoke-test the published tarball in a clean project:
 
   ```sh
-  npx --yes signalint-mcp@1.0.0 init
-  npx --yes signalint-mcp@1.0.0 check .
-  npx --yes signalint-mcp@1.0.0 doctor
+  npx --yes signalint-mcp@1.1.0 init
+  npx --yes -p signalint-mcp@1.1.0 signalint check .
+  npx --yes -p signalint-mcp@1.1.0 signalint doctor
   ```
 
 ## One-time setup

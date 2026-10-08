@@ -7,9 +7,8 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag or version to release (e.g. v1.0.0)'
-        required: false
-        default: 'v1.0.0'
+        description: 'Release tag to publish (must start with v and match package.json, e.g. v1.1.2)'
+        required: true
 
 permissions:
   contents: read
@@ -93,14 +92,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Verify tag matches package version
-        run: |
-          ref_name="${{ github.event.inputs.tag || github.ref_name }}"
-          tag_version="${ref_name#v}"
-          package_version="$(node -p "require('./package.json').version")"
-          if [ "$tag_version" != "$package_version" ]; then
-            echo "Tag $ref_name does not match package.json version $package_version" >&2
-            exit 1
-          fi
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          INPUT_TAG: ${{ inputs.tag }}
+          REF_NAME: ${{ github.ref_name }}
+        run: node scripts/verify-release-tag.mjs
 
       - name: Build
         run: pnpm build
@@ -110,7 +106,7 @@ jobs:
 
       - name: Generate release notes from commit messages
         run: |
-          ref_name="${{ github.event.inputs.tag || github.ref_name }}"
+          ref_name="${RELEASE_TAG:-${{ inputs.tag || github.ref_name }}}"
           previous_tag="$(git describe --tags --abbrev=0 "${ref_name}^" 2>/dev/null || true)"
           if [ -n "$previous_tag" ]; then
             range_opts=("${previous_tag}..${ref_name}")
@@ -213,7 +209,7 @@ jobs:
 
       - name: Create GitHub Release
         run: |
-          ref_name="${{ github.event.inputs.tag || github.ref_name }}"
+          ref_name="${RELEASE_TAG:-${{ inputs.tag || github.ref_name }}}"
           if gh release view "$ref_name" > /dev/null 2>&1; then
             gh release edit "$ref_name" --title "$ref_name" --notes-file release-notes.md
           else

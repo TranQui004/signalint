@@ -139,10 +139,13 @@ export class SessionMemory {
       }
 
       const status = this.getStatus();
+      const loop = status.signatures[0];
+      const churn = status.fileRuleChurns[0];
+      const { loopWarning: _lw, fileRuleChurnWarning: _cw, ...baseResponse } = response;
       const responseWithWarning: CheckResponse = {
-        ...response,
-        loopWarning: status.signatures[0] ?? null,
-        fileRuleChurnWarning: status.fileRuleChurns[0] ?? null,
+        ...baseResponse,
+        ...(loop !== undefined ? { loopWarning: loop } : {}),
+        ...(churn !== undefined ? { fileRuleChurnWarning: churn } : {}),
       };
       await this.appendLog({
         timestamp,

@@ -178,8 +178,7 @@ async function measure() {
       const envelopeB = Buffer.byteLength(wholeJson, "utf8");
       const envelopeTok = tokenize(wholeJson);
 
-      // Baseline payload size:
-      // in "both" and "text", payload is the minified text. In "structured", payload is structuredContent.
+      // In "both" and "text" modes, payload is the minified text. In "structured", payload is structuredContent.
       const payloadB = mode === "structured" ? structuredB : textB;
       const ratio = (envelopeB / Math.max(payloadB, 1)).toFixed(2) + "x";
 
@@ -220,6 +219,40 @@ async function measure() {
     console.log(`  - structured: envelope = ${structuredRow?.envelopeB} B (${structuredRow?.ratio}, ~${structuredRow?.envelopeTok} tok)`);
     console.log("");
   }
+
+  const issueCounts = {
+    sparse: { issues: 1, label: "**1 issue, 1 file**", vsRaw: "+90% (fixed envelope)", hidden: 0 },
+    "systemic-ts": { issues: 12, label: "**12 issues, 1 root cause**", vsRaw: "−45% vs raw CLI", hidden: 0 },
+    "mixed-app": { issues: 11, label: "**11 issues, 10 distinct rules**", vsRaw: "−13% vs raw CLI", hidden: "0 (was 1 in v1.0.0)" },
+    "scale-app": { issues: 60, label: "**60 issues, 30+ distinct rules**", vsRaw: "−68% vs raw CLI", hidden: "0 (was 27 in v1.0.0)" },
+  };
+
+  const fmt = (n) => n.toLocaleString("en-US");
+
+  console.log("\n=== docs/benchmarks.md: Table 1 (Benchmark Results - Default Mode 'both') ===\n");
+  console.log("| Fixture | Total Issues | Signalint Minified Payload | Full MCP Envelope (`both`) | Wire Ratio | vs Raw CLI Output (`tsc` + `oxlint`) | Issues Hidden / Unreachable |");
+  console.log("|---|---:|---:|---:|---:|---:|---:|");
+  for (const fixture of fixtures) {
+    const bothRow = results.find((r) => r.fixture === fixture && r.mode === "both");
+    const meta = issueCounts[fixture];
+    console.log(`| ${meta.label} | ${meta.issues} | ${fmt(bothRow.payloadB)} B (~${tokenize("x".repeat(bothRow.payloadB))} tok) | ${fmt(bothRow.envelopeB)} B (~${bothRow.envelopeTok} tok) | ${bothRow.ratio} | ${meta.vsRaw} | ${meta.hidden} |`);
+  }
+
+  console.log("\n=== docs/benchmarks.md: Table 2 (Mode Comparison Across Fixtures) ===\n");
+  console.log("| Fixture | Issues | `both` Envelope (Default) | `text` Envelope | `structured` Envelope | `text` Savings vs `both` |");
+  console.log("|---|---:|---:|---:|---:|---:|");
+  for (const fixture of fixtures) {
+    const fixtureRows = results.filter((r) => r.fixture === fixture);
+    const bothRow = fixtureRows.find((r) => r.mode === "both");
+    const textRow = fixtureRows.find((r) => r.mode === "text");
+    const structuredRow = fixtureRows.find((r) => r.mode === "structured");
+    const meta = issueCounts[fixture];
+    const textRatio = (textRow.envelopeB / Math.max(bothRow.payloadB, 1)).toFixed(2) + "x";
+    const structuredRatio = (structuredRow.envelopeB / Math.max(bothRow.payloadB, 1)).toFixed(2) + "x";
+    const textSavings = `${(((bothRow.envelopeB - textRow.envelopeB) / bothRow.envelopeB) * 100).toFixed(1)}%`;
+    console.log(`| **${fixture}** | ${meta.issues} | ${fmt(bothRow.envelopeB)} B (${bothRow.ratio}) | ${fmt(textRow.envelopeB)} B (${textRatio}) | ${fmt(structuredRow.envelopeB)} B (${structuredRatio}) | ${textSavings} |`);
+  }
+  console.log("");
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

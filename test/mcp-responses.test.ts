@@ -6,6 +6,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { checkProjectWithIssues } from "../src/check/checkProject.js";
 import type { McpPayloadMode } from "../src/config.js";
 import { createServer } from "../src/index.js";
 import { SessionMemory } from "../src/memory/sessionMemory.js";
@@ -536,6 +537,75 @@ describe("configurable MCP payload modes across tools", () => {
     expect(resolveToolOutputSchema(dummySchema, "both")).toBe(dummySchema);
     expect(resolveToolOutputSchema(dummySchema, "structured")).toBe(dummySchema);
   });
+
+  it("omits loopWarning and fileRuleChurnWarning keys on clean project", async () => {
+    const client = await connectServer(() => Promise.resolve([]));
+    const result = await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    const text = getFirstText(result.content);
+    const parsed = JSON.parse(text) as Record<string, unknown>;
+
+    expect("loopWarning" in parsed).toBe(false);
+    expect("fileRuleChurnWarning" in parsed).toBe(false);
+    if (result.structuredContent !== undefined) {
+      const structured = result.structuredContent as Record<string, unknown>;
+      expect("loopWarning" in structured).toBe(false);
+      expect("fileRuleChurnWarning" in structured).toBe(false);
+    }
+  });
+
+  it("emits loopWarning when an issue oscillates and triggers loop detection", async () => {
+    const issue = makeIssue();
+    let currentIssues: NormalizedIssue[] = [issue];
+    const client = await connectServer(() => Promise.resolve(currentIssues));
+
+    // 1: issue present
+    await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    // 2: fixed
+    currentIssues = [];
+    await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    // 3: reappears (1st reappearance, below threshold)
+    currentIssues = [issue];
+    const thirdRes = await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    const thirdParsed = JSON.parse(getFirstText(thirdRes.content)) as Record<string, unknown>;
+    expect("loopWarning" in thirdParsed).toBe(false);
+
+    // 4: fixed
+    currentIssues = [];
+    await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    // 5: reappears (2nd reappearance, triggers loop warning)
+    currentIssues = [issue];
+    const fifthRes = await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    const fifthParsed = JSON.parse(getFirstText(fifthRes.content)) as Record<string, unknown>;
+    expect("loopWarning" in fifthParsed).toBe(true);
+    expect(fifthParsed.loopWarning).toBeDefined();
+    expect(fifthParsed.loopWarning).not.toBeNull();
+  });
+
+  it("serializes identical bytes between CLI check response and MCP check_project text", async () => {
+    const paths = ["test/fixtures/sample-project"];
+    const cliResult = await checkProjectWithIssues(paths, process.cwd());
+    const cliSerialized = JSON.stringify(cliResult.response);
+
+    const client = await connectServer(
+      () =>
+        Promise.resolve({
+          issues: cliResult.issues,
+          cache: { hits: 0, misses: 0 },
+          engines: cliResult.response.engines,
+        }),
+      undefined,
+      "both",
+    );
+
+    const mcpRes = await client.callTool({
+      name: "check_project",
+      arguments: { paths },
+    });
+    const mcpText = getFirstText(mcpRes.content);
+
+    expect(Buffer.byteLength(mcpText)).toBe(Buffer.byteLength(cliSerialized));
+    expect(JSON.parse(mcpText)).toEqual(cliResult.response);
+  });
 });
 
 function getFirstText(content: unknown): string {
@@ -556,8 +626,10 @@ async function connectServer(
   >,
   memory?: SessionMemory | undefined,
   payloadMode?: McpPayloadMode | undefined,
+  cwd?: string | undefined,
 ): Promise<Client> {
   const server = createServer({
+    cwd,
     projectIssueProvider: provider,
     fileIssueProvider: provider,
     sessionMemory: memory ?? new SessionMemory({ logPath }),

@@ -83,7 +83,7 @@ describe("Session Memory", () => {
     const status = await callLoopStatus(client);
     const logLines = (await readFile(logPath, "utf8")).trim().split(/\r?\n/);
 
-    expect(responses[2]?.loopWarning).toBeNull();
+    expect(responses[2]?.loopWarning).toBeUndefined();
     expect(responses[4]?.loopWarning).toMatchObject({
       signature: createIssueSignature(issueA),
       occurrences: 2,
@@ -212,8 +212,8 @@ describe("File-Rule Churn Detection", () => {
     const resp2 = await recordIssues(memory, [issue], "files");
     const resp3 = await recordIssues(memory, [issue], "files");
 
-    expect(resp1.fileRuleChurnWarning).toBeNull();
-    expect(resp2.fileRuleChurnWarning).toBeNull();
+    expect(resp1.fileRuleChurnWarning).toBeUndefined();
+    expect(resp2.fileRuleChurnWarning).toBeUndefined();
     expect(resp3.fileRuleChurnWarning).toMatchObject({
       file: "src/auth.ts",
       rule: "TS2345",
@@ -233,7 +233,7 @@ describe("File-Rule Churn Detection", () => {
     await recordIssues(memory, [issue], "project");
     const resp = await recordIssues(memory, [issue], "project");
 
-    expect(resp.fileRuleChurnWarning).toBeNull();
+    expect(resp.fileRuleChurnWarning).toBeUndefined();
     expect(memory.getStatus().fileChurning).toBe(false);
     expect(memory.getStatus().fileRuleChurns).toHaveLength(0);
   });
@@ -276,7 +276,7 @@ describe("File-Rule Churn Detection", () => {
 
     // Fix: pair absent — should clear
     const afterFix = await recordIssues(memory, [], "files");
-    expect(afterFix.fileRuleChurnWarning).toBeNull();
+    expect(afterFix.fileRuleChurnWarning).toBeUndefined();
     expect(memory.getStatus().fileChurning).toBe(false);
   });
 
@@ -334,8 +334,6 @@ async function recordIssues(
       totalIssues: issues.length,
       clusters: [],
       truncated: false,
-      loopWarning: null,
-      fileRuleChurnWarning: null,
     },
     undefined,
     undefined,

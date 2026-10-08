@@ -9,6 +9,11 @@ export async function handlePing(
   argumentsValue: unknown,
 ): Promise<CallToolResult> {
   parsePingArguments(argumentsValue);
+  if (context.payloadMode === "text") {
+    return {
+      content: [{ type: "text", text: "pong" }],
+    };
+  }
   return {
     content: [{ type: "text", text: "pong" }],
     structuredContent: { pong: true, projectRoot: context.cwd },

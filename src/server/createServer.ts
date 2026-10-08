@@ -13,6 +13,11 @@ import {
   collectProjectIssueResult,
 } from "../check/checkProject.js";
 import {
+  loadSignalintConfigSync,
+  resolveMcpPayloadMode,
+  type McpPayloadMode,
+} from "../config.js";
+import {
   closeRuntimeResources,
   registerProcessLifecycle,
   writeFatalError,
@@ -33,13 +38,14 @@ import { handleCheckFiles, handleCheckProject } from "./handlers/check.js";
 import { handleIssueDetail } from "./handlers/issueDetail.js";
 import { handleLoopStatus } from "./handlers/loopStatus.js";
 import { handlePing } from "./handlers/ping.js";
-import { tools } from "./tools.js";
+import { createTools } from "./tools.js";
 
 export interface SignalintServerOptions {
-  cwd?: string;
-  fileIssueProvider?: TestIssueProvider;
-  projectIssueProvider?: TestIssueProvider;
-  sessionMemory?: SessionMemory;
+  cwd?: string | undefined;
+  fileIssueProvider?: TestIssueProvider | undefined;
+  projectIssueProvider?: TestIssueProvider | undefined;
+  sessionMemory?: SessionMemory | undefined;
+  payloadMode?: McpPayloadMode | undefined;
 }
 
 /** Creates the Signalint MCP server with process-lifetime loop memory and optional test providers. */
@@ -100,7 +106,10 @@ export function createServer(options: SignalintServerOptions = {}): Server {
         checkConfiguredFilesWithStats(files, cwd, signal)
     : wrapIssueProvider(options.fileIssueProvider);
 
-  registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider, cwd);
+  const config = loadSignalintConfigSync(cwd);
+  const payloadMode = resolveMcpPayloadMode(options.payloadMode ?? config.mcpPayload);
+
+  registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider, cwd, payloadMode);
   return server;
 }
 
@@ -127,6 +136,7 @@ function registerToolHandlers(
   projectIssueProvider: IssueProvider,
   fileIssueProvider: IssueProvider,
   cwd: string,
+  payloadMode: McpPayloadMode,
 ): void {
   const context: ToolHandlerContext = {
     cwd,
@@ -134,8 +144,10 @@ function registerToolHandlers(
     latestIssues: [],
     projectIssueProvider,
     sessionMemory,
+    payloadMode,
   };
-  server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools }));
+  const activeTools = createTools(payloadMode);
+  server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools: activeTools }));
   server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
     try {
       return await dispatchToolCall(
@@ -146,7 +158,7 @@ function registerToolHandlers(
       );
     } catch (error: unknown) {
       if (error instanceof ZodError || error instanceof ProjectPathError) {
-        return createInputRefusal(error, context.cwd);
+        return createInputRefusal(error, context.cwd, context.payloadMode);
       }
       throw error;
     }

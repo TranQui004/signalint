@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
@@ -9,6 +9,10 @@ export const ENGINE_NAMES = ["oxlint", "tsc", "biome", "eslint"] as const;
 export type EngineName = (typeof ENGINE_NAMES)[number];
 
 export type BiomeEngineConfig = boolean | { includeFormatter: boolean };
+
+export const MCP_PAYLOAD_MODES = ["text", "structured", "both"] as const;
+
+export type McpPayloadMode = (typeof MCP_PAYLOAD_MODES)[number];
 
 export const FLAT_ESLINT_CONFIG_FILES = [
   "eslint.config.js",
@@ -52,6 +56,7 @@ export interface SignalintConfig {
   engines: EngineSelection;
   ignore: string[];
   timeoutsMs: EngineTimeouts;
+  mcpPayload: McpPayloadMode;
 }
 
 export const DEFAULT_CONFIG: Readonly<SignalintConfig> = {
@@ -68,7 +73,26 @@ export const DEFAULT_CONFIG: Readonly<SignalintConfig> = {
     biome: 30_000,
     eslint: 30_000,
   },
+  mcpPayload: "both",
 };
+
+/** Resolves the active MCP payload mode considering env var, config setting, and default. */
+export function resolveMcpPayloadMode(
+  configPayload?: McpPayloadMode,
+  envValue: string | undefined = process.env.SIGNALINT_MCP_PAYLOAD,
+): McpPayloadMode {
+  if (envValue !== undefined && envValue.trim() !== "") {
+    const trimmed = envValue.trim();
+    if (trimmed === "text" || trimmed === "structured" || trimmed === "both") {
+      return trimmed;
+    }
+    throw new Error(`Invalid SIGNALINT_MCP_PAYLOAD "${envValue}": expected "text", "structured", or "both".`);
+  }
+  if (configPayload !== undefined) {
+    return configPayload;
+  }
+  return DEFAULT_CONFIG.mcpPayload;
+}
 
 /** Loads signalint.config.json from a project root and fills omitted settings with defaults. */
 export async function loadSignalintConfig(cwd: string = process.cwd()): Promise<SignalintConfig> {
@@ -78,12 +102,44 @@ export async function loadSignalintConfig(cwd: string = process.cwd()): Promise<
     serialized = await readFile(configPath, "utf8");
   } catch (error: unknown) {
     if (isMissingFileError(error)) {
-      return cloneDefaultConfig(cwd);
+      const def = cloneDefaultConfig(cwd);
+      return {
+        ...def,
+        mcpPayload: resolveMcpPayloadMode(def.mcpPayload),
+      };
     }
     throw error;
   }
 
-  return parseSignalintConfig(serialized, cwd);
+  const parsed = parseSignalintConfig(serialized, cwd);
+  return {
+    ...parsed,
+    mcpPayload: resolveMcpPayloadMode(parsed.mcpPayload),
+  };
+}
+
+/** Synchronously loads signalint.config.json from a project root and fills omitted settings with defaults. */
+export function loadSignalintConfigSync(cwd: string = process.cwd()): SignalintConfig {
+  const configPath = resolve(cwd, "signalint.config.json");
+  let serialized: string;
+  try {
+    serialized = readFileSync(configPath, "utf8");
+  } catch (error: unknown) {
+    if (isMissingFileError(error)) {
+      const def = cloneDefaultConfig(cwd);
+      return {
+        ...def,
+        mcpPayload: resolveMcpPayloadMode(def.mcpPayload),
+      };
+    }
+    throw error;
+  }
+
+  const parsed = parseSignalintConfig(serialized, cwd);
+  return {
+    ...parsed,
+    mcpPayload: resolveMcpPayloadMode(parsed.mcpPayload),
+  };
 }
 
 /** Parses a Signalint config document and rejects unknown or incorrectly typed settings. */
@@ -92,12 +148,13 @@ export function parseSignalintConfig(serialized: string, cwd?: string): Signalin
   if (!isRecord(parsed)) {
     throw new Error("signalint.config.json must contain a JSON object.");
   }
-  assertKnownKeys(parsed, new Set(["engines", "ignore", "timeoutsMs"]), "configuration");
+  assertKnownKeys(parsed, new Set(["engines", "ignore", "timeoutsMs", "mcpPayload"]), "configuration");
 
   return {
     engines: parseEngineSelection(parsed.engines, cwd),
     ignore: parseIgnoreGlobs(parsed.ignore),
     timeoutsMs: parseEngineTimeouts(parsed.timeoutsMs),
+    mcpPayload: parseMcpPayload(parsed.mcpPayload),
   };
 }
 
@@ -260,12 +317,23 @@ function escapePattern(value: string): string {
   return [...value].map(escapeRegExp).join("");
 }
 
+function parseMcpPayload(value: unknown): McpPayloadMode {
+  if (value === undefined) {
+    return DEFAULT_CONFIG.mcpPayload;
+  }
+  if (typeof value !== "string" || !MCP_PAYLOAD_MODES.includes(value as McpPayloadMode)) {
+    throw new Error('signalint.config.json field "mcpPayload" must be "text", "structured", or "both".');
+  }
+  return value as McpPayloadMode;
+}
+
 function cloneDefaultConfig(cwd?: string): SignalintConfig {
   const defaultEslint = cwd !== undefined ? hasFlatEslintConfig(cwd) : false;
   return {
     engines: { ...DEFAULT_CONFIG.engines, eslint: defaultEslint },
     ignore: [...DEFAULT_CONFIG.ignore],
     timeoutsMs: { ...DEFAULT_CONFIG.timeoutsMs },
+    mcpPayload: DEFAULT_CONFIG.mcpPayload,
   };
 }
 

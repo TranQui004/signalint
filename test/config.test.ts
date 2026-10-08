@@ -7,6 +7,7 @@ import {
   isIgnoredPath,
   loadSignalintConfig,
   parseSignalintConfig,
+  resolveMcpPayloadMode,
 } from "../src/config.js";
 import { checkConfiguredFiles, collectProjectIssues } from "../src/index.js";
 
@@ -20,6 +21,7 @@ describe("Signalint configuration", () => {
       engines: { oxlint: false, tsc: false, biome: true, eslint: false },
       ignore: ["src/ignored.ts"],
       timeoutsMs: { oxlint: 10_000, tsc: 20_000, biome: 15_000, eslint: 30_000 },
+      mcpPayload: "both",
     });
   });
 
@@ -28,9 +30,39 @@ describe("Signalint configuration", () => {
       engines: { oxlint: true, tsc: true, biome: true, eslint: false },
       ignore: ["node_modules/**", "dist/**", ".signalint/**"],
       timeoutsMs: { oxlint: 30_000, tsc: 60_000, biome: 30_000, eslint: 30_000 },
+      mcpPayload: "both",
     });
     expect(() => parseSignalintConfig('{"engines":{"unknownEngine":true}}')).toThrow(
       'Unknown "engines" field "unknownEngine".',
+    );
+  });
+
+  it("parses valid mcpPayload values and rejects invalid ones", () => {
+    expect(parseSignalintConfig('{"mcpPayload":"text"}').mcpPayload).toBe("text");
+    expect(parseSignalintConfig('{"mcpPayload":"structured"}').mcpPayload).toBe("structured");
+    expect(parseSignalintConfig('{"mcpPayload":"both"}').mcpPayload).toBe("both");
+    expect(() => parseSignalintConfig('{"mcpPayload":"invalid"}')).toThrow(
+      'signalint.config.json field "mcpPayload" must be "text", "structured", or "both".',
+    );
+  });
+
+  it("resolves MCP payload mode with env > config > default precedence", () => {
+    // 1. Default when neither env nor config is set
+    expect(resolveMcpPayloadMode()).toBe("both");
+    expect(resolveMcpPayloadMode(undefined, undefined)).toBe("both");
+
+    // 2. Config used when env is not set
+    expect(resolveMcpPayloadMode("text", undefined)).toBe("text");
+    expect(resolveMcpPayloadMode("structured", "")).toBe("structured");
+
+    // 3. Env takes precedence over config
+    expect(resolveMcpPayloadMode("both", "text")).toBe("text");
+    expect(resolveMcpPayloadMode("text", "structured")).toBe("structured");
+    expect(resolveMcpPayloadMode("structured", "both")).toBe("both");
+
+    // 4. Invalid env throws error
+    expect(() => resolveMcpPayloadMode("both", "invalid")).toThrow(
+      'Invalid SIGNALINT_MCP_PAYLOAD "invalid": expected "text", "structured", or "both".',
     );
   });
 

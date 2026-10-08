@@ -103,6 +103,7 @@ export function createDetectedConfig(detection: ProjectToolDetection): Signalint
     },
     ignore: [...DEFAULT_CONFIG.ignore],
     timeoutsMs: { ...DEFAULT_CONFIG.timeoutsMs },
+    mcpPayload: DEFAULT_CONFIG.mcpPayload,
   };
 }
 

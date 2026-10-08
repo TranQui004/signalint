@@ -1,9 +1,18 @@
+import type { McpPayloadMode } from "../config.js";
 import type { StaleReferenceResponse } from "../schema.js";
 
 export const STALE_REFERENCE_RESPONSE: StaleReferenceResponse = {
   status: "stale",
   message: "This cluster/issue no longer exists; run check_project again.",
 };
+
+/** Resolves the output schema for an MCP tool, returning undefined when the mode suppresses structured content. */
+export function resolveToolOutputSchema(
+  schema: Record<string, unknown>,
+  mode: McpPayloadMode = "both",
+): Record<string, unknown> | undefined {
+  return mode === "text" ? undefined : schema;
+}
 
 export const engineStatusOutputSchema = {
   type: "object" as const,

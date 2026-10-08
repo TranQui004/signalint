@@ -1,0 +1,182 @@
+{
+  "rows": [
+    {
+      "project": "sparse",
+      "mode": "both",
+      "textB": 446,
+      "structuredB": 446,
+      "envelopeB": 1018,
+      "ratio": "2.28x",
+      "hasText": true,
+      "hasStructured": true,
+      "newlines": false,
+      "tok": 137
+    },
+    {
+      "project": "sparse",
+      "mode": "text",
+      "textB": 446,
+      "structuredB": 0,
+      "envelopeB": 551,
+      "ratio": "1.24x",
+      "hasText": true,
+      "hasStructured": false,
+      "newlines": false,
+      "tok": 137
+    },
+    {
+      "project": "sparse",
+      "mode": "structured",
+      "textB": 14,
+      "structuredB": 446,
+      "envelopeB": 520,
+      "ratio": "37.14x",
+      "hasText": true,
+      "hasStructured": true,
+      "newlines": false,
+      "tok": 4
+    },
+    {
+      "project": "systemic-ts",
+      "mode": "both",
+      "textB": 530,
+      "structuredB": 530,
+      "envelopeB": 1188,
+      "ratio": "2.24x",
+      "hasText": true,
+      "hasStructured": true,
+      "newlines": false,
+      "tok": 165
+    },
+    {
+      "project": "systemic-ts",
+      "mode": "text",
+      "textB": 530,
+      "structuredB": 0,
+      "envelopeB": 637,
+      "ratio": "1.20x",
+      "hasText": true,
+      "hasStructured": false,
+      "newlines": false,
+      "tok": 165
+    },
+    {
+      "project": "systemic-ts",
+      "mode": "structured",
+      "textB": 16,
+      "structuredB": 530,
+      "envelopeB": 606,
+      "ratio": "37.88x",
+      "hasText": true,
+      "hasStructured": true,
+      "newlines": false,
+      "tok": 4
+    },
+    {
+      "project": "mixed-app",
+      "mode": "both",
+      "textB": 1241,
+      "structuredB": 1241,
+      "envelopeB": 2718,
+      "ratio": "2.19x",
+      "hasText": true,
+      "hasStructured": true,
+      "newlines": false,
+      "tok": 405
+    },
+    {
+      "project": "mixed-app",
+      "mode": "text",
+      "textB": 1241,
+      "structuredB": 0,
+      "envelopeB": 1456,
+      "ratio": "1.17x",
+      "hasText": true,
+      "hasStructured": false,
+      "newlines": false,
+      "tok": 405
+    },
+    {
+      "project": "mixed-app",
+      "mode": "structured",
+      "textB": 16,
+      "structuredB": 1241,
+      "envelopeB": 1317,
+      "ratio": "82.31x",
+      "hasText": true,
+      "hasStructured": true,
+      "newlines": false,
+      "tok": 4
+    },
+    {
+      "project": "scale-app",
+      "mode": "both",
+      "textB": 3146,
+      "structuredB": 3146,
+      "envelopeB": 6842,
+      "ratio": "2.17x",
+      "hasText": true,
+      "hasStructured": true,
+      "newlines": false,
+      "tok": 1063
+    },
+    {
+      "project": "scale-app",
+      "mode": "text",
+      "textB": 3146,
+      "structuredB": 0,
+      "envelopeB": 3675,
+      "ratio": "1.17x",
+      "hasText": true,
+      "hasStructured": false,
+      "newlines": false,
+      "tok": 1063
+    },
+    {
+      "project": "scale-app",
+      "mode": "structured",
+      "textB": 16,
+      "structuredB": 3146,
+      "envelopeB": 3222,
+      "ratio": "201.38x",
+      "hasText": true,
+      "hasStructured": true,
+      "newlines": false,
+      "tok": 4
+    }
+  ],
+  "summary": [
+    {
+      "project": "sparse",
+      "bothB": 1018,
+      "textB": 551,
+      "textSaving": "45.9%",
+      "structuredB": 520,
+      "structuredSaving": "48.9%"
+    },
+    {
+      "project": "systemic-ts",
+      "bothB": 1188,
+      "textB": 637,
+      "textSaving": "46.4%",
+      "structuredB": 606,
+      "structuredSaving": "49.0%"
+    },
+    {
+      "project": "mixed-app",
+      "bothB": 2718,
+      "textB": 1456,
+      "textSaving": "46.4%",
+      "structuredB": 1317,
+      "structuredSaving": "51.5%"
+    },
+    {
+      "project": "scale-app",
+      "bothB": 6842,
+      "textB": 3675,
+      "textSaving": "46.3%",
+      "structuredB": 3222,
+      "structuredSaving": "52.9%"
+    }
+  ]
+}

@@ -41,7 +41,7 @@ When a coding agent requests diagnostics on a project, raw compiler and linter o
 
 ### Clustered response returned to agent (2 clusters · 655 bytes minified / 954 bytes pretty · 86.4% reduction vs raw, 94.8% vs normalized)
 
-> *Measurement note (2026-10-08, signalint post-1.0.0 unreleased, oxlint v1.86.0, tsc v7.0.2):* This hero example was measured on a fixture where nearly all 52 issues share two systemic root causes — a best case, not an average. See [docs/benchmarks.md](docs/benchmarks.md) for full breakdown across mixed and multi-rule repositories.
+> *Measurement note (2026-10-08, signalint v1.1.0, oxlint v1.86.0, tsc v7.0.2):* This hero example was measured on a fixture where nearly all 52 issues share two systemic root causes — a best case, not an average. See [docs/benchmarks.md](docs/benchmarks.md) for full breakdown across mixed and multi-rule repositories.
 
 ```json
 {
@@ -488,7 +488,7 @@ the pull request diff:
 ```
 
 `@v1` is a moving tag that is re-pointed on every `1.x` release; pin
-`@v1.0.0` (or any exact tag) when you need a fixed version.
+`@v1.1.0` (or any exact tag) when you need a fixed version.
 
 `fail-on-priority` defaults to `5`, which fails the job on any issue found,
 matching `signalint check`'s default behavior without the flag. Lower values

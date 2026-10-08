@@ -1,6 +1,6 @@
 # Diagnostic Benchmarks & Payload Measurements
 
-Measured on **2026-10-08** with `signalint-mcp@1.0.0` (unreleased build with 12-char IDs, null warning fields omitted), `oxlint@1.86.0`, `typescript@7.0.2`, `gpt-tokenizer` (`cl100k_base`), Node.js v22.
+Measured on **2026-10-08** with `signalint-mcp@1.1.0`, `oxlint@1.86.0`, `typescript@7.0.2`, `gpt-tokenizer` (`cl100k_base`), Node.js v22.
 
 ## Benchmark Results (Default Mode: `"both"`)
 

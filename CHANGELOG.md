@@ -10,6 +10,15 @@ full detail.
 > response `schemaVersion` from `1.2` to `1.3`, and adds ESLint as a fourth
 > diagnostic engine.
 
+## 1.1.1 - 2026-10-08
+
+### CLI entrypoint dispatch and interactive terminal safety
+- Recognised CLI verbs (`init`, `check`, `doctor`, `stats`, `help`, `--help`, `-h`, `--version`, `-v`) directly from the `signalint-mcp` entry point (`dist/src/index.js`), dispatching them to the CLI runner instead of starting the MCP stdio server.
+- Fixed indefinite hang when invoking `npx signalint-mcp <command>` from an interactive terminal with stdin held open.
+- Emitted actionable guidance to stderr and exited with code 2 when `signalint-mcp` is invoked bare on an interactive TTY console.
+- Preserved existing stdio MCP server startup behavior when invoked by MCP clients with non-TTY stdin pipes.
+- Corrected documentation in `README.md` and `RELEASE.md` that taught `npx signalint-mcp doctor` to use `npx --yes -p signalint-mcp signalint doctor`.
+
 ## 1.1.0 - 2026-10-08
 
 ### Response schema and payload efficiency

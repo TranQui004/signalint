@@ -1,0 +1,63 @@
+{
+  "rows": [
+    {
+      "project": "sparse",
+      "issues": 1,
+      "payloadMinB": 399,
+      "claimedPayload": 377,
+      "payloadDelta": "22 B",
+      "envelopeB": 1018,
+      "claimedEnvelope": 910,
+      "envDelta": "108 B",
+      "envRatio": "2.55x",
+      "textTok": 137,
+      "idLengths": "12"
+    },
+    {
+      "project": "systemic-ts",
+      "issues": 12,
+      "payloadMinB": 483,
+      "claimedPayload": 445,
+      "payloadDelta": "38 B",
+      "envelopeB": 1188,
+      "claimedEnvelope": 1048,
+      "envDelta": "140 B",
+      "envRatio": "2.46x",
+      "textTok": 165,
+      "idLengths": "12"
+    },
+    {
+      "project": "mixed-app",
+      "issues": 11,
+      "payloadMinB": 1194,
+      "claimedPayload": 1194,
+      "payloadDelta": "0 B",
+      "envelopeB": 2718,
+      "claimedEnvelope": 2280,
+      "envDelta": "438 B",
+      "envRatio": "2.28x",
+      "textTok": 405,
+      "idLengths": "12"
+    },
+    {
+      "project": "scale-app",
+      "issues": 60,
+      "payloadMinB": 3099,
+      "claimedPayload": 3099,
+      "payloadDelta": "0 B",
+      "envelopeB": 6842,
+      "claimedEnvelope": 5900,
+      "envDelta": "942 B",
+      "envRatio": "2.21x",
+      "textTok": 1063,
+      "idLengths": "12"
+    }
+  ],
+  "idDetail": {
+    "shortIdLength": null,
+    "shortResolves": false,
+    "fullId": null,
+    "fullResolves": false,
+    "sameResult": true
+  }
+}

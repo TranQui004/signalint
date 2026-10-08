@@ -1,0 +1,284 @@
+[
+  {
+    "step": "S0 baseline (cold)",
+    "ms": 198,
+    "schemaVersion": "1.4",
+    "status": "issues_found",
+    "projectRoot": "/home/user/signalint/eval-harness/projects/cache-lab",
+    "engines": {
+      "oxlint": {
+        "status": "ok"
+      },
+      "tsc": {
+        "status": "ok"
+      }
+    },
+    "totalIssues": 1,
+    "clusters": [],
+    "remainingIssues": [
+      {
+        "issueId": "2f42eb0d8213b453e3381a8a642b58a63abe670a3917bf8acc2d74e680430b75",
+        "file": "src/consumer.ts",
+        "line": 3,
+        "col": 14,
+        "rule": "TS2322",
+        "severity": "error",
+        "fixable": false
+      }
+    ],
+    "omittedIssueCount": 0,
+    "truncated": false,
+    "checkId": "927e9a6e",
+    "loopWarning": null,
+    "fileRuleChurnWarning": null,
+    "expectation": "TS2322 in consumer.ts"
+  },
+  {
+    "step": "S1 fixed the TS2322",
+    "ms": 162,
+    "schemaVersion": "1.4",
+    "status": "clean",
+    "projectRoot": "/home/user/signalint/eval-harness/projects/cache-lab",
+    "engines": {
+      "oxlint": {
+        "status": "ok"
+      },
+      "tsc": {
+        "status": "ok"
+      }
+    },
+    "totalIssues": 0,
+    "clusters": [],
+    "remainingIssues": [],
+    "omittedIssueCount": 0,
+    "truncated": false,
+    "checkId": "da39a3ee",
+    "loopWarning": null,
+    "fileRuleChurnWarning": null,
+    "expectation": "TS2322 gone"
+  },
+  {
+    "step": "S2 added error to previously clean file",
+    "ms": 150,
+    "schemaVersion": "1.4",
+    "status": "issues_found",
+    "projectRoot": "/home/user/signalint/eval-harness/projects/cache-lab",
+    "engines": {
+      "oxlint": {
+        "status": "ok"
+      },
+      "tsc": {
+        "status": "ok"
+      }
+    },
+    "totalIssues": 1,
+    "clusters": [],
+    "remainingIssues": [
+      {
+        "issueId": "debc764f04cfc5c1ac32a931ffc8bc4bba42edf3a9cccfab078a076fd5e08c6f",
+        "file": "src/clean.ts",
+        "line": 2,
+        "col": 14,
+        "rule": "TS2322",
+        "severity": "error",
+        "fixable": false
+      }
+    ],
+    "omittedIssueCount": 0,
+    "truncated": false,
+    "checkId": "98561d1e",
+    "loopWarning": null,
+    "fileRuleChurnWarning": null,
+    "expectation": "new TS2322 in clean.ts"
+  },
+  {
+    "step": "S3 cross-file: types.ts type changed",
+    "ms": 161,
+    "schemaVersion": "1.4",
+    "status": "issues_found",
+    "projectRoot": "/home/user/signalint/eval-harness/projects/cache-lab",
+    "engines": {
+      "oxlint": {
+        "status": "ok"
+      },
+      "tsc": {
+        "status": "ok"
+      }
+    },
+    "totalIssues": 2,
+    "clusters": [
+      {
+        "clusterId": "c96babc49",
+        "rootCauseSummary": "2 TS2322 issues across 2 files",
+        "ruleIds": [
+          "TS2322"
+        ],
+        "issueCount": 2,
+        "fileCount": 2,
+        "priority": 2
+      }
+    ],
+    "remainingIssues": [],
+    "omittedIssueCount": 0,
+    "truncated": false,
+    "checkId": "c6ff52e9",
+    "loopWarning": null,
+    "fileRuleChurnWarning": null,
+    "expectation": "new error in consumer.ts (name: UserName = \"ada\")"
+  },
+  {
+    "step": "S4 same-size edit + mtime restored (coarse-mtime FS)",
+    "ms": 162,
+    "schemaVersion": "1.4",
+    "status": "issues_found",
+    "projectRoot": "/home/user/signalint/eval-harness/projects/cache-lab",
+    "engines": {
+      "oxlint": {
+        "status": "ok"
+      },
+      "tsc": {
+        "status": "ok"
+      }
+    },
+    "totalIssues": 2,
+    "clusters": [],
+    "remainingIssues": [
+      {
+        "issueId": "debc764f04cfc5c1ac32a931ffc8bc4bba42edf3a9cccfab078a076fd5e08c6f",
+        "file": "src/clean.ts",
+        "line": 2,
+        "col": 14,
+        "rule": "TS2322",
+        "severity": "error",
+        "fixable": false
+      },
+      {
+        "issueId": "465ac4b88b1864b1b8588c88dc81f1c6ce085d8c0cc15bcaa9dea12957d8f1c3",
+        "file": "src/consumer.ts",
+        "line": 1,
+        "col": 15,
+        "rule": "TS2724",
+        "severity": "error",
+        "fixable": false
+      }
+    ],
+    "omittedIssueCount": 0,
+    "truncated": false,
+    "checkId": "c7134ed7",
+    "loopWarning": null,
+    "fileRuleChurnWarning": null,
+    "expectation": "fresh: TS2305 appears in consumer.ts"
+  },
+  {
+    "step": "S5 after mtime bump (control)",
+    "ms": 156,
+    "schemaVersion": "1.4",
+    "status": "issues_found",
+    "projectRoot": "/home/user/signalint/eval-harness/projects/cache-lab",
+    "engines": {
+      "oxlint": {
+        "status": "ok"
+      },
+      "tsc": {
+        "status": "ok"
+      }
+    },
+    "totalIssues": 2,
+    "clusters": [],
+    "remainingIssues": [
+      {
+        "issueId": "debc764f04cfc5c1ac32a931ffc8bc4bba42edf3a9cccfab078a076fd5e08c6f",
+        "file": "src/clean.ts",
+        "line": 2,
+        "col": 14,
+        "rule": "TS2322",
+        "severity": "error",
+        "fixable": false
+      },
+      {
+        "issueId": "465ac4b88b1864b1b8588c88dc81f1c6ce085d8c0cc15bcaa9dea12957d8f1c3",
+        "file": "src/consumer.ts",
+        "line": 1,
+        "col": 15,
+        "rule": "TS2724",
+        "severity": "error",
+        "fixable": false
+      }
+    ],
+    "omittedIssueCount": 0,
+    "truncated": false,
+    "checkId": "c7134ed7",
+    "loopWarning": null,
+    "fileRuleChurnWarning": null,
+    "expectation": "TS2305 appears now"
+  },
+  {
+    "step": "S6 check_files([consumer.ts]) scope",
+    "ms": 9,
+    "schemaVersion": "1.4",
+    "status": "issues_found",
+    "projectRoot": "/home/user/signalint/eval-harness/projects/cache-lab",
+    "engines": {
+      "oxlint": {
+        "status": "ok"
+      },
+      "tsc": {
+        "status": "ok"
+      }
+    },
+    "totalIssues": 2,
+    "clusters": [],
+    "remainingIssues": [
+      {
+        "issueId": "debc764f04cfc5c1ac32a931ffc8bc4bba42edf3a9cccfab078a076fd5e08c6f",
+        "file": "src/clean.ts",
+        "line": 2,
+        "col": 14,
+        "rule": "TS2322",
+        "severity": "error",
+        "fixable": false
+      },
+      {
+        "issueId": "465ac4b88b1864b1b8588c88dc81f1c6ce085d8c0cc15bcaa9dea12957d8f1c3",
+        "file": "src/consumer.ts",
+        "line": 1,
+        "col": 15,
+        "rule": "TS2724",
+        "severity": "error",
+        "fixable": false
+      }
+    ],
+    "omittedIssueCount": 0,
+    "truncated": false,
+    "checkId": "c7134ed7",
+    "loopWarning": null,
+    "fileRuleChurnWarning": null,
+    "expectation": "only consumer.ts issues (no scope leak)"
+  },
+  {
+    "step": "S7 loop status",
+    "loopStatus": {
+      "looping": false,
+      "signatures": [],
+      "fileChurning": false,
+      "fileRuleChurns": []
+    }
+  },
+  {
+    "step": "S8 get_issue_detail",
+    "ok": true,
+    "detail": [
+      {
+        "issueId": "debc764f04cfc5c1ac32a931ffc8bc4bba42edf3a9cccfab078a076fd5e08c6f",
+        "file": "src/clean.ts",
+        "line": 2,
+        "col": 14,
+        "engine": "tsc",
+        "rule": "TS2322",
+        "severity": "error",
+        "message": "Type 'string' is not assignable to type 'number'.",
+        "fixable": false
+      }
+    ]
+  }
+]

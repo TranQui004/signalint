@@ -1,0 +1,106 @@
+{
+  "compactRows": [
+    {
+      "project": "sparse",
+      "issues": 1,
+      "normalB": 602,
+      "compactB": 498,
+      "compactSmaller": true,
+      "delta": "-17%",
+      "dupKeys": "remaining",
+      "compactKeys": "checkId,clusters,engines,omitted,remaining,status,total,truncated,v",
+      "normalTok": 221,
+      "compactTok": 197
+    },
+    {
+      "project": "systemic-ts",
+      "issues": 12,
+      "normalB": 779,
+      "compactB": 670,
+      "compactSmaller": true,
+      "delta": "-14%",
+      "dupKeys": "remaining",
+      "compactKeys": "checkId,clusters,engines,omitted,remaining,status,total,truncated,v",
+      "normalTok": 283,
+      "compactTok": 258
+    },
+    {
+      "project": "mixed-app",
+      "issues": 11,
+      "normalB": 2132,
+      "compactB": 2025,
+      "compactSmaller": true,
+      "delta": "-5%",
+      "dupKeys": "remaining",
+      "compactKeys": "checkId,clusters,engines,omitted,remaining,status,total,truncated,v",
+      "normalTok": 805,
+      "compactTok": 780
+    },
+    {
+      "project": "scale-app",
+      "issues": 60,
+      "normalB": 5826,
+      "compactB": 5719,
+      "compactSmaller": true,
+      "delta": "-2%",
+      "dupKeys": "remaining",
+      "compactKeys": "checkId,clusters,engines,omitted,remaining,status,total,truncated,v",
+      "normalTok": 2268,
+      "compactTok": 2243
+    }
+  ],
+  "wireRows": [
+    {
+      "project": "sparse",
+      "textB": 498,
+      "envelopeB": 1122,
+      "ratio": "2.25x",
+      "hasNewline": false,
+      "textTok": 166,
+      "structured": "yes",
+      "structuredB": 498
+    },
+    {
+      "project": "systemic-ts",
+      "textB": 634,
+      "envelopeB": 1396,
+      "ratio": "2.20x",
+      "hasNewline": false,
+      "textTok": 219,
+      "structured": "yes",
+      "structuredB": 634
+    },
+    {
+      "project": "mixed-app",
+      "textB": 1605,
+      "envelopeB": 3446,
+      "ratio": "2.15x",
+      "hasNewline": false,
+      "textTok": 610,
+      "structured": "yes",
+      "structuredB": 1605
+    },
+    {
+      "project": "scale-app",
+      "textB": 4342,
+      "envelopeB": 9234,
+      "ratio": "2.13x",
+      "hasNewline": false,
+      "textTok": 1729,
+      "structured": "yes",
+      "structuredB": 4342
+    }
+  ],
+  "scopeReport": {
+    "requested": "src/consumer.ts",
+    "total": 1,
+    "filesInPayload": [
+      "src/consumer.ts"
+    ],
+    "filteredOutIssueCount": 1,
+    "nextStep": "Run check_project to inspect 1 issue(s) outside requested files.",
+    "warmIdentical": true,
+    "checkProjectTotal": 2,
+    "scopeLeak": false
+  }
+}

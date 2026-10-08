@@ -1,0 +1,122 @@
+[
+  {
+    "project": "sparse",
+    "server": "v1.0.0",
+    "issues": 1,
+    "schema": "1.3",
+    "textB": 861,
+    "textTok": 296,
+    "envelopeB": 1670,
+    "wrapOverhead": "1.94x"
+  },
+  {
+    "project": "sparse",
+    "server": "pr52",
+    "issues": 1,
+    "schema": "1.4",
+    "textB": 657,
+    "textTok": 238,
+    "envelopeB": 1311,
+    "wrapOverhead": "2.00x"
+  },
+  {
+    "project": "sparse",
+    "server": "pr52+compact",
+    "issues": 1,
+    "schema": "1.4",
+    "textB": 860,
+    "textTok": 334,
+    "envelopeB": 1676,
+    "wrapOverhead": "1.95x"
+  },
+  {
+    "project": "systemic-ts",
+    "server": "v1.0.0",
+    "issues": 12,
+    "schema": "1.3",
+    "textB": 960,
+    "textTok": 333,
+    "envelopeB": 1862,
+    "wrapOverhead": "1.94x"
+  },
+  {
+    "project": "systemic-ts",
+    "server": "pr52",
+    "issues": 12,
+    "schema": "1.4",
+    "textB": 834,
+    "textTok": 300,
+    "envelopeB": 1631,
+    "wrapOverhead": "1.96x"
+  },
+  {
+    "project": "systemic-ts",
+    "server": "pr52+compact",
+    "issues": 12,
+    "schema": "1.4",
+    "textB": 797,
+    "textTok": 299,
+    "envelopeB": 1553,
+    "wrapOverhead": "1.95x"
+  },
+  {
+    "project": "mixed-app",
+    "server": "v1.0.0",
+    "issues": 11,
+    "schema": "1.3",
+    "textB": 4515,
+    "textTok": 1571,
+    "envelopeB": 8384,
+    "wrapOverhead": "1.86x"
+  },
+  {
+    "project": "mixed-app",
+    "server": "pr52",
+    "issues": 11,
+    "schema": "1.4",
+    "textB": 2187,
+    "textTok": 822,
+    "envelopeB": 4115,
+    "wrapOverhead": "1.88x"
+  },
+  {
+    "project": "mixed-app",
+    "server": "pr52+compact",
+    "issues": 11,
+    "schema": "1.4",
+    "textB": 2879,
+    "textTok": 1105,
+    "envelopeB": 5388,
+    "wrapOverhead": "1.87x"
+  },
+  {
+    "project": "scale-app",
+    "server": "v1.0.0",
+    "issues": 60,
+    "schema": "1.3",
+    "textB": 4528,
+    "textTok": 1621,
+    "envelopeB": 8404,
+    "wrapOverhead": "1.86x"
+  },
+  {
+    "project": "scale-app",
+    "server": "pr52",
+    "issues": 60,
+    "schema": "1.4",
+    "textB": 5881,
+    "textTok": 2285,
+    "envelopeB": 10990,
+    "wrapOverhead": "1.87x"
+  },
+  {
+    "project": "scale-app",
+    "server": "pr52+compact",
+    "issues": 60,
+    "schema": "1.4",
+    "textB": 10073,
+    "textTok": 3946,
+    "envelopeB": 18773,
+    "wrapOverhead": "1.86x"
+  }
+]

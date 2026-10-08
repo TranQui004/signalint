@@ -10,6 +10,13 @@ full detail.
 > response `schemaVersion` from `1.2` to `1.3`, and adds ESLint as a fourth
 > diagnostic engine.
 
+## 1.1.2 - 2026-10-08
+
+### SQLite concurrency and Windows test stability
+- **Concurrent access no longer fails.** The SQLite cache now sets `PRAGMA busy_timeout = 5000`, so a second Signalint process touching the same project waits for the lock instead of dying instantly with `database is locked`. Practical effect: an MCP server and a one-off `signalint check .` (or two agents) can now run against the same project at the same time. Measured before/after with a process holding an exclusive lock on `.signalint/cache.sqlite`: previously exit 1 in 59 ms with no output; now waits for the lock (2.8 s in that test) and returns a complete response.
+- **Windows CI stability.** Test fixtures that shared one cache database now use ephemeral per-test copies; directory cleanup retries on NTFS `EBUSY`; `testTimeout` raised to 20 s for subprocess integration tests. This removes the `database is locked` flake that intermittently failed `Test (windows-latest)`.
+- **CI can be re-run on demand.** `workflow_dispatch:` added to `ci.yml`.
+
 ## 1.1.1 - 2026-10-08
 
 ### CLI entrypoint dispatch and interactive terminal safety

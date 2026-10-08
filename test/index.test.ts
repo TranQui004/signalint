@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -12,15 +12,26 @@ const temporaryRoots: string[] = [];
 afterEach(async () => {
   vi.restoreAllMocks();
   await Promise.all(
-    temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+    temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true, maxRetries: 5 })),
   );
 });
 
+async function createFixtureProject(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "signalint-index-fixture-"));
+  temporaryRoots.push(root);
+  await cp(resolve("test/fixtures/fresh-install-project"), root, {
+    recursive: true,
+    filter: (src) => !src.includes(".signalint"),
+  });
+  return root;
+}
+
 describe("signalint-mcp entrypoint dispatch", () => {
   it("exits promptly and prints doctor report when spawned with 'doctor' while holding stdin open", async () => {
+    const projectRoot = await createFixtureProject();
     const entrypoint = resolve("dist/src/index.js");
     const child = spawn(process.execPath, [entrypoint, "doctor"], {
-      cwd: resolve("test/fixtures/fresh-install-project"),
+      cwd: projectRoot,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -47,9 +58,10 @@ describe("signalint-mcp entrypoint dispatch", () => {
   });
 
   it("exits promptly and prints check JSON when spawned with 'check', '.' while holding stdin open", async () => {
+    const projectRoot = await createFixtureProject();
     const entrypoint = resolve("dist/src/index.js");
     const child = spawn(process.execPath, [entrypoint, "check", "."], {
-      cwd: resolve("test/fixtures/fresh-install-project"),
+      cwd: projectRoot,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -111,9 +123,10 @@ describe("signalint-mcp entrypoint dispatch", () => {
   });
 
   it("starts the MCP server when invoked with no verb and non-TTY stdin", async () => {
+    const projectRoot = await createFixtureProject();
     const entrypoint = resolve("dist/src/index.js");
     const child = spawn(process.execPath, [entrypoint], {
-      cwd: resolve("test/fixtures/fresh-install-project"),
+      cwd: projectRoot,
       stdio: ["pipe", "pipe", "pipe"],
     });
 
@@ -136,7 +149,11 @@ describe("signalint-mcp entrypoint dispatch", () => {
     await startedPromise;
     expect(stderr).toContain("[signalint] project root:");
 
+    const exitPromise = new Promise<void>((resolveExit) => {
+      child.on("exit", () => resolveExit());
+    });
     child.kill();
+    await exitPromise;
   });
 
   // In CI, process.stdin.isTTY is false because test runners execute in non-interactive pipes.

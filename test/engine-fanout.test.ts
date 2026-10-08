@@ -1,4 +1,5 @@
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -9,11 +10,15 @@ import { checkProject } from "../src/index.js";
 import { createIssueId, type NormalizedIssue } from "../src/schema.js";
 
 const cacheFixtureRoot = resolve("test/fixtures/cache-project");
-const partialProjectRoot = resolve("test/fixtures/partial-engine-project");
+const temporaryRoots: string[] = [];
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await rm(partialProjectRoot, { recursive: true, force: true });
+  await Promise.all(
+    temporaryRoots.splice(0).map((root) =>
+      rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 }).catch(() => {}),
+    ),
+  );
 });
 
 describe("engine fan-out", () => {
@@ -45,6 +50,8 @@ describe("engine fan-out", () => {
   });
 
   it("returns a schema 1.1 partial project result through real adapters", async () => {
+    const partialProjectRoot = await mkdtemp(resolve(tmpdir(), "signalint-partial-"));
+    temporaryRoots.push(partialProjectRoot);
     await mkdir(resolve(partialProjectRoot, "src"), { recursive: true });
     await writeFile(
       resolve(partialProjectRoot, "signalint.config.json"),

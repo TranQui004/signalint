@@ -10,7 +10,7 @@ const checkFixtureRoot = resolve("test/fixtures/cli-check-project");
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await rm(fixtureRoot, { force: true, recursive: true });
+  await rm(fixtureRoot, { force: true, recursive: true, maxRetries: 5 }).catch(() => {});
 });
 
 describe("signalint stats CLI", () => {

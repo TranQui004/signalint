@@ -19,8 +19,8 @@ dispatch) and whose version matches `package.json`.
 ```sh
 git switch main
 git pull
-git tag v1.0.0
-git push origin v1.0.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 ## 3. What the workflow does
@@ -48,7 +48,7 @@ is safe: published artifacts on npm and MCP Registry are idempotently detected.
 - Move the `v1` major tag so the GitHub Action can be pinned to a stable ref:
 
   ```sh
-  git tag -f v1 v1.0.0
+  git tag -f v1 vX.Y.Z
   git push -f origin v1
   ```
 
@@ -56,7 +56,7 @@ is safe: published artifacts on npm and MCP Registry are idempotently detected.
 
   ```sh
   npm view signalint-mcp version
-  gh release view v1.0.0
+  gh release view vX.Y.Z
   ```
 
   MCP Registry listing:
@@ -65,9 +65,9 @@ is safe: published artifacts on npm and MCP Registry are idempotently detected.
 - Smoke-test the published tarball in a clean project:
 
   ```sh
-  npx --yes signalint-mcp@1.1.1 init
-  npx --yes -p signalint-mcp@1.1.1 signalint check .
-  npx --yes -p signalint-mcp@1.1.1 signalint doctor
+  npx --yes signalint-mcp@X.Y.Z init
+  npx --yes -p signalint-mcp@X.Y.Z signalint check .
+  npx --yes -p signalint-mcp@X.Y.Z signalint doctor
   ```
 
 ## One-time setup

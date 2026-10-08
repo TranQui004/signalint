@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { createHash } from "node:crypto";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -99,6 +100,25 @@ describe("SQLite cache", () => {
     expect(cache.get(firstKey)).toEqual([]);
     expect(cache.get(thirdKey)).toEqual([]);
     expect(cache.get(fourthKey)).toEqual([]);
+  });
+
+  it("allows multiple cache instances to access the same database file without locking", async () => {
+    const tempDir = resolve(tmpdir(), `signalint-cache-busy-${Date.now()}`);
+    const dbPath = resolve(tempDir, "cache.sqlite");
+    try {
+      const cache1 = new SqliteCache(dbPath);
+      openCaches.push(cache1);
+      const cache2 = new SqliteCache(dbPath);
+      openCaches.push(cache2);
+
+      const key = createCacheKey("concurrent", "oxlint", "config-a");
+      const issue = makeIssue("src/concurrent.ts", "oxlint");
+
+      cache1.set(key, [issue]);
+      expect(cache2.get(key)).toEqual([issue]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
   });
 
   it("changes the engine config hash when a recognized config is edited", async () => {

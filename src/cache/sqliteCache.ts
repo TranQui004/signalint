@@ -103,6 +103,8 @@ export class SqliteCache {
     this.database = new DatabaseSync(databasePath);
     this.maxRows = maxRows;
     this.database.exec(`
+      PRAGMA busy_timeout = 5000;
+
       CREATE TABLE IF NOT EXISTS cache (
         key TEXT PRIMARY KEY,
         result JSON NOT NULL,

@@ -19,8 +19,7 @@ afterEach(async () => {
   await Promise.all(clients.map((client) => client.close()));
   await Promise.all(servers.map((server) => server.close()));
   clients.length = 0;
-  servers.length = 0;
-  await rm(fixtureCache, { recursive: true, force: true });
+  await rm(fixtureCache, { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
 });
 
 describe("check_files scope filtering", () => {

@@ -10,34 +10,40 @@ full detail.
 > response `schemaVersion` from `1.2` to `1.3`, and adds ESLint as a fourth
 > diagnostic engine.
 
-## Unreleased
+## 1.1.0 - 2026-10-08
 
+### Response schema and payload efficiency
 - Bumped `schemaVersion` to `"1.4"` while maintaining backward compatibility with `"1.3"`.
 - Added `remainingIssues`, `omittedIssueCount`, and `nextStep` to `CheckResponse`.
-- Fixed silent information loss from the 10-cluster cap:
-  - Groups of 2+ issues remain clustered; single-issue groups and clusters past the top 10 limit are routed to flat `remainingIssues` (~90 bytes each).
-  - Bounded `remainingIssues` to 100 entries, setting `omittedIssueCount` and actionable `nextStep` directions when exceeded.
-  - `truncated` now flags `true` only when `omittedIssueCount > 0`.
-- Trimmed the fixed envelope:
-  - Omitted empty `disabled` engines from `engines`.
-  - Omitted `sampleIssueIds` when cluster `issueCount <= 2`.
-  - Omitted `suggestedAction` when unfixable / derivable from summary.
-  - Reduced 1-issue project response floor from ~853 bytes to under 500 bytes and mixed-app fixture from ~4,507 bytes to under 2 KB.
-- Added opt-in compact mode (`signalint check --compact` and `SIGNALINT_COMPACT=1`) shortening keys and omitting `projectRoot`.
-- Reduced install footprint:
-  - Reclassified `typescript` and `oxlint` as `optionalDependencies` and optional `peerDependencies`.
-  - Gracefully degrade `tsc` and `oxlint` with `{ status: "disabled", message: "..." }` when unresolvable instead of crashing.
-  - Added "no linter available" detection and actionable guidance in `signalint doctor` and `signalint init`.
-  - Pinned `action.yml` install step with a `version` input defaulting to `"1.0.0"`.
-- Whole-program `tsc` cache invalidation:
-  - Fingerprints all TypeScript source files (file list + mtime + size) to invalidate cached whole-program tsc results in `check_files` when unpassed dependencies are modified.
-- CLI:
-  - Added `signalint stats --json` for machine-readable JSON session metrics.
-  - Added `--compact` flag to `signalint check`.
-- Documentation:
-  - Added `docs/benchmarks.md` with measured fixture comparisons and break-even guidance.
-  - Added "When not to use Signalint" section to `README.md`.
-  - Documented whole-program tsc cache invalidation and boundaries in `docs/known-limitations.md`.
+- Eliminated information loss from the 10-cluster cap: groups of 2+ issues remain clustered, while single-issue groups and overflow clusters are routed to flat `remainingIssues` (bounded to 100 entries with `omittedIssueCount` and actionable `nextStep` guidance).
+- Emitted 12-character issue IDs in `remainingIssues[].issueId` and `clusters[].sampleIssueIds` with automatic prefix extension on internal hash collisions; full 64-character hashes remain fully resolvable via `get_issue_detail`.
+- Minified MCP tool payload text (`content[0].text`), stripping indentation and newlines across all tools.
+- Trimmed envelope overhead by omitting empty engine statuses, omitting `sampleIssueIds` on small clusters (<=2 issues), and omitting `suggestedAction` when unfixable.
+- Omitted `loopWarning` and `fileRuleChurnWarning` fields when inactive instead of emitting `null`, saving 47 bytes on standard checks.
+- Added opt-in compact mode (`signalint check --compact` and `SIGNALINT_COMPACT=1`) with abbreviated keys.
+
+### Scoped file checking
+- `check_files` now filters returned diagnostics down to requested files only, surfacing issues in unrequested files via `filteredOutIssueCount` / `filteredOutCount` with a `nextStep` directing agents to `check_project`.
+- Robust whole-program `tsc` cache invalidation: fingerprinted project TypeScript sources so `check_files` cache reliably invalidates when unrequested dependencies change.
+
+### Configurable MCP payload mode
+- Added configurable MCP payload modes (`SIGNALINT_MCP_PAYLOAD=both|text|structured` and `signalint.config.json` -> `mcpPayload`):
+  - `"both"` (default): emits both minified JSON in `content[0].text` and structured JSON in `structuredContent` for universal client compatibility.
+  - `"text"`: emits only `content[0].text`, completely suppressing `structuredContent` and schema advertisement for a ~46% wire reduction.
+  - `"structured"`: emits full data in `structuredContent` and replaces `content[0].text` with a single-line summary.
+- Active payload mode is reported in `signalint doctor`.
+
+### Package footprint and dependencies
+- Reclassified `typescript` and `oxlint` as optional `peerDependencies` only (removed from `optionalDependencies`), cutting default install footprint from 74 MB to ~27 MB.
+- Gracefully degrades `tsc` and `oxlint` with structured disabled statuses when unresolvable, with missing-linter guidance in `signalint doctor` and `signalint init`.
+- Updated GitHub Action (`action.yml`) default version input to `"1.1.0"`.
+
+### CLI, metrics, and documentation
+- Added `signalint stats --json` for machine-readable session metrics.
+- Added `--compact` flag to `signalint check`.
+- Added `docs/benchmarks.md` with single-run like-for-like measurements across all payload modes.
+- Added client compatibility guidance and real-world MCP client validation notes (Claude Desktop, Claude Code, Cursor) in `docs/benchmarks.md` and `docs/known-limitations.md`.
+- Added "When not to use Signalint" guidance in `README.md`.
 
 ## 1.0.0 - 2026-10-06
 

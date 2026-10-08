@@ -10,11 +10,13 @@ import { fileURLToPath } from "node:url";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const serverEntry = join(root, "dist", "src", "index.js");
 
-// Try to use gpt-tokenizer if available, otherwise fallback to ~3.8 B/token rule of thumb
+// Determine tokenizer mode: gpt-tokenizer (cl100k_base) if installed, otherwise ~3.8 B/token byte estimate
+let tokenizerMode = "estimate (~3.8 bytes/token)";
 let tokenize = (text) => Math.round(Buffer.byteLength(text, "utf8") / 3.8);
 try {
   const { encode } = await import("gpt-tokenizer");
   tokenize = (text) => encode(text).length;
+  tokenizerMode = "gpt-tokenizer (cl100k_base)";
 } catch {
   // Use fallback estimation
 }
@@ -198,6 +200,7 @@ async function measure() {
     }
   }
 
+  console.log(`\n[tokenizer] Mode: ${tokenizerMode}`);
   console.log("\n=== MCP Payload Mode Measurements ===");
   console.table(results);
 
@@ -229,7 +232,7 @@ async function measure() {
 
   const fmt = (n) => n.toLocaleString("en-US");
 
-  console.log("\n=== docs/benchmarks.md: Table 1 (Benchmark Results - Default Mode 'both') ===\n");
+  console.log(`\n=== docs/benchmarks.md: Table 1 (Benchmark Results - Default Mode 'both', tokenizer: ${tokenizerMode}) ===\n`);
   console.log("| Fixture | Total Issues | Signalint Minified Payload | Full MCP Envelope (`both`) | Wire Ratio | vs Raw CLI Output (`tsc` + `oxlint`) | Issues Hidden / Unreachable |");
   console.log("|---|---:|---:|---:|---:|---:|---:|");
   for (const fixture of fixtures) {

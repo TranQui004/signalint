@@ -47,47 +47,22 @@ the tool-argument boundary prevents a prompt-injected model from selecting arbit
 outside paths directly, but it does not reduce the underlying OS account's
 permissions.
 
-## Known npm audit advisory
+## Advisory evaluation (GHSA-frvp-7c67-39w9)
 
-First evaluated 2026-07-26 and re-evaluated 2026-10-06 with `@modelcontextprotocol/sdk@1.32.1`.
-This assessment is tied to the dependency versions and transport code described
-below, not to a specific Signalint release — re-check it whenever either changes,
-not just when the package version changes.
+Evaluated 2026-07-26 and re-evaluated 2026-10-06. In the current repository lockfile (`pnpm-lock.yaml`), this advisory is **resolved**.
 
-- Advisory: [GHSA-frvp-7c67-39w9](https://github.com/advisories/GHSA-frvp-7c67-39w9),
-  moderate severity.
-- Installed dependency path: `signalint-mcp` ->
-  `@modelcontextprotocol/sdk@1.32.1` -> `@hono/node-server`.
-- Affected component: `@hono/node-server <2.0.5`'s separately exported
-  `serveStatic` middleware on Windows. An encoded backslash (`%5C`) in an HTTP URL
-  can bypass prefix-mounted middleware and expose a file elsewhere under the
-  configured static root. The advisory does not describe directory escape outside
-  that root.
-- Patched component version: `@hono/node-server@2.0.5`. npm currently reports no
-  automatic fix because MCP SDK 1.29.0 declares the dependency as `^1.19.9`.
+- Advisory: [GHSA-frvp-7c67-39w9](https://github.com/advisories/GHSA-frvp-7c67-39w9), moderate severity.
+- Installed dependency path: `signalint-mcp` -> `@modelcontextprotocol/sdk@1.32.0` -> `@hono/node-server`.
+- Affected component: `@hono/node-server <2.0.5`'s separately exported `serveStatic` middleware on Windows. An encoded backslash (`%5C`) in an HTTP URL could bypass prefix-mounted middleware under the configured static root.
+- Resolved component version: `pnpm-lock.yaml` resolves `@hono/node-server@2.1.3` (satisfying the patched `>=2.0.5` range).
+- Audit verification: `pnpm audit --prod` reports `No known vulnerabilities found` against the committed lockfile.
 
-### Why Signalint's current runtime path does not exercise it
+### Runtime isolation analysis
 
-Signalint imports `StdioServerTransport` from
-`@modelcontextprotocol/sdk/server/stdio.js` and constructs only that transport in
-`src/index.ts`. The installed SDK's stdio module imports Node's `process` object and
-the SDK's JSON-line buffer helpers. Its receive path listens to `process.stdin`; its
-send path writes serialized MCP messages to `process.stdout`. It creates no HTTP
-server, parses no request URL, and serves no filesystem path.
+Even prior to resolution in the lockfile, Signalint's runtime never exercised the vulnerable component:
+- Signalint imports only `StdioServerTransport` from `@modelcontextprotocol/sdk/server/stdio.js` and constructs only that transport in `src/index.ts`.
+- The stdio transport operates strictly on `process.stdin` and `process.stdout`. It creates no HTTP listener, parses no request URL, and serves no filesystem path.
+- The SDK's HTTP transport (`@modelcontextprotocol/sdk/server/streamableHttp.js`) and `@hono/node-server/serve-static` are not imported or instantiated anywhere in Signalint.
+- The exploit conditions (HTTP listener, attacker-controlled URL path, static root, and `serveStatic` middleware) are absent from Signalint's stdio-only server.
 
-The SDK's HTTP implementation is a separate module,
-`@modelcontextprotocol/sdk/server/streamableHttp.js`. That module imports
-`getRequestListener` from `@hono/node-server`; Signalint does not import it. The
-vulnerable static-file implementation is another separate package export,
-`@hono/node-server/serve-static`, and neither Signalint nor the SDK stdio module
-imports `serveStatic`.
-
-The exploit therefore lacks all required conditions in the current Signalint
-entrypoint: there is no HTTP listener, attacker-controlled URL path, static root, or
-`serveStatic` middleware. This conclusion is limited to the current stdio-only
-server. It must be reassessed before adding an HTTP transport, static file serving,
-or a dashboard server.
-
-Re-run `npm audit` when the MCP SDK updates its Hono dependency range or a compatible
-patched release becomes available, and remove this exception once the installed
-dependency resolves to `@hono/node-server >=2.0.5`.
+This assessment is specific to the stdio-only transport. Any future addition of an HTTP transport, static file serving, or dashboard interface must re-evaluate dependency attack surfaces before implementation.

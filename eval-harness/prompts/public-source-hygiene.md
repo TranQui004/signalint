@@ -13,7 +13,7 @@ git log --oneline 0151f35c..origin/main
 ```
 
 - `main` moved from **`0151f35c`** (1.1.2 release) to **`3eca84b`** via PR **#62**, `docs(readme): state that engines are project-installed, not bundled since 1.1.0`. PR #62 changes only `README.md`; preserve its correction that Signalint ships no engines.
-- The evidence note is `eval-harness/results/audit-main-public-readiness-2026-10-09.md` at arena commit **`7382b9e`**. The arena branch is research-only: **never merge it, never use it as a PR head, and do not branch delivery work from it**.
+- The evidence note is `eval-harness/results/audit-main-public-readiness-2026-10-09.md` (first committed at arena **`7382b9e`**; read the latest version on the branch). The arena branch is research-only: **never merge it, never use it as a PR head, and do not branch delivery work from it**.
 - Optional: fetch and cherry-pick the research/evidence commits on a separate scratch/evidence branch if you want the committed harness locally. These commits add `eval-harness/` resources; do not include them in a product/docs PR unless explicitly wanted.
 
 ```bash
@@ -44,13 +44,14 @@ The maintainer has now explicitly authorized removing the unused `docs/history` 
    - `CONTRIBUTING.md` historical-document paragraph;
    - `AGENTS.md` sentence referring to the historical build plan;
    - `docs/known-limitations.md` risk-register introduction, which cites the old build plan.
-3. Align active guidance with the current implementation and workflow:
+3. Audit `docs/known-limitations.md:57-78` before leaving it in place. Several file/test references in the current risk table no longer exist (including old names such as `test/checkProject.test.ts`, `test/projectPaths.test.ts`, `src/cluster/scoring.ts`, `test/biome.test.ts`, `test/sessionMemory.test.ts`, `test/schema.test.ts`, `test/checkFiles.test.ts`, and `test/normalization.test.ts`). Verify every evidence path against the current tree; replace it only with the real test/source that covers the claim, or remove the unsupported reference. Reframe the intro without the removed build plan. Its Phase 3 row is a historical resolution that mentions bundled fallback: label it as historical and clarify that 1.1.0 stopped shipping engines, while the legacy resolver function still exists and is not reliable for users. Do not claim the function was deleted.
+4. Align active guidance with the current implementation and workflow:
    - `AGENTS.md` currently says `better-sqlite3` is a current native dependency. The project now uses built-in `node:sqlite` (`DatabaseSync`); update this paragraph to match `package.json` and the current cache implementation.
    - `CONTRIBUTING.md` still promises Node 20 support and lists `Test (ubuntu-node-20.19)`. Current `package.json` requires Node `>=22.12.0`; `.github/workflows/ci.yml` currently has exactly three jobs: Windows, Ubuntu, and macOS on Node 22. Remove stale Node 20/job claims. Verify the minimum Node version needed by both the project and pnpm 11.9.0 before stating a contributor prerequisite; distinguish the package runtime minimum from the contributor-tooling minimum if they differ.
    - `RELEASE.md` uses hard-coded `v1.0.0` release/tag examples and `signalint-mcp@1.1.1` smoke-test examples. Replace these with clearly marked placeholders such as `vX.Y.Z` / `signalint-mcp@X.Y.Z`, so the instructions do not age on the next release.
    - Preserve the corrected engine-installation language in `README.md` from PR #62; do not restore any bundled-engine claim.
-4. Search for remaining **live links** to `docs/history/` or `build-plan.md`. Remove broken navigation links. The dated `CHANGELOG.md` entry that records a historical edit to the plan is release history, not a live documentation link; do not rewrite historical release notes merely to erase that record.
-5. Do not touch `server.json`, `action.yml`, package version, changelog release sections, tags, or the website URL as part of this PR.
+5. Search for remaining **live links** to `docs/history/` or `build-plan.md`. Remove broken navigation links. The dated `CHANGELOG.md` entry that records a historical edit to the plan is release history, not a live documentation link; do not rewrite historical release notes merely to erase that record.
+6. Do not touch `server.json`, `action.yml`, package version, changelog release sections, tags, or the website URL as part of this PR.
 
 **PR A verification:**
 

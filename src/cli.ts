@@ -3,11 +3,12 @@
 import { resolve } from "node:path";
 
 import { runDoctorCommand } from "./doctor.js";
-import { runInitCommand } from "./init.js";
-import { checkProjectWithIssues } from "./index.js";
+import { runInitCommandSafely } from "./init.js";
+import { checkProjectWithIssues } from "./check/checkProject.js";
 import { isMainModule } from "./mainModule.js";
 import type { CheckResponse, NormalizedIssue, RemainingIssue } from "./schema.js";
 import { formatSessionStats, readSessionStats } from "./memory/stats.js";
+import { resolveSignalintVersion } from "./version.js";
 
 const CHECK_USAGE =
   "Usage: signalint check [path ...] [--format json|github] [--compact] [--fail-on-priority <N>]\n";
@@ -26,8 +27,12 @@ export async function runCli(
   homeDir?: string,
 ): Promise<number> {
   const [command, ...rest] = args;
-  if (command === "--help" || command === "-h" || command === undefined) {
+  if (command === "--help" || command === "-h" || command === "help" || command === undefined) {
     process.stdout.write("Usage: signalint <init | check [path ...] | stats [--json] | doctor>\n");
+    return 0;
+  }
+  if (command === "--version" || command === "-v") {
+    process.stdout.write(`${resolveSignalintVersion()}\n`);
     return 0;
   }
   if (command === "init") {
@@ -35,22 +40,10 @@ export async function runCli(
       process.stderr.write("Usage: signalint init\n");
       return 2;
     }
-    return await runInitCommand({ cwd, homeDir });
+    return await runInitCommandSafely({ cwd, homeDir });
   }
   if (command === "stats") {
-    if (rest.length === 1 && rest[0] === "--json") {
-      const stats = await readSessionStats(resolve(cwd, ".signalint", "session.jsonl"));
-      process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
-      return 0;
-    }
-    if (rest.length > 0) {
-      process.stderr.write("Usage: signalint stats [--json]\n");
-      return 2;
-    }
-    process.stdout.write(
-      `${formatSessionStats(await readSessionStats(resolve(cwd, ".signalint", "session.jsonl")))}\n`,
-    );
-    return 0;
+    return await runStatsCommand(rest, cwd);
   }
   if (command === "doctor") {
     if (rest.length > 0) {
@@ -66,7 +59,29 @@ export async function runCli(
     return 2;
   }
 
-  const parsed = parseCheckArgs(rest);
+  return await runCheckCommand(rest, cwd);
+}
+
+/** Handles the stats CLI subcommand given trailing arguments and working directory. */
+async function runStatsCommand(args: readonly string[], cwd: string): Promise<number> {
+  if (args.length === 1 && args[0] === "--json") {
+    const stats = await readSessionStats(resolve(cwd, ".signalint", "session.jsonl"));
+    process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
+    return 0;
+  }
+  if (args.length > 0) {
+    process.stderr.write("Usage: signalint stats [--json]\n");
+    return 2;
+  }
+  process.stdout.write(
+    `${formatSessionStats(await readSessionStats(resolve(cwd, ".signalint", "session.jsonl")))}\n`,
+  );
+  return 0;
+}
+
+/** Handles the check CLI subcommand given trailing arguments and working directory. */
+async function runCheckCommand(args: readonly string[], cwd: string): Promise<number> {
+  const parsed = parseCheckArgs(args);
   if (parsed === undefined) {
     process.stderr.write(CHECK_USAGE);
     return 2;

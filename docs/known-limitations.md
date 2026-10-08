@@ -45,7 +45,7 @@ Signalint defaults to `mcpPayload: "both"` (carrying both minified JSON in `cont
 
 - **Wire duplication:** In `"both"` mode, transmitting the response in two parallel MCP channels incurs a 2.1×–2.6× wire framing multiplier over stdio.
 - **Client behavior:**
-  - Claude Desktop, Claude Code, and Cursor inspect and forward `content[0].text` into the agent's context window.
+  - Common clients such as Claude Desktop, Claude Code, and Cursor have been manually observed to forward `content[0].text` into the agent's context window.
   - Setting `SIGNALINT_MCP_PAYLOAD=text` (or `"mcpPayload": "text"` in `signalint.config.json`) suppresses the duplicate `structuredContent` channel and omits `outputSchema`, achieving \~46–50% wire reduction without information loss for text-rendering clients.
   - Setting `SIGNALINT_MCP_PAYLOAD=structured` replaces `content[0].text` with a short one-line human summary; clients that only consume `content[0].text` will lose access to individual issue diagnostics.
 - **Guidance:** `"both"` remains the default for zero-breaking-change compatibility. See [docs/benchmarks.md](benchmarks.md) for full wire measurements and configuration details.

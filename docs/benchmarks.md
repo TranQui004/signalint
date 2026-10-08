@@ -1,6 +1,6 @@
 # Diagnostic Benchmarks & Payload Measurements
 
-Measured on **2026-10-08** with `signalint-mcp@1.1.2`, `oxlint@1.86.0`, `typescript@7.0.2`, `gpt-tokenizer` (`cl100k_base`), Node.js v22.
+Measured on **2026-10-08** with `signalint-mcp@1.1.2`, `oxlint@1.86.0`, `typescript@7.0.2`, byte-estimate mode (~3.8 B/tok), Node.js v22.
 
 ## Benchmark Results (Default Mode: `"both"`)
 
@@ -11,7 +11,7 @@ Measured on **2026-10-08** with `signalint-mcp@1.1.2`, `oxlint@1.86.0`, `typescr
 | **11 issues, 10 distinct rules** | 11 | 1,219 B (~321 tok) | 2,684 B (~706 tok) | 2.20x | −13% vs raw CLI | 0 (was 1 in v1.0.0) |
 | **60 issues, 30+ distinct rules** | 60 | 3,124 B (~822 tok) | 6,808 B (~1,792 tok) | 2.18x | −68% vs raw CLI | 0 (was 27 in v1.0.0) |
 
-*(Note: Raw CLI output refers to what an agent pays by running `tsc --pretty false --noEmit` + `oxlint --format agent` directly).*
+*(Note: Token figures are estimates based on a standard ~3.8 B/tok rule-of-thumb ratio, matching the clean checkout script behavior without optional `gpt-tokenizer`. Raw CLI output refers to what an agent pays by running `tsc --pretty false --noEmit` + `oxlint --format agent` directly).*
 
 ---
 
@@ -43,12 +43,13 @@ There are two distinctly different costs across MCP:
 - **Text-Only Cost:** A client that extracts `content[0].text` and forwards only that string to the model pays **≈ payload × 1.05** (the minified JSON string plus minimal frame overhead).
 - **Full JSON-RPC Frame:** What actually crosses stdio when `structuredContent` is present is **2.1×–2.4× the raw payload** (measured above at 2.18x–2.32x across benchmarks). The payload is duplicated across both channels (`content[0].text` and `structuredContent`). Mode `"text"` eliminates this duplicate channel entirely.
 
-### 2. Real-Client Validation Findings
-Before considering changing the default away from `"both"`, real-client behavior was evaluated across Claude Desktop, Claude Code, and Cursor:
-- **`"both"` (Default):** Works identically and reliably in all tested MCP clients. No client regressions or information loss.
-- **`"text"` Mode:** Clients like Claude Desktop, Claude Code, and Cursor forward `content[0].text` to the model context. In `"text"` mode, the model receives complete diagnostics with zero information loss while the stdio wire footprint drops by ~46–50%.
-- **`"structured"` Mode:** When `content[0].text` is only a short human summary, clients that forward only the text channel lose access to the underlying issue list. Therefore, `"structured"` mode requires MCP client host support for structured content and should not be used as the default.
-- **Conclusion:** `"both"` remains the default for zero-breaking-change safety. Users and agent setups can set `SIGNALINT_MCP_PAYLOAD=text` to reclaim half the wire payload without losing diagnostic fidelity.
+### 2. Client Compatibility Observations
+
+During development, behavior was manually observed across Claude Desktop, Claude Code, and Cursor:
+- **`"both"` (Default):** Observed to work reliably across manual checks in these environments.
+- **`"text"` Mode:** In manual observation, clients configuring stdio MCP tools forward `content[0].text` into the model prompt context. Under `"text"` mode, the model receives complete issue diagnostics while stdio payload transmission decreases by ~45–46%.
+- **`"structured"` Mode:** When `content[0].text` is replaced with a single-line summary, clients that consume only the text channel do not expose individual issue diagnostics to the model without host support for structured content.
+- **Guidance:** `"both"` remains the default for broad compatibility across unverified or varying client versions. Users whose environments consume `content[0].text` can set `SIGNALINT_MCP_PAYLOAD=text` to reduce wire overhead.
 
 ### 3. 12-Character Issue IDs
 In responses, `remainingIssues[].issueId` and `clusters[].sampleIssueIds` emit 12-character hex prefixes instead of full 64-character SHA-256 hashes. If two issue IDs collide on the first 12 characters within a check, Signalint extends prefix length automatically to guarantee distinct identifiers. This shrinks flat issue records from ~90 bytes to ~68 bytes without losing precision. Full 64-character hashes remain preserved in internal storage and database caches.
@@ -64,7 +65,7 @@ Signalint pays for itself whenever diagnostics share root causes or when total i
 To protect LLM context windows, Signalint enforces strict upper bounds:
 - **Top 10 Clusters:** Clusters are ranked by priority, issue count, and scope, with at most 10 clusters emitted.
 - **Remaining Issues Cap:** Non-clustered issues and demoted overflow clusters are merged into `remainingIssues`, bounded at **100 entries**.
-- **Payload Plateau:** Regardless of repository size (whether 400 or 10,000 issues), the response size plateaus at **~21.8 KB minified** (approximately **8,900 tokens** in `cl100k_base`).
+- **Payload Plateau:** Regardless of repository size (whether 400 or 10,000 issues), the response size plateaus at **~21.8 KB minified** (approximately **~5.7k tokens** at ~3.8 B/tok estimate).
 
 ### Omitted Issue Retrieval
 When issues exceed the remaining cap (e.g., at 400 issues, 200 issues or 50% are omitted from the check summary):

@@ -105,7 +105,11 @@ export async function checkFilesWithStats(
   options: CheckFilesOptions = {},
 ): Promise<CheckFilesResult> {
   const cwd = options.cwd ?? process.cwd();
-  const cache = options.cache ?? new SqliteCache(resolve(cwd, ".signalint", "cache.sqlite"));
+  const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+  const cachePath = stateDir && stateDir !== ""
+    ? resolve(stateDir, "cache.sqlite")
+    : resolve(cwd, ".signalint", "cache.sqlite");
+  const cache = options.cache ?? new SqliteCache(cachePath);
   const ownsCache = options.cache === undefined;
   const linkedAbort = createLinkedAbortController(options.signal);
 

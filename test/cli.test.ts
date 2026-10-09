@@ -1,16 +1,22 @@
+import { mkdtempSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { runCli, runCliSafely } from "../src/cli.js";
 
-const fixtureRoot = resolve(".signalint/test/stats-cli");
+const fixtureRoot = mkdtempSync(resolve(tmpdir(), "signalint-test-stats-cli-"));
 const checkFixtureRoot = resolve("test/fixtures/cli-check-project");
+
+afterAll(async () => {
+  await rm(fixtureRoot, { force: true, recursive: true, maxRetries: 5 }).catch(() => {});
+});
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await rm(fixtureRoot, { force: true, recursive: true, maxRetries: 5 }).catch(() => {});
+  await rm(resolve(fixtureRoot, ".signalint"), { force: true, recursive: true, maxRetries: 5 }).catch(() => {});
 });
 
 describe("signalint stats CLI", () => {

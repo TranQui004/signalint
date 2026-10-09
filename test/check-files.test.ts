@@ -1,19 +1,32 @@
+import { mkdtempSync } from "node:fs";
 import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/index.js";
 import { isCheckResponse, type CheckResponse } from "../src/schema.js";
 
 const fixtureRoot = resolve("test/fixtures/three-errors-project");
 const fixtureCache = resolve(fixtureRoot, ".signalint");
+const testStateDir = mkdtempSync(resolve(tmpdir(), "signalint-test-checkfiles-"));
 const clients: Client[] = [];
 const servers: Server[] = [];
+
+beforeAll(() => {
+  process.env.SIGNALINT_STATE_DIR = testStateDir;
+});
+
+afterAll(async () => {
+  delete process.env.SIGNALINT_STATE_DIR;
+  await rm(testStateDir, { recursive: true, force: true }).catch(() => {});
+  await rm(fixtureCache, { recursive: true, force: true, maxRetries: 5 }).catch(() => {});
+});
 
 afterEach(async () => {
   await Promise.all(clients.map((client) => client.close()));
@@ -110,6 +123,7 @@ describe("check_files scope filtering", () => {
       command: process.execPath,
       args: [resolve("dist/src/index.js")],
       cwd: fixtureRoot,
+      env: { ...process.env, SIGNALINT_STATE_DIR: testStateDir },
     });
     const client = new Client({ name: "test-check-files-stdio", version: "1.0.0" });
     clients.push(client);

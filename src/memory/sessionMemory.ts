@@ -92,7 +92,10 @@ export class SessionMemory {
 
   /** Creates diagnostic memory restored from valid entries in its append-only session log. */
   public constructor(options: SessionMemoryOptions = {}) {
-    this.logPath = options.logPath ?? resolve(process.cwd(), ".signalint", "session.jsonl");
+    const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+    this.logPath = options.logPath ?? (stateDir && stateDir !== ""
+      ? resolve(stateDir, "session.jsonl")
+      : resolve(process.cwd(), ".signalint", "session.jsonl"));
     this.maxLogBytes = options.maxLogBytes ?? DEFAULT_SESSION_LOG_MAX_BYTES;
     this.maxReplayEntries = options.maxReplayEntries ?? DEFAULT_SESSION_REPLAY_LIMIT;
     assertPositiveInteger(this.maxLogBytes, "maxLogBytes");

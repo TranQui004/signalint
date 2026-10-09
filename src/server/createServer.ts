@@ -3,7 +3,9 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   CallToolRequestSchema,
+  ErrorCode,
   ListToolsRequestSchema,
+  McpError,
   type CallToolResult,
 } from "@modelcontextprotocol/sdk/types.js";
 import { ZodError } from "zod";
@@ -33,6 +35,8 @@ import {
   type TestIssueProvider,
   type ToolHandlerContext,
 } from "./context.js";
+import { isRecord } from "../util/index.js";
+import { resolveSignalintVersion } from "../version.js";
 import { createInputRefusal } from "./errors.js";
 import { handleCheckFiles, handleCheckProject } from "./handlers/check.js";
 import { handleIssueDetail } from "./handlers/issueDetail.js";
@@ -53,7 +57,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   const server = new Server(
     {
       name: "signalint",
-      version: "0.4.2",
+      version: resolveSignalintVersion(),
     },
     {
       capabilities: {
@@ -94,8 +98,12 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   process.stderr.write(`[signalint] project root: ${projectRoot}\n`);
 
   const cwd = projectRoot;
+  const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+  const sessionLogPath = stateDir && stateDir !== ""
+    ? resolve(stateDir, "session.jsonl")
+    : resolve(cwd, ".signalint", "session.jsonl");
   const sessionMemory = options.sessionMemory ?? new SessionMemory({
-    logPath: resolve(cwd, ".signalint", "session.jsonl"),
+    logPath: sessionLogPath,
   });
   const projectIssueProvider = options.projectIssueProvider === undefined
     ? (paths: readonly string[], signal?: AbortSignal) =>
@@ -165,12 +173,19 @@ function registerToolHandlers(
   });
 }
 
-async function dispatchToolCall(
+/** Dispatches an MCP tool call to the appropriate handler and validates request structure. */
+export async function dispatchToolCall(
   name: string,
   argumentsValue: unknown,
   signal: AbortSignal,
   context: ToolHandlerContext,
 ): Promise<CallToolResult> {
+  if (argumentsValue !== undefined && !isRecord(argumentsValue)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      `Malformed tool arguments: arguments must be an object for tool '${name}'.`,
+    );
+  }
   if (name === "ping") {
     return await handlePing(context, argumentsValue);
   }
@@ -186,8 +201,5 @@ async function dispatchToolCall(
   if (name === "get_loop_status") {
     return await handleLoopStatus(context, argumentsValue);
   }
-  return {
-    content: [{ type: "text", text: `Unknown tool: ${name}` }],
-    isError: true,
-  };
+  throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
 }

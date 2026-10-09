@@ -1,165 +1,77 @@
-# Signalint architecture
+# Signalint Architecture
 
-Signalint is a local stdio MCP server that turns diagnostics from existing
-JavaScript and TypeScript tools into a compact, versioned response for coding
-agents. This document describes the current implementation.
-## Layers
+Signalint is a reliable, read-only-by-default diagnostic intelligence layer for AI coding agents and CI workflows. It normalizes compiler, linter, and language server diagnostics into an actionable, bounded, clustered format.
 
-```text
-                         MCP client
-                             |
-                 +-----------v-----------+
-                 | MCP server             |
-                 | src/index.ts           |
-                 +-----------+-----------+
-                             |
-       +---------------+-------------+-------------+
-       |               |             |             |
-+------v-------+ +-----v------+ +----v------+ +----v----------+
-| Engine       | | Cache      | | Cluster   | | Session       |
-| adapters     | | layer      | | engine    | | memory        |
-| oxlint/tsc/  | | SQLite +   | | rule      | | loop history  |
-| biome        | | file hashes| | grouping  | | + metrics     |
-+--------------+ +------------+ +-----------+ +---------------+
-```
+---
 
-Adapters are the only modules that invoke diagnostic engines. Every layer above
-them operates on `NormalizedIssue` objects and never shells out.
-
-## Source modules
-
-### Server and entry points
-
-| Module | Responsibility |
-|---|---|
-| `src/index.ts` | Registers MCP tools, selects configured providers, clusters results, records session state, and serializes tool responses. |
-| `src/cli.ts` | Implements `signalint init`, `signalint check`, and `signalint stats` using the same setup, project, and telemetry paths as the server. |
-| `src/init.ts` | Detects project engine configuration and nearby MCP clients, writes `signalint.config.json`, and merges a confirmed MCP server entry. |
-| `src/mainModule.ts` | Detects direct execution through normal paths, symlinks, or Windows junctions. |
-| `src/lifecycle.ts` | Orders shutdown: terminate engine process trees, close SQLite handles, then close the transport. |
-
-### Validation and contracts
-
-| Module | Responsibility |
-|---|---|
-| `src/schema.ts` | Defines and validates normalized issues, clusters, check responses, timeout responses, stale references, and loop status. |
-| `src/toolArguments.ts` | Parses MCP tool arguments through strict Zod schemas that reject unknown properties and malformed reference unions. |
-| `src/projectPaths.ts` | Enforces the path containment boundary: refuses absolute, NUL-containing, and leading-dash paths, then canonicalizes and re-checks containment after symlink resolution. |
-| `src/config.ts` | Loads `signalint.config.json`, validates engine/timeout settings, and applies ignore globs. |
-
-### Engines
-
-| Module | Responsibility |
-|---|---|
-| `src/engines/oxlint.ts` | Runs Oxlint and normalizes its JSON diagnostics. |
-| `src/engines/tsc.ts` | Resolves the TypeScript project, selects project or build mode, runs the pinned compiler, and parses diagnostics. |
-| `src/engines/biome.ts` | Runs optional Biome checks and normalizes its JSON reporter output. |
-| `src/engines/eslint.ts` | Runs ESLint flat-config checks and normalizes its JSON diagnostics. |
-| `src/subprocess.ts` | Runs engine processes with timeouts, output ceilings, abort handling, and Windows/POSIX process-tree termination. |
-| `src/abort.ts` | Links MCP cancellation to adapter subprocess cancellation. |
-| `src/engineFanout.ts` | Settles all engine tasks independently so one failing engine cannot discard another's diagnostics, and maps each outcome to an `ok`/`error`/`disabled` status. |
-
-### Diagnostics pipeline
-
-| Module | Responsibility |
-|---|---|
-| `src/checkFiles.ts` | Coordinates per-file snapshots, engine config hashes, cache decisions, and the different file-local/whole-program strategies. |
-| `src/cache/sqliteCache.ts` | Stores per-engine file results and the latest whole-program result in `.signalint/cache.sqlite`, bounded by LRU eviction. |
-| `src/cluster/clusterEngine.ts` | Groups normalized issues by rule, assigns cluster IDs and priority, samples distinct issue IDs, and truncates responses. |
-| `src/check/exclusions.ts` | Removes diagnostics whose path contains a `node_modules` segment, independently of user configuration. |
-
-### Session state
-
-| Module | Responsibility |
-|---|---|
-| `src/memory/sessionMemory.ts` | Tracks issue-signature appearances, restores a bounded tail of JSONL history, adds loop warnings, and appends check metrics. |
-| `src/memory/sessionLogStorage.ts` | Reads the newest JSONL entries without loading the whole file, and rotates the log once it exceeds its size budget. |
-| `src/memory/sessionLog.ts` | Shared JSONL parser that skips malformed and crash-truncated lines and reports how many were skipped. |
-| `src/memory/stats.ts` | Aggregates `.signalint/session.jsonl` into payload, cache, latency, and loop-warning statistics. |
-
-## Engine invocation and caching
-
-Oxlint and Biome are file-local. For `check_files`, Signalint hashes each relevant
-file, reuses matching SQLite entries, and invokes each engine once with the batch
-of cache misses. Results are split back into per-file entries.
-
-TypeScript is whole-program. Signalint uses hashes of the files supplied to
-`check_files` only to decide whether tsc needs to run; it never passes those files
-as compiler roots. If tsc runs, it sees the complete configured project:
-
-- A normal `tsconfig.json` uses `--project`, `--incremental`, and
-  `.signalint/cache/tsc.tsbuildinfo`.
-- A root config containing `references` uses `--build <config> --incremental`, so
-  solution-style roots with `files: []` traverse their referenced projects.
-
-### Cache key
-
-The file-cache key combines five components:
+## 1. System Layers
 
 ```text
-sha256(file content) : engine : engine-config hash : signalint version : engine version
+                           AI Coding Agent / Client Host
+                 (Claude Code, Cursor, Codex, VS Code, CI Actions)
+                                      |
+                         +------------v------------+
+                         |     Transport Layer     |
+                         |  Stdio MCP / CLI Hooks  |
+                         +------------+------------+
+                                      |
+         +----------------------------+----------------------------+
+         |                                                         |
++--------v--------+                                       +--------v--------+
+| Workspace Layer |                                       | Hooks Subsystem |
+| pnpm-workspace  |                                       | Host Adapters   |
+| DAG & Plan      |                                       | & Policy Engine |
++--------+--------+                                       +-----------------+
+         |
++--------v------------------------------------------------------------------+
+| Diagnostics Normalization, Provenance & Clustering                        |
+| - Engines: Oxlint, tsc, Biome, ESLint                                     |
+| - External Adapters: Python (Ruff/Mypy), Rust (Clippy), Go (GolangCI-Lint) |
+| - Source Provenance Tracking & Diagnostic Burst Buffer                    |
+| - Deterministic Priority Ladder & Semantic Cluster Engine                 |
++--------+------------------------------------------------------------------+
+         |
++--------v------------------------------------------------------------------+
+| Storage, Verification & Transactions                                      |
+| - SnapshotStore: Immutable Check Snapshots (FIFO / TTL)                  |
+| - VerificationDelta: Line-Shift Resilient Diffing Engine                  |
+| - SqliteCache: Partitioned Content-Hash Cache (node:sqlite)               |
+| - SessionMemory: Session Metrics & Churn/Loop Tracking                   |
+| - TransactionManager: In-Memory Previews & Atomic Rollback Apply          |
++---------------------------------------------------------------------------+
 ```
 
-The two version components exist so that upgrading Signalint or upgrading an
-engine invalidates prior results, rather than silently serving diagnostics
-computed by older code. Keys written by earlier versions are invalidated lazily
-on the next check of that engine.
+---
 
-### Cache bounds
+## 2. Core Subsystems
 
-The cache is bounded rather than unlimited. Reads refresh an entry's timestamp,
-so eviction is least-recently-used: on insert, rows beyond the row limit
-(`DEFAULT_CACHE_ROW_LIMIT`, 10,000) are deleted oldest-first.
+### A. Server & Protocol Layer (`src/server/`)
+- **`createServer.ts`**: Configures the MCP server, binds runtime version dynamically (`resolveSignalintVersion()`), and registers JSON-RPC request handlers.
+- **`toolSchemas.ts` & `tools.ts`**: Declares all 13 active tools. Strictly closes every object schema with `additionalProperties: false` in `both` and `structured` modes.
+- **`errors.ts`**: Separates protocol errors (JSON-RPC code `-32602`) from structured business tool errors (`isError: true`).
 
-The session log is bounded the same way. `SessionMemory` replays only a recent
-tail at startup instead of reading the whole file, and the log is rotated to a
-`.1` backup once it would exceed its size budget.
+### B. Workspace & Monorepo Planning (`src/workspace/`)
+- **`discovery.ts`**: Parses `pnpm-workspace.yaml`, extracts package manifests, workspace dependencies (`workspace:*`), and TypeScript project references.
+- **`graph.ts`**: Constructs a union directed acyclic graph (DAG) uniting package manifests and TypeScript references, resolving topological execution order with Kahn's algorithm.
+- **`plan.ts`**: Plans package verification closures, calculating transitive dependents so changes to shared libraries trigger automatic verification of dependent applications while keeping independent siblings cached.
 
-## `check_files` data flow
+### C. Diagnostic Engine & LSP Normalization (`src/diagnostics/` & `src/engines/`)
+- **`provenance.ts`**: Tags every diagnostic with source provenance (`compiler`, `linter`, `lsp`, `editor`) and originating server identity.
+- **`normalize.ts`**: Normalizes 0-based LSP coordinates into Signalint 1-based coordinates and canonicalizes `file://` URIs across POSIX and Windows.
+- **`buffer.ts`**: Diagnostic buffer that deduplicates burst events during active editor sessions and enforces bounded capacity (10,000 issues).
+- **External Adapters (`src/diagnostics/adapters/`)**: Normalizes diagnostic output from Ruff/Mypy (Python), Clippy (Rust), and GolangCI-Lint (Go).
 
-1. `src/index.ts` validates the MCP arguments through `src/toolArguments.ts` and
-   loads project configuration.
-2. Requested paths are resolved and containment-checked by `src/projectPaths.ts`;
-   ignored paths are removed, then `src/checkFiles.ts` reads the remaining files
-   and computes engine-specific config hashes.
-3. File-local cache hits are reused. Oxlint and optional Biome receive only misses;
-   tsc is skipped only when all supplied TypeScript-relevant snapshots still match
-   the last whole-program result.
-4. Enabled engines run concurrently through `src/engineFanout.ts`. Each adapter
-   runs via `src/subprocess.ts`; cancellation or timeout terminates the engine
-   process tree. An engine that fails is recorded as
-   `{ status: "error", message }` while other engines' diagnostics are preserved.
-5. Unconditional `node_modules` exclusions and configured ignore globs remove
-   diagnostics that should not reach the caller.
-6. `src/cluster/clusterEngine.ts` assigns stable, content-derived `clusterId` values,
-   generates a `checkId` hash for issue freshness, and builds the `schemaVersion: "1.3"`
-   response, ordered by priority ascending (1 is most urgent) and limited to ten
-   clusters by default. Schema 1.3 includes `projectRoot`, `checkId`, engine outcomes
-   reflecting failures/empty runs, and structured error codes.
-7. `SessionMemory` updates diagnostic appearances, adds any loop warning, records
-   cache/payload/latency metrics, and appends `.signalint/session.jsonl` through a serialized queue.
-8. The MCP handler returns the response as JSON text and retains the latest issues
-   for `get_issue_detail`.
+### D. Snapshots, Deltas & Loop History
+- **`SnapshotStore` (`src/diagnostics/snapshots.ts`)**: Stores immutable diagnostic snapshots keyed by `checkId`. Eliminates process-global check state collisions with bounded capacity (50 items) and TTL expiration (30 minutes).
+- **`computeDiagnosticDelta` (`src/diagnostics/delta.ts`)**: Deterministic diffing engine employing a two-pass matching algorithm (exact issue ID + semantic identity) to remain resilient against line shifts caused by code edits.
+- **`SessionMemory` (`src/memory/sessionMemory.ts`)**: Records check history in `.signalint/session.jsonl` to detect oscillating fixes (looping signatures) and rule churn across an agent's session.
 
-### Priority ladder
+### E. In-Memory Transactional Previews & Safe Apply (`src/transactions/`)
+- **`manager.ts`**:
+  - `prepareTransaction`: Stages file modifications entirely in memory without writing to disk.
+  - `applyTransaction`: Atomic apply requiring explicit `confirm: true`. Verifies content drift before touching disk, writes files atomically, automatically rolls back all changes if any write fails, and triggers post-apply verification check.
 
-Cluster priority is evaluated by `scorePriority` using available signals (severity,
-systemic impact across files, rule group size, and fix availability):
-
-| Priority | Meaning |
-|---|---|
-| **1** | Error, systemic (many issues across multiple files) |
-| **2** | Error, local, no structured fix known |
-| **3** | Error, structured fix available |
-| **4** | Warning, local, no structured fix known |
-| **5** | Warning, structured fix available or systemic-but-cosmetic |
-
-Issue references that no longer exist or mismatch the current `checkId` return the
-explicit stale reference response defined in `src/schema.ts`.
-
-## Where to read next
-
-- [README.md](README.md) — install, configure, and use the server.
-- [CONTRIBUTING.md](CONTRIBUTING.md) — development setup and pull request process.
-- [AGENTS.md](AGENTS.md) — coding standards enforced in this repository.
-- [SECURITY.md](SECURITY.md) — threat model and trust boundaries.
+### F. Host Hook Adapters (`src/hooks/`)
+- **Adapters**: Native mapping for Claude Code (`PostToolUse`, `Stop`), Cursor (`afterFileEdit`, `stop`), Codex, and VS Code.
+- **`paths.ts`**: Path validation defending against directory traversal, leading dashes, NUL bytes, and symlink escapes across POSIX and Windows short names (8.3).
+- **`policy.ts`**: Implements post-edit incremental verification and final stop verification, guaranteeing that engine execution failures are never reported as clean.

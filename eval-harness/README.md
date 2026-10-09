@@ -1,5 +1,7 @@
 # eval-harness — evidence harness for Signalint payload claims
 
+> **Current session handoff:** Start with [HANDOFF.md](HANDOFF.md) for current `main`, merged PRs, verified release state, user scope, and branch warnings (2026-10-09). This README's rounds 1–4 setup and results are historical; check the release-specific files under `results/` before reusing any command or number.
+
 Independent measurement harness used to verify (or refute) the numbers Signalint
 publishes about itself: payload size, MCP wire cost, install footprint, cache
 freshness and loop detection. Everything here is **evidence**, not product code:

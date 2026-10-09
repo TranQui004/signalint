@@ -1,7 +1,10 @@
 import type { McpPayloadMode } from "../config.js";
 import { MAX_TOOL_PATHS } from "../projectPaths.js";
 import {
+  afterEditCheckOutputSchema,
   checkOutputSchema,
+  compareDiagnosticsOutputSchema,
+  getDiagnosticSnapshotOutputSchema,
   getIssueDetailOutputSchema,
   getLoopStatusOutputSchema,
   pingOutputSchema,
@@ -84,6 +87,54 @@ export function createTools(mode: McpPayloadMode = "both") {
         additionalProperties: false,
       },
       ...(advertiseOutput ? { outputSchema: getLoopStatusOutputSchema } : {}),
+      annotations: TOOL_ANNOTATIONS,
+    },
+    {
+      name: "get_diagnostic_snapshot",
+      description: "Retrieves the immutable diagnostic snapshot recorded for a specific checkId. Read-only; no files are modified. Returns full metadata, engine statuses, clusters, remaining issues, and performance metrics for that check run.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          checkId: { type: "string" as const, minLength: 1 },
+        },
+        required: ["checkId"],
+        additionalProperties: false,
+      },
+      ...(advertiseOutput ? { outputSchema: getDiagnosticSnapshotOutputSchema } : {}),
+      annotations: TOOL_ANNOTATIONS,
+    },
+    {
+      name: "compare_diagnostics",
+      description: "Computes a deterministic diagnostic delta between two checks (baselineCheckId and currentCheckId). Read-only; no files are modified. Identifies introduced errors, resolved errors, unchanged issues, and net error delta, resilient to line shifts.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          baselineCheckId: { type: "string" as const, minLength: 1 },
+          currentCheckId: { type: "string" as const, minLength: 1 },
+        },
+        required: ["baselineCheckId", "currentCheckId"],
+        additionalProperties: false,
+      },
+      ...(advertiseOutput ? { outputSchema: compareDiagnosticsOutputSchema } : {}),
+      annotations: TOOL_ANNOTATIONS,
+    },
+    {
+      name: "after_edit_check",
+      description: "Runs incremental diagnostics on specified edited files and computes a verification delta against an optional baselineCheckId. Read-only; no files are written or modified. Use this after modifying files to verify whether edits introduced or resolved diagnostics relative to the baseline check.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          files: {
+            type: "array" as const,
+            items: { type: "string" as const, minLength: 1 },
+            maxItems: MAX_TOOL_PATHS,
+          },
+          baselineCheckId: { type: "string" as const, minLength: 1 },
+        },
+        required: ["files"],
+        additionalProperties: false,
+      },
+      ...(advertiseOutput ? { outputSchema: afterEditCheckOutputSchema } : {}),
       annotations: TOOL_ANNOTATIONS,
     },
   ];

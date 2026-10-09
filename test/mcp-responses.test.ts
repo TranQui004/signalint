@@ -148,7 +148,7 @@ describe("MCP response amendments", () => {
     const client = await connectServer(() => Promise.resolve([]));
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(5);
+    expect(toolsList.tools).toHaveLength(8);
     for (const tool of toolsList.tools) {
       expect(tool.annotations, `${tool.name} missing annotations`).toBeDefined();
       expect(typeof tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint`).toBe("boolean");
@@ -162,13 +162,13 @@ describe("MCP response amendments", () => {
     }
   });
 
-  it("declares outputSchema for all five tools and returns matching structuredContent", async () => {
+  it("declares outputSchema for all tools and returns matching structuredContent", async () => {
     const issue = makeIssue();
     const issue2 = { ...issue, issueId: "other-sample-issue" };
     const client = await connectServer(() => Promise.resolve([issue, issue2]));
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(5);
+    expect(toolsList.tools).toHaveLength(8);
     for (const tool of toolsList.tools) {
       expect(tool.outputSchema).toBeDefined();
       expect(tool.outputSchema?.type).toBe("object");
@@ -209,7 +209,8 @@ describe("MCP response amendments", () => {
     });
     expect(detailWithStaleCheckId.structuredContent).toEqual({
       status: "stale",
-      message: "This cluster/issue no longer exists; run check_project again.",
+      code: "unknown_check_id",
+      message: "Check ID 'stale-check-id' is unknown; run check_project again.",
     });
 
     const detailResult = await client.callTool({
@@ -392,7 +393,7 @@ describe("configurable MCP payload modes across tools", () => {
     const client = await connectServer(() => Promise.resolve([issue]), undefined, "both");
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(5);
+    expect(toolsList.tools).toHaveLength(8);
     for (const tool of toolsList.tools) {
       expect(tool.outputSchema).toBeDefined();
     }
@@ -435,7 +436,7 @@ describe("configurable MCP payload modes across tools", () => {
     const client = await connectServer(() => Promise.resolve([issue]), undefined, "text");
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(5);
+    expect(toolsList.tools).toHaveLength(8);
     for (const tool of toolsList.tools) {
       expect(tool.outputSchema).toBeUndefined();
     }
@@ -481,7 +482,7 @@ describe("configurable MCP payload modes across tools", () => {
     const client = await connectServer(() => Promise.resolve([issue]), undefined, "structured");
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(5);
+    expect(toolsList.tools).toHaveLength(8);
     for (const tool of toolsList.tools) {
       expect(tool.outputSchema).toBeDefined();
     }

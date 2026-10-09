@@ -114,6 +114,9 @@ export async function checkFilesWithStats(
   const linkedAbort = createLinkedAbortController(options.signal);
 
   try {
+    if (options.signal?.aborted === true || linkedAbort.controller.signal.aborted) {
+      throw options.signal?.reason ?? new Error("Check cancelled");
+    }
     const resolvedFiles = await resolveProjectPaths(files, cwd);
     const snapshots = await mapConcurrent(resolvedFiles, 32, readSnapshot);
     const getLocalRunner = (engine: Exclude<IssueEngine, "tsc">): EngineRunner =>
@@ -178,6 +181,9 @@ export async function checkFilesWithStats(
         ),
       },
     ]);
+    if (linkedAbort.controller.signal.aborted) {
+      throw options.signal?.reason ?? new Error("Check cancelled");
+    }
     return {
       issues: fanout.results.flatMap((result) => result.issues).sort(compareIssues),
       cache: sumCacheStats(fanout.results.map((result) => result.cache)),

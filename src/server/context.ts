@@ -15,6 +15,8 @@ import {
 import { isRecord } from "../util/index.js";
 import { createTextResult } from "./errors.js";
 
+import { SnapshotStore } from "../diagnostics/snapshots.js";
+
 export type IssueProvider = (
   paths: readonly string[],
   signal?: AbortSignal,
@@ -28,11 +30,12 @@ export type TestIssueProvider = (
 export interface ToolHandlerContext {
   cwd: string;
   fileIssueProvider: IssueProvider;
-  latestIssues: NormalizedIssue[];
-  latestCheckId?: string | undefined;
   projectIssueProvider: IssueProvider;
   sessionMemory: SessionMemory;
   payloadMode: McpPayloadMode;
+  snapshotStore: SnapshotStore;
+  latestIssues?: NormalizedIssue[];
+  latestCheckId?: string | undefined;
 }
 
 /** Resolves tool paths to relative paths safe within the project root. */

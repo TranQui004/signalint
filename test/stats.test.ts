@@ -1,13 +1,28 @@
+import { mkdtempSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import {
   formatSessionStats,
   parseSessionLog,
   readSessionStats,
 } from "../src/memory/stats.js";
+
+const statsTestDir = mkdtempSync(resolve(tmpdir(), "signalint-test-stats-"));
+const rotatedLogPath = resolve(statsTestDir, "rotated-stats.jsonl");
+const missingLogPath = resolve(statsTestDir, "missing-stats.jsonl");
+
+afterAll(async () => {
+  await rm(statsTestDir, { force: true, recursive: true });
+});
+
+afterEach(async () => {
+  await rm(rotatedLogPath, { force: true });
+  await rm(`${rotatedLogPath}.1`, { force: true });
+});
 
 const SESSION_LOG = [
   {
@@ -37,12 +52,6 @@ const SESSION_LOG = [
     loopWarnings: [makeWarning("rule-b")],
   },
 ].map((entry) => JSON.stringify(entry)).join("\n");
-const rotatedLogPath = resolve(".signalint/test/rotated-stats.jsonl");
-
-afterEach(async () => {
-  await rm(rotatedLogPath, { force: true });
-  await rm(`${rotatedLogPath}.1`, { force: true });
-});
 
 describe("session statistics", () => {
   it("aggregates payload, cache, and distinct loop-warning metrics", () => {
@@ -74,7 +83,7 @@ describe("session statistics", () => {
   });
 
   it("returns an empty report when no session log exists", async () => {
-    const stats = await readSessionStats(resolve(".signalint/test/missing-stats.jsonl"));
+    const stats = await readSessionStats(missingLogPath);
 
     expect(formatSessionStats(stats)).toContain("Average payload reduction: n/a");
     expect(formatSessionStats(stats)).toContain("Engine-file cache hit rate: n/a");

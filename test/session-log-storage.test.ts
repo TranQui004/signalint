@@ -1,3 +1,4 @@
+import { mkdtempSync } from "node:fs";
 import {
   mkdir,
   readFile,
@@ -5,19 +6,25 @@ import {
   stat,
   writeFile,
 } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, resolve } from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import {
   readSessionLogTail,
   rotateSessionLogIfNeeded,
 } from "../src/memory/sessionLogStorage.js";
 
-const fixtureRoot = resolve(".signalint/test/session-log-storage");
+const fixtureRoot = mkdtempSync(resolve(tmpdir(), "signalint-test-session-storage-"));
+
+afterAll(async () => {
+  await rm(fixtureRoot, { recursive: true, force: true });
+});
 
 afterEach(async () => {
   await rm(fixtureRoot, { recursive: true, force: true });
+  await mkdir(fixtureRoot, { recursive: true });
 });
 
 describe("session log storage", () => {

@@ -1,10 +1,12 @@
+import { mkdtempSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { checkProjectWithIssues } from "../src/check/checkProject.js";
 import type { McpPayloadMode } from "../src/config.js";
@@ -27,9 +29,14 @@ import {
   EngineTimeoutError,
 } from "../src/subprocess.js";
 
-const logPath = resolve(".signalint/test/mcp-responses.jsonl");
+const responseTestDir = mkdtempSync(resolve(tmpdir(), "signalint-test-mcp-responses-"));
+const logPath = resolve(responseTestDir, "mcp-responses.jsonl");
 const clients: Client[] = [];
 const servers: Server[] = [];
+
+afterAll(async () => {
+  await rm(responseTestDir, { force: true, recursive: true });
+});
 
 afterEach(async () => {
   vi.restoreAllMocks();

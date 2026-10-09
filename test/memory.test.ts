@@ -1,10 +1,12 @@
+import { mkdtempSync } from "node:fs";
 import { appendFile, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { createServer } from "../src/index.js";
 import {
@@ -21,10 +23,15 @@ import {
   type NormalizedIssue,
 } from "../src/schema.js";
 
-const logPath = resolve(".signalint/test/session-memory.jsonl");
+const memoryTestDir = mkdtempSync(resolve(tmpdir(), "signalint-test-memory-"));
+const logPath = resolve(memoryTestDir, "session-memory.jsonl");
 const rotatedLogPath = `${logPath}.1`;
 const clients: Client[] = [];
 const servers: Server[] = [];
+
+afterAll(async () => {
+  await rm(memoryTestDir, { force: true, recursive: true });
+});
 
 afterEach(async () => {
   vi.restoreAllMocks();

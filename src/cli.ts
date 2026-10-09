@@ -64,8 +64,12 @@ export async function runCli(
 
 /** Handles the stats CLI subcommand given trailing arguments and working directory. */
 async function runStatsCommand(args: readonly string[], cwd: string): Promise<number> {
+  const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+  const logPath = stateDir && stateDir !== ""
+    ? resolve(stateDir, "session.jsonl")
+    : resolve(cwd, ".signalint", "session.jsonl");
   if (args.length === 1 && args[0] === "--json") {
-    const stats = await readSessionStats(resolve(cwd, ".signalint", "session.jsonl"));
+    const stats = await readSessionStats(logPath);
     process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
     return 0;
   }
@@ -74,7 +78,7 @@ async function runStatsCommand(args: readonly string[], cwd: string): Promise<nu
     return 2;
   }
   process.stdout.write(
-    `${formatSessionStats(await readSessionStats(resolve(cwd, ".signalint", "session.jsonl")))}\n`,
+    `${formatSessionStats(await readSessionStats(logPath))}\n`,
   );
   return 0;
 }

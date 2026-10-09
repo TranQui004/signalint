@@ -19,11 +19,15 @@ export interface SessionStats {
 
 /** Reads a Signalint JSONL session log and returns aggregate dogfooding metrics. */
 export async function readSessionStats(
-  logPath: string = resolve(process.cwd(), ".signalint", "session.jsonl"),
+  logPath?: string,
 ): Promise<SessionStats> {
+  const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+  const effectiveLogPath = logPath ?? (stateDir && stateDir !== ""
+    ? resolve(stateDir, "session.jsonl")
+    : resolve(process.cwd(), ".signalint", "session.jsonl"));
   const [rotated, active] = await Promise.all([
-    readOptionalSessionLog(`${logPath}.1`),
-    readOptionalSessionLog(logPath),
+    readOptionalSessionLog(`${effectiveLogPath}.1`),
+    readOptionalSessionLog(effectiveLogPath),
   ]);
   if (rotated === undefined && active === undefined) {
     return emptySessionStats();

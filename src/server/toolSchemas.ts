@@ -69,6 +69,7 @@ export const remainingIssueOutputSchema = {
       enum: ["error", "warning"] as const,
     },
     fixable: { type: "boolean" as const },
+    priority: { type: "integer" as const },
   },
   required: [
     "issueId",
@@ -127,7 +128,7 @@ export const checkOutputSchema = {
     schemaVersion: { type: "string" as const, enum: ["1.3", "1.4"] as const },
     status: {
       type: "string" as const,
-      enum: ["clean", "issues_found", "error"] as const,
+      enum: ["clean", "issues_found", "error", "stale"] as const,
     },
     projectRoot: { type: "string" as const },
     engines: {
@@ -176,6 +177,7 @@ export const checkOutputSchema = {
     message: { type: "string" as const },
   },
   required: ["status"],
+  additionalProperties: false,
 };
 
 export const normalizedIssueOutputSchema = {
@@ -225,7 +227,9 @@ export const getIssueDetailOutputSchema = {
     },
     code: { type: "string" as const },
     message: { type: "string" as const },
+    projectRoot: { type: "string" as const },
   },
+  additionalProperties: false,
 };
 
 export const getLoopStatusOutputSchema = {

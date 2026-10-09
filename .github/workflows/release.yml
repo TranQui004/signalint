@@ -34,15 +34,15 @@ jobs:
 
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@a3252b78d470290f8eab01612bad33886e2469db # v3.0.0
         with:
           version: 11.9.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: ${{ matrix.node }}
           cache: pnpm
@@ -72,17 +72,17 @@ jobs:
       id-token: write
     steps:
       - name: Check out repository
-        uses: actions/checkout@v7
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@a3252b78d470290f8eab01612bad33886e2469db # v3.0.0
         with:
           version: 11.9.0
 
       - name: Set up Node.js
-        uses: actions/setup-node@v7
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '22.x'
           cache: pnpm
@@ -101,8 +101,28 @@ jobs:
       - name: Build
         run: pnpm build
 
-      - name: Inspect packed contents
-        run: npm pack --dry-run
+      - name: Pack and inspect release tarball
+        id: pack-tarball
+        run: |
+          mkdir -p .tarball-inspect
+          pack_output="$(npm pack --json)"
+          echo "$pack_output" > .tarball-inspect/pack.json
+          tarball="$(node -p "JSON.parse(require('fs').readFileSync('.tarball-inspect/pack.json', 'utf8'))[0].filename")"
+          if [ -z "$tarball" ] || [ ! -f "$tarball" ]; then
+            echo "Failed to generate npm tarball." >&2
+            exit 1
+          fi
+          integrity="$(node -e "const crypto = require('crypto'); const fs = require('fs'); const hash = crypto.createHash('sha512').update(fs.readFileSync('$tarball')).digest('base64'); console.log('sha512-' + hash);")"
+          echo "Tarball: $tarball"
+          echo "SHA-512 integrity: $integrity"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+          echo "integrity=$integrity" >> "$GITHUB_OUTPUT"
+          tar -xzf "$tarball" -C .tarball-inspect
+          if [ ! -f ".tarball-inspect/package/package.json" ] || [ ! -f ".tarball-inspect/package/dist/src/index.js" ]; then
+            echo "Tarball inspection failed: expected files missing." >&2
+            exit 1
+          fi
+          echo "Tarball unpacked and verified successfully."
 
       - name: Generate release notes from commit messages
         run: |
@@ -166,7 +186,7 @@ jobs:
 
       - name: Publish to npm
         if: steps.check-publish.outputs.skip_npm_publish != 'true'
-        run: npm publish --provenance --access public
+        run: npm publish "${{ steps.pack-tarball.outputs.tarball }}" --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -181,7 +201,13 @@ jobs:
 
       - name: Install mcp-publisher
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz" | tar xz mcp-publisher
+          PUBLISHER_VERSION="v1.8.1"
+          EXPECTED_SHA256="a06c9096dcb9727c13555b6be26c7effa707b01f06a4c561ba7a3635443cf2cc"
+          curl -sSL "https://github.com/modelcontextprotocol/registry/releases/download/${PUBLISHER_VERSION}/mcp-publisher_linux_amd64.tar.gz" -o mcp-publisher.tar.gz
+          echo "${EXPECTED_SHA256}  mcp-publisher.tar.gz" | sha256sum -c -
+          tar -xzf mcp-publisher.tar.gz mcp-publisher
+          rm mcp-publisher.tar.gz
+          chmod +x mcp-publisher
 
       - name: Publish to MCP Registry
         run: |
@@ -211,9 +237,9 @@ jobs:
         run: |
           ref_name="${RELEASE_TAG:-${{ inputs.tag || github.ref_name }}}"
           if gh release view "$ref_name" > /dev/null 2>&1; then
-            gh release edit "$ref_name" --title "$ref_name" --notes-file release-notes.md
-          else
-            gh release create "$ref_name" --title "$ref_name" --notes-file release-notes.md
+            echo "Release $ref_name already exists; mutable tag/release overwrites are disallowed." >&2
+            exit 1
           fi
+          gh release create "$ref_name" --title "$ref_name" --notes-file release-notes.md
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

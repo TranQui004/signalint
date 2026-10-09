@@ -1,4 +1,4 @@
-import { symlinkSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { symlinkSync, mkdirSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
 import { describe, expect, it } from "vitest";
@@ -55,15 +55,18 @@ describe("Hook paths validation and normalization", () => {
   });
 
   it("rejects symlinks escaping project root", () => {
-    const testDir = resolve(tmpdir(), `signalint-symlink-test-${Date.now()}`);
-    mkdirSync(testDir, { recursive: true });
-    const outsideTarget = resolve(tmpdir(), `signalint-outside-${Date.now()}.ts`);
+    const rawTestDir = resolve(tmpdir(), `signalint-symlink-test-${Date.now()}`);
+    mkdirSync(rawTestDir, { recursive: true });
+    const testDir = realpathSync(rawTestDir);
+
+    const outsideTarget = resolve(testDir, "..", `signalint-outside-${Date.now()}.ts`);
     writeFileSync(outsideTarget, "export const x = 1;", "utf8");
+    const canonicalOutside = realpathSync(outsideTarget);
 
     const linkPath = join(testDir, "symlink-escape.ts");
     let symlinkCreated = false;
     try {
-      symlinkSync(outsideTarget, linkPath, "file");
+      symlinkSync(canonicalOutside, linkPath, "file");
       symlinkCreated = true;
     } catch {
       // Windows without SeCreateSymbolicLinkPrivilege may disallow creating symlinks
@@ -76,7 +79,7 @@ describe("Hook paths validation and normalization", () => {
         );
       }
     } finally {
-      rmSync(testDir, { recursive: true, force: true });
+      rmSync(rawTestDir, { recursive: true, force: true });
       rmSync(outsideTarget, { force: true });
     }
   });

@@ -1,5 +1,4 @@
 import { createHash } from "node:crypto";
-import { realpathSync } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
 
@@ -17,7 +16,11 @@ import {
   runEngineCommand,
   type CommandResult,
 } from "../subprocess.js";
-import { containProjectPath, resolveProjectPath } from "../projectPaths.js";
+import {
+  canonicalizePath,
+  containProjectPath,
+  resolveProjectPath,
+} from "../projectPaths.js";
 import { isRecord, normalizeFile } from "../util/index.js";
 
 export interface TscRunOptions {
@@ -177,14 +180,8 @@ export function resolveProjectId(projectFile: string, cwd: string): string {
     ? resolve(projectFile)
     : resolve(absoluteCwd, projectFile);
 
-  let canonicalCwd = absoluteCwd;
-  let canonicalFile = absoluteProjectFile;
-  try {
-    canonicalCwd = realpathSync(absoluteCwd);
-  } catch {}
-  try {
-    canonicalFile = realpathSync(absoluteProjectFile);
-  } catch {}
+  const canonicalCwd = canonicalizePath(absoluteCwd);
+  const canonicalFile = canonicalizePath(absoluteProjectFile);
 
   const rel = relative(canonicalCwd, dirname(canonicalFile)).replace(/\\/g, "/");
   if (rel === "" || rel === ".") {

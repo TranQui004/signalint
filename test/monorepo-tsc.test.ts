@@ -1,10 +1,11 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { collectProjectIssueResult } from "../src/check/checkProject.js";
 import { resolveProjectId, resolveTsBuildInfoPath } from "../src/engines/tsc.js";
+import { canonicalizePath } from "../src/projectPaths.js";
 
 describe("Monorepo Incremental TypeScript & Cache Invalidation", () => {
   let tempRoot: string;
@@ -14,14 +15,13 @@ describe("Monorepo Incremental TypeScript & Cache Invalidation", () => {
 
   beforeAll(() => {
     const rawTemp = mkdtempSync(join(tmpdir(), "signalint-monorepo-tsc-test-"));
-    tempRoot = realpathSync(rawTemp);
-    repoDir = join(tempRoot, "repo");
-    stateDir = join(tempRoot, "state");
+    mkdirSync(join(rawTemp, "repo"), { recursive: true });
+    mkdirSync(join(rawTemp, "state"), { recursive: true });
+    tempRoot = canonicalizePath(rawTemp);
+    repoDir = canonicalizePath(join(tempRoot, "repo"));
+    stateDir = canonicalizePath(join(tempRoot, "state"));
     originalStateDir = process.env.SIGNALINT_STATE_DIR;
     process.env.SIGNALINT_STATE_DIR = stateDir;
-
-    mkdirSync(repoDir, { recursive: true });
-    mkdirSync(stateDir, { recursive: true });
 
     // Root workspace files
     writeFileSync(

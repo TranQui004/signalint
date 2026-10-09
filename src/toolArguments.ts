@@ -132,3 +132,51 @@ export function parseGetLiveDiagnosticsArguments(
   return getLiveDiagnosticsArgumentsSchema.parse(argumentsValue ?? {});
 }
 
+const filePatchSchema = z.strictObject({
+  file: z.string().min(1),
+  originalContent: z.string(),
+  patchedContent: z.string(),
+  description: z.string().optional(),
+});
+
+const previewDiagnosticFixArgumentsSchema = z.strictObject({
+  patches: z.array(filePatchSchema).min(1),
+});
+
+export type PreviewDiagnosticFixArguments = z.infer<typeof previewDiagnosticFixArgumentsSchema>;
+
+/** Parses preview_diagnostic_fix arguments requiring non-empty patches list. */
+export function parsePreviewDiagnosticFixArguments(
+  argumentsValue: unknown,
+): PreviewDiagnosticFixArguments {
+  return previewDiagnosticFixArgumentsSchema.parse(argumentsValue);
+}
+
+const applyDiagnosticFixArgumentsSchema = z.strictObject({
+  transactionId: z.string().min(1),
+  confirm: z.boolean(),
+});
+
+export type ApplyDiagnosticFixArguments = z.infer<typeof applyDiagnosticFixArgumentsSchema>;
+
+/** Parses apply_diagnostic_fix arguments requiring transactionId and boolean confirm. */
+export function parseApplyDiagnosticFixArguments(
+  argumentsValue: unknown,
+): ApplyDiagnosticFixArguments {
+  return applyDiagnosticFixArgumentsSchema.parse(argumentsValue);
+}
+
+const discardDiagnosticFixArgumentsSchema = z.strictObject({
+  transactionId: z.string().min(1),
+});
+
+export type DiscardDiagnosticFixArguments = z.infer<typeof discardDiagnosticFixArgumentsSchema>;
+
+/** Parses discard_diagnostic_fix arguments requiring transactionId. */
+export function parseDiscardDiagnosticFixArguments(
+  argumentsValue: unknown,
+): DiscardDiagnosticFixArguments {
+  return discardDiagnosticFixArgumentsSchema.parse(argumentsValue);
+}
+
+

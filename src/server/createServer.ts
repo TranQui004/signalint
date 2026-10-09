@@ -53,7 +53,11 @@ import { handleIngestDiagnostics } from "./handlers/ingestDiagnostics.js";
 import { handleIssueDetail } from "./handlers/issueDetail.js";
 import { handleLoopStatus } from "./handlers/loopStatus.js";
 import { handlePing } from "./handlers/ping.js";
+import { handlePreviewDiagnosticFix } from "./handlers/previewDiagnosticFix.js";
+import { handleApplyDiagnosticFix } from "./handlers/applyDiagnosticFix.js";
+import { handleDiscardDiagnosticFix } from "./handlers/discardDiagnosticFix.js";
 import { handleGetDiagnosticSnapshot } from "./handlers/snapshot.js";
+import { TransactionManager } from "../transactions/manager.js";
 import { createTools } from "./tools.js";
 
 export interface SignalintServerOptions {
@@ -64,6 +68,7 @@ export interface SignalintServerOptions {
   payloadMode?: McpPayloadMode | undefined;
   snapshotStore?: SnapshotStore | undefined;
   diagnosticBuffer?: DiagnosticBuffer | undefined;
+  transactionManager?: TransactionManager | undefined;
 }
 
 /** Creates the Signalint MCP server with process-lifetime loop memory and optional test providers. */
@@ -121,6 +126,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   });
   const snapshotStore = options.snapshotStore ?? new SnapshotStore({ projectRoot: cwd });
   const diagnosticBuffer = options.diagnosticBuffer ?? new DiagnosticBuffer();
+  const transactionManager = options.transactionManager ?? new TransactionManager();
   const projectIssueProvider = options.projectIssueProvider === undefined
     ? (paths: readonly string[], signal?: AbortSignal) =>
         collectProjectIssueResult(paths, cwd, signal)
@@ -138,6 +144,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
     sessionMemory,
     snapshotStore,
     diagnosticBuffer,
+    transactionManager,
     projectIssueProvider,
     fileIssueProvider,
     cwd,
@@ -168,6 +175,7 @@ function registerToolHandlers(
   sessionMemory: SessionMemory,
   snapshotStore: SnapshotStore,
   diagnosticBuffer: DiagnosticBuffer,
+  transactionManager: TransactionManager,
   projectIssueProvider: IssueProvider,
   fileIssueProvider: IssueProvider,
   cwd: string,
@@ -176,6 +184,7 @@ function registerToolHandlers(
   const context: ToolHandlerContext = {
     cwd,
     diagnosticBuffer,
+    transactionManager,
     fileIssueProvider,
     latestIssues: [],
     projectIssueProvider,
@@ -257,6 +266,15 @@ export async function dispatchToolCall(
   }
   if (name === "get_live_diagnostics") {
     return await handleGetLiveDiagnostics(context, argumentsValue);
+  }
+  if (name === "preview_diagnostic_fix") {
+    return await handlePreviewDiagnosticFix(context, argumentsValue);
+  }
+  if (name === "apply_diagnostic_fix") {
+    return await handleApplyDiagnosticFix(context, argumentsValue);
+  }
+  if (name === "discard_diagnostic_fix") {
+    return await handleDiscardDiagnosticFix(context, argumentsValue);
   }
   throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
 }

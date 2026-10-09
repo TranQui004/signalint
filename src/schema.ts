@@ -20,6 +20,12 @@ export interface NormalizedIssue {
   clusterId?: string;
   serverName?: string;
   sourceKind?: "compiler" | "linter" | "lsp" | "editor";
+  provenance?: {
+    kind: "compiler" | "linter" | "lsp" | "editor";
+    engine: IssueEngine;
+    serverName?: string;
+    timestamp: number;
+  };
 }
 
 export interface Cluster {
@@ -180,6 +186,7 @@ export function isNormalizedIssue(value: unknown): value is NormalizedIssue {
     "clusterId",
     "serverName",
     "sourceKind",
+    "provenance",
   ]);
 
   return (
@@ -201,7 +208,11 @@ export function isNormalizedIssue(value: unknown): value is NormalizedIssue {
       value.sourceKind === "compiler" ||
       value.sourceKind === "linter" ||
       value.sourceKind === "lsp" ||
-      value.sourceKind === "editor")
+      value.sourceKind === "editor") &&
+    (value.provenance === undefined ||
+      (isRecord(value.provenance) &&
+        typeof value.provenance.kind === "string" &&
+        typeof value.provenance.timestamp === "number"))
   );
 }
 

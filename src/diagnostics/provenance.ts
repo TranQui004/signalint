@@ -60,6 +60,32 @@ export function inferDiagnosticSource(
   } else if (normSource === "vscode" || normServer === "vscode") {
     engine = "vscode";
     kind = "editor";
+  } else if (normSource === "ruff" || normServer === "ruff") {
+    engine = "external-lsp";
+    kind = "linter";
+    serverName = serverName ?? "ruff";
+  } else if (normSource === "mypy" || normServer === "mypy") {
+    engine = "external-lsp";
+    kind = "compiler";
+    serverName = serverName ?? "mypy";
+  } else if (
+    normSource === "cargo-clippy" ||
+    normSource === "clippy" ||
+    normServer === "cargo-clippy" ||
+    normServer === "clippy"
+  ) {
+    engine = "external-lsp";
+    kind = "linter";
+    serverName = serverName ?? "cargo-clippy";
+  } else if (
+    normSource === "golangci-lint" ||
+    normSource === "golangci" ||
+    normServer === "golangci-lint" ||
+    normServer === "golangci"
+  ) {
+    engine = "external-lsp";
+    kind = "linter";
+    serverName = serverName ?? "golangci-lint";
   }
 
   return {

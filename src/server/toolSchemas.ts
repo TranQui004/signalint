@@ -182,6 +182,31 @@ export const checkOutputSchema = {
   additionalProperties: false,
 };
 
+export const diagnosticSourceOutputSchema = {
+  type: "object" as const,
+  properties: {
+    kind: {
+      type: "string" as const,
+      enum: ["compiler", "linter", "lsp", "editor"] as const,
+    },
+    engine: {
+      type: "string" as const,
+      enum: [
+        "oxlint",
+        "tsc",
+        "biome",
+        "eslint",
+        "external-lsp",
+        "vscode",
+      ] as const,
+    },
+    serverName: { type: "string" as const },
+    timestamp: { type: "integer" as const },
+  },
+  required: ["kind", "engine", "timestamp"],
+  additionalProperties: false,
+};
+
 export const normalizedIssueOutputSchema = {
   type: "object" as const,
   properties: {
@@ -213,6 +238,7 @@ export const normalizedIssueOutputSchema = {
       type: "string" as const,
       enum: ["compiler", "linter", "lsp", "editor"] as const,
     },
+    provenance: diagnosticSourceOutputSchema,
   },
   required: [
     "issueId",
@@ -482,10 +508,97 @@ export const getLiveDiagnosticsOutputSchema = {
   additionalProperties: false,
 };
 
-/** Hints applied uniformly to every tool: local-only reads, no external writes or network. */
+export const patchPreviewItemOutputSchema = {
+  type: "object" as const,
+  properties: {
+    file: { type: "string" as const },
+    description: { type: "string" as const },
+    originalLength: { type: "integer" as const },
+    patchedLength: { type: "integer" as const },
+  },
+  required: ["file", "originalLength", "patchedLength"],
+  additionalProperties: false,
+};
+
+export const previewDiagnosticFixOutputSchema = {
+  type: "object" as const,
+  properties: {
+    transactionId: { type: "string" as const },
+    filesCount: { type: "integer" as const },
+    summary: { type: "string" as const },
+    patchesPreview: {
+      type: "array" as const,
+      items: patchPreviewItemOutputSchema,
+    },
+    status: {
+      type: "string" as const,
+      enum: ["prepared", "error"] as const,
+    },
+    error: { type: "string" as const },
+  },
+  required: ["transactionId", "filesCount", "summary", "status"],
+  additionalProperties: false,
+};
+
+export const applyDiagnosticFixOutputSchema = {
+  type: "object" as const,
+  properties: {
+    transactionId: { type: "string" as const },
+    status: {
+      type: "string" as const,
+      enum: ["success", "rolled_back", "error"] as const,
+    },
+    filesModified: {
+      type: "array" as const,
+      items: { type: "string" as const },
+    },
+    postCheckId: { type: "string" as const },
+    delta: diagnosticDeltaOutputSchema,
+    error: { type: "string" as const },
+  },
+  required: ["transactionId", "status", "filesModified"],
+  additionalProperties: false,
+};
+
+export const discardDiagnosticFixOutputSchema = {
+  type: "object" as const,
+  properties: {
+    transactionId: { type: "string" as const },
+    discarded: { type: "boolean" as const },
+  },
+  required: ["transactionId", "discarded"],
+  additionalProperties: false,
+};
+
+/** Hints applied uniformly to every read-only tool: local-only reads, no external writes or network. */
 export const TOOL_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: false,
 } as const;
+
+/** Hints for non-destructive in-memory preview tools. */
+export const PREVIEW_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
+/** Hints for irreversible/modifying apply tools. */
+export const APPLY_TOOL_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
+/** Hints for idempotent discard tools. */
+export const DISCARD_TOOL_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+

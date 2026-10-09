@@ -1,6 +1,8 @@
-import { resolve } from "node:path";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
   filterIgnoredPaths,
@@ -14,6 +16,24 @@ import { checkConfiguredFiles, collectProjectIssues } from "../src/index.js";
 const fixtureRoot = resolve("test/fixtures/config-project");
 
 describe("Signalint configuration", () => {
+  let tempStateDir: string;
+  let originalStateDir: string | undefined;
+
+  beforeAll(() => {
+    originalStateDir = process.env.SIGNALINT_STATE_DIR;
+    tempStateDir = mkdtempSync(join(tmpdir(), "signalint-config-test-"));
+    process.env.SIGNALINT_STATE_DIR = tempStateDir;
+  });
+
+  afterAll(() => {
+    if (originalStateDir !== undefined) {
+      process.env.SIGNALINT_STATE_DIR = originalStateDir;
+    } else {
+      delete process.env.SIGNALINT_STATE_DIR;
+    }
+    rmSync(tempStateDir, { recursive: true, force: true });
+  });
+
   it("loads engine switches and ignore globs from the project root", async () => {
     const config = await loadSignalintConfig(fixtureRoot);
 

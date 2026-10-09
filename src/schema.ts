@@ -127,7 +127,9 @@ export interface EngineOutputLimitResponse {
 
 export interface StaleReferenceResponse {
   status: "stale";
-  message: "This cluster/issue no longer exists; run check_project again.";
+  message: string;
+  code?: string;
+  projectRoot?: string;
 }
 
 /** Converts an engine message to the schema's single-line, approximately 120-character form. */

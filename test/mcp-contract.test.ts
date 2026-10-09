@@ -10,8 +10,12 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createServer, dispatchToolCall } from "../src/server/createServer.js";
 import { createTools } from "../src/server/tools.js";
 import {
+  afterEditCheckOutputSchema,
   checkOutputSchema,
   clusterOutputSchema,
+  compareDiagnosticsOutputSchema,
+  diagnosticDeltaOutputSchema,
+  getDiagnosticSnapshotOutputSchema,
   getIssueDetailOutputSchema,
   getLoopStatusOutputSchema,
   normalizedIssueOutputSchema,
@@ -19,6 +23,7 @@ import {
   remainingIssueOutputSchema,
 } from "../src/server/toolSchemas.js";
 import { SessionMemory } from "../src/memory/sessionMemory.js";
+import { SnapshotStore } from "../src/diagnostics/snapshots.js";
 import { resolveSignalintVersion } from "../src/version.js";
 
 const clients: Client[] = [];
@@ -237,10 +242,81 @@ describe("MCP protocol contract and schema verification", () => {
     };
     assertMatchesSchemaProperties(pingVariant, pingOutputSchema);
 
-    // 5. normalizedIssueOutputSchema, clusterOutputSchema, remainingIssueOutputSchema
+    // 5. getDiagnosticSnapshotOutputSchema
+    const snapshotVariant = {
+      checkId: "chk-1",
+      projectRoot: "/workspace",
+      timestamp: Date.now(),
+      status: "clean",
+      clusters: [],
+      remainingIssues: [],
+      totalIssues: 0,
+      omittedIssueCount: 0,
+      engines: { oxlint: { status: "ok" } },
+      cache: { hits: 0, misses: 0 },
+      source: "project",
+      durationMs: 12.3,
+    };
+    assertMatchesSchemaProperties(snapshotVariant, getDiagnosticSnapshotOutputSchema);
+
+    // 6. compareDiagnosticsOutputSchema
+    const compareVariant = {
+      status: "ok",
+      baselineId: "base-1",
+      currentId: "curr-1",
+      errorsIntroduced: 0,
+      errorsResolved: 1,
+      netDelta: -1,
+      introducedIssues: [],
+      resolvedIssues: [],
+      unchangedIssues: [],
+      nextStep: "All baseline errors resolved.",
+    };
+    assertMatchesSchemaProperties(compareVariant, compareDiagnosticsOutputSchema);
+
+    // 7. afterEditCheckOutputSchema
+    const afterEditVariant = {
+      schemaVersion: "1.4",
+      status: "clean",
+      projectRoot: "/workspace",
+      engines: { oxlint: { status: "ok" } },
+      totalIssues: 0,
+      clusters: [],
+      remainingIssues: [],
+      omittedIssueCount: 0,
+      truncated: false,
+      delta: compareVariant,
+    };
+    assertMatchesSchemaProperties(afterEditVariant, afterEditCheckOutputSchema);
+
+    // 8. additionalProperties: false checks
     expect(normalizedIssueOutputSchema.additionalProperties).toBe(false);
     expect(clusterOutputSchema.additionalProperties).toBe(false);
     expect(remainingIssueOutputSchema.additionalProperties).toBe(false);
+    expect(getDiagnosticSnapshotOutputSchema.additionalProperties).toBe(false);
+    expect(compareDiagnosticsOutputSchema.additionalProperties).toBe(false);
+    expect(afterEditCheckOutputSchema.additionalProperties).toBe(false);
+    expect(diagnosticDeltaOutputSchema.additionalProperties).toBe(false);
+  });
+
+  it("handles outputSchema declaration across payload modes: both, structured, and text", () => {
+    const bothTools = createTools("both");
+    const structuredTools = createTools("structured");
+    const textTools = createTools("text");
+
+    expect(bothTools.length).toBe(8);
+    expect(structuredTools.length).toBe(8);
+    expect(textTools.length).toBe(8);
+
+    for (const tool of bothTools) {
+      expect(tool.outputSchema).toBeDefined();
+    }
+    for (const tool of structuredTools) {
+      expect(tool.outputSchema).toBeDefined();
+    }
+    for (const tool of textTools) {
+      expect(tool.outputSchema).toBeUndefined();
+    }
   });
 
   it("throws protocol InvalidParams McpError for unknown tool name", async () => {
@@ -273,6 +349,7 @@ describe("MCP protocol contract and schema verification", () => {
       projectIssueProvider: dummyProvider,
       sessionMemory: new SessionMemory(),
       payloadMode: "both" as const,
+      snapshotStore: new SnapshotStore(),
     };
 
     await expect(

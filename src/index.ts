@@ -20,6 +20,15 @@ import type {
   IssueProvider,
   TestIssueProvider,
 } from "./server/context.js";
+import {
+  SnapshotStore,
+  type DiagnosticSnapshot,
+  type SnapshotStoreOptions,
+} from "./diagnostics/snapshots.js";
+import {
+  computeDiagnosticDelta,
+  type DiagnosticDelta,
+} from "./diagnostics/delta.js";
 
 export type RawIssueProvider = (
   paths: readonly string[],
@@ -32,11 +41,16 @@ export {
   checkProject,
   checkProjectWithIssues,
   collectProjectIssues,
+  computeDiagnosticDelta,
   createServer,
   startServer,
+  SnapshotStore,
+  type DiagnosticDelta,
+  type DiagnosticSnapshot,
   type IssueProvider,
   type IssueProviderResult,
   type SignalintServerOptions,
+  type SnapshotStoreOptions,
   type TestIssueProvider,
 };
 

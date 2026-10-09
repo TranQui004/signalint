@@ -35,13 +35,21 @@ import {
   type TestIssueProvider,
   type ToolHandlerContext,
 } from "./context.js";
+import { SnapshotStore } from "../diagnostics/snapshots.js";
 import { isRecord } from "../util/index.js";
 import { resolveSignalintVersion } from "../version.js";
 import { createInputRefusal } from "./errors.js";
-import { handleCheckFiles, handleCheckProject } from "./handlers/check.js";
+import {
+  handleAfterEditCheck,
+  handleCheckFiles,
+  handleCheckProject,
+  type ProgressReporter,
+} from "./handlers/check.js";
+import { handleCompareDiagnostics } from "./handlers/compare.js";
 import { handleIssueDetail } from "./handlers/issueDetail.js";
 import { handleLoopStatus } from "./handlers/loopStatus.js";
 import { handlePing } from "./handlers/ping.js";
+import { handleGetDiagnosticSnapshot } from "./handlers/snapshot.js";
 import { createTools } from "./tools.js";
 
 export interface SignalintServerOptions {
@@ -50,6 +58,7 @@ export interface SignalintServerOptions {
   projectIssueProvider?: TestIssueProvider | undefined;
   sessionMemory?: SessionMemory | undefined;
   payloadMode?: McpPayloadMode | undefined;
+  snapshotStore?: SnapshotStore | undefined;
 }
 
 /** Creates the Signalint MCP server with process-lifetime loop memory and optional test providers. */
@@ -105,6 +114,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   const sessionMemory = options.sessionMemory ?? new SessionMemory({
     logPath: sessionLogPath,
   });
+  const snapshotStore = options.snapshotStore ?? new SnapshotStore({ projectRoot: cwd });
   const projectIssueProvider = options.projectIssueProvider === undefined
     ? (paths: readonly string[], signal?: AbortSignal) =>
         collectProjectIssueResult(paths, cwd, signal)
@@ -117,7 +127,15 @@ export function createServer(options: SignalintServerOptions = {}): Server {
   const config = loadSignalintConfigSync(cwd);
   const payloadMode = resolveMcpPayloadMode(options.payloadMode ?? config.mcpPayload);
 
-  registerToolHandlers(server, sessionMemory, projectIssueProvider, fileIssueProvider, cwd, payloadMode);
+  registerToolHandlers(
+    server,
+    sessionMemory,
+    snapshotStore,
+    projectIssueProvider,
+    fileIssueProvider,
+    cwd,
+    payloadMode,
+  );
   return server;
 }
 
@@ -141,6 +159,7 @@ export async function startServer(): Promise<void> {
 function registerToolHandlers(
   server: Server,
   sessionMemory: SessionMemory,
+  snapshotStore: SnapshotStore,
   projectIssueProvider: IssueProvider,
   fileIssueProvider: IssueProvider,
   cwd: string,
@@ -153,22 +172,31 @@ function registerToolHandlers(
     projectIssueProvider,
     sessionMemory,
     payloadMode,
+    snapshotStore,
   };
   const activeTools = createTools(payloadMode);
   server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({ tools: activeTools }));
   server.setRequestHandler(CallToolRequestSchema, async (request, extra): Promise<CallToolResult> => {
+    const progressToken = extra._meta?.progressToken ?? request.params._meta?.progressToken;
+    const progressReporter = createProgressReporter(server, progressToken);
     try {
       return await dispatchToolCall(
         request.params.name,
         request.params.arguments,
         extra.signal,
         context,
+        progressReporter,
       );
     } catch (error: unknown) {
+      if (extra.signal.aborted) {
+        throw error;
+      }
       if (error instanceof ZodError || error instanceof ProjectPathError) {
         return createInputRefusal(error, context.cwd, context.payloadMode);
       }
       throw error;
+    } finally {
+      progressReporter.finish();
     }
   });
 }
@@ -179,6 +207,7 @@ export async function dispatchToolCall(
   argumentsValue: unknown,
   signal: AbortSignal,
   context: ToolHandlerContext,
+  progressReporter?: ProgressReporter,
 ): Promise<CallToolResult> {
   if (argumentsValue !== undefined && !isRecord(argumentsValue)) {
     throw new McpError(
@@ -190,16 +219,75 @@ export async function dispatchToolCall(
     return await handlePing(context, argumentsValue);
   }
   if (name === "check_project") {
-    return await handleCheckProject(context, argumentsValue, signal);
+    return await handleCheckProject(context, argumentsValue, signal, progressReporter);
   }
   if (name === "check_files") {
-    return await handleCheckFiles(context, argumentsValue, signal);
+    return await handleCheckFiles(context, argumentsValue, signal, progressReporter);
+  }
+  if (name === "after_edit_check") {
+    return await handleAfterEditCheck(context, argumentsValue, signal, progressReporter);
   }
   if (name === "get_issue_detail") {
     return await handleIssueDetail(context, argumentsValue);
+  }
+  if (name === "get_diagnostic_snapshot") {
+    return await handleGetDiagnosticSnapshot(context, argumentsValue);
+  }
+  if (name === "compare_diagnostics") {
+    return await handleCompareDiagnostics(context, argumentsValue);
   }
   if (name === "get_loop_status") {
     return await handleLoopStatus(context, argumentsValue);
   }
   throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
+}
+
+/** Creates a rate-limited monotonic progress reporter for an MCP tool request. */
+export function createProgressReporter(
+  server: Server,
+  progressToken: string | number | undefined,
+): ProgressReporter & { finish: () => void } {
+  let isDone = false;
+  let lastReportedTime = 0;
+  let lastProgress = -1;
+
+  const reporter: ProgressReporter & { finish: () => void } = Object.assign(
+    async (progress: number, total = 100, message?: string) => {
+      if (isDone || progressToken === undefined) {
+        return;
+      }
+      if (progress < lastProgress) {
+        return;
+      }
+      const now = performance.now();
+      if (progress > 0 && progress < total && now - lastReportedTime < 50) {
+        return;
+      }
+      lastReportedTime = now;
+      lastProgress = progress;
+      if (progress >= total) {
+        isDone = true;
+      }
+      try {
+        await server.notification({
+          method: "notifications/progress",
+          params: {
+            progressToken,
+            progress,
+            total,
+            ...(message !== undefined ? { message } : {}),
+          },
+        });
+      } catch {
+        // client may not be listening or disconnected
+      }
+    },
+    {
+      finish: () => {
+        isDone = true;
+      },
+    },
+  );
+
+  return reporter;
 }

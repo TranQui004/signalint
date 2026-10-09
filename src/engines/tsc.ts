@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { realpathSync } from "node:fs";
 import { mkdir, readFile, stat } from "node:fs/promises";
 import { basename, dirname, relative, resolve } from "node:path";
 
@@ -171,7 +172,16 @@ function createBuildModeArgs(projectFile: string): string[] {
 
 /** Computes a deterministic project ID slug for tsbuildinfo storage and cache partitioning. */
 export function resolveProjectId(projectFile: string, cwd: string): string {
-  const rel = relative(cwd, dirname(projectFile)).replace(/\\/g, "/");
+  let canonicalCwd = cwd;
+  let canonicalFile = projectFile;
+  try {
+    canonicalCwd = realpathSync(cwd);
+  } catch {}
+  try {
+    canonicalFile = realpathSync(projectFile);
+  } catch {}
+
+  const rel = relative(canonicalCwd, dirname(canonicalFile)).replace(/\\/g, "/");
   if (rel === "" || rel === ".") {
     return "root";
   }

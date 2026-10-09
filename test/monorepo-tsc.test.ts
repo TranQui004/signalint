@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -13,7 +13,8 @@ describe("Monorepo Incremental TypeScript & Cache Invalidation", () => {
   let originalStateDir: string | undefined;
 
   beforeAll(() => {
-    tempRoot = mkdtempSync(join(tmpdir(), "signalint-monorepo-tsc-test-"));
+    const rawTemp = mkdtempSync(join(tmpdir(), "signalint-monorepo-tsc-test-"));
+    tempRoot = realpathSync(rawTemp);
     repoDir = join(tempRoot, "repo");
     stateDir = join(tempRoot, "state");
     originalStateDir = process.env.SIGNALINT_STATE_DIR;

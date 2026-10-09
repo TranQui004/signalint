@@ -6,7 +6,9 @@ import {
   compareDiagnosticsOutputSchema,
   getDiagnosticSnapshotOutputSchema,
   getIssueDetailOutputSchema,
+  getLiveDiagnosticsOutputSchema,
   getLoopStatusOutputSchema,
+  ingestDiagnosticsOutputSchema,
   pingOutputSchema,
   TOOL_ANNOTATIONS,
 } from "./toolSchemas.js";
@@ -135,6 +137,87 @@ export function createTools(mode: McpPayloadMode = "both") {
         additionalProperties: false,
       },
       ...(advertiseOutput ? { outputSchema: afterEditCheckOutputSchema } : {}),
+      annotations: TOOL_ANNOTATIONS,
+    },
+    {
+      name: "ingest_diagnostics",
+      description: "Ingests external LSP diagnostics (e.g., from VS Code or language servers), normalizes them to Signalint's unified schema, updates the active diagnostic buffer, and records an immutable snapshot.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          source: { type: "string" as const },
+          serverName: { type: "string" as const },
+          diagnostics: {
+            type: "array" as const,
+            items: {
+              type: "object" as const,
+              properties: {
+                file: { type: "string" as const },
+                range: {
+                  type: "object" as const,
+                  properties: {
+                    start: {
+                      type: "object" as const,
+                      properties: {
+                        line: { type: "integer" as const },
+                        character: { type: "integer" as const },
+                      },
+                      required: ["line", "character"],
+                      additionalProperties: false,
+                    },
+                    end: {
+                      type: "object" as const,
+                      properties: {
+                        line: { type: "integer" as const },
+                        character: { type: "integer" as const },
+                      },
+                      required: ["line", "character"],
+                      additionalProperties: false,
+                    },
+                  },
+                  required: ["start", "end"],
+                  additionalProperties: false,
+                },
+                severity: { type: "integer" as const },
+                code: {
+                  oneOf: [
+                    { type: "string" as const },
+                    { type: "integer" as const },
+                  ],
+                },
+                source: { type: "string" as const },
+                message: { type: "string" as const },
+              },
+              required: ["file", "range", "message"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["diagnostics"],
+        additionalProperties: false,
+      },
+      ...(advertiseOutput ? { outputSchema: ingestDiagnosticsOutputSchema } : {}),
+      annotations: TOOL_ANNOTATIONS,
+    },
+    {
+      name: "get_live_diagnostics",
+      description: "Returns current bounded active diagnostics and clusters merged from both internal engines and ingested LSP sources, with clear provenance per issue.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          files: {
+            type: "array" as const,
+            items: { type: "string" as const, minLength: 1 },
+            maxItems: MAX_TOOL_PATHS,
+          },
+          severity: {
+            type: "string" as const,
+            enum: ["error", "warning"] as const,
+          },
+        },
+        additionalProperties: false,
+      },
+      ...(advertiseOutput ? { outputSchema: getLiveDiagnosticsOutputSchema } : {}),
       annotations: TOOL_ANNOTATIONS,
     },
   ];

@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 
-export type IssueEngine = "oxlint" | "tsc" | "biome" | "eslint";
+export type BuiltinEngine = "oxlint" | "tsc" | "biome" | "eslint";
+export type IssueEngine =
+  | BuiltinEngine
+  | "external-lsp"
+  | "vscode";
 export type IssueSeverity = "error" | "warning";
 
 export interface NormalizedIssue {
@@ -14,6 +18,8 @@ export interface NormalizedIssue {
   message: string;
   fixable: boolean;
   clusterId?: string;
+  serverName?: string;
+  sourceKind?: "compiler" | "linter" | "lsp" | "editor";
 }
 
 export interface Cluster {
@@ -169,7 +175,12 @@ export function isNormalizedIssue(value: unknown): value is NormalizedIssue {
     "message",
     "fixable",
   ];
-  const allowedKeys = new Set([...requiredKeys, "clusterId"]);
+  const allowedKeys = new Set([
+    ...requiredKeys,
+    "clusterId",
+    "serverName",
+    "sourceKind",
+  ]);
 
   return (
     requiredKeys.every((key) => key in value) &&
@@ -184,7 +195,13 @@ export function isNormalizedIssue(value: unknown): value is NormalizedIssue {
     typeof value.message === "string" &&
     value.message.length <= 120 &&
     typeof value.fixable === "boolean" &&
-    (value.clusterId === undefined || typeof value.clusterId === "string")
+    (value.clusterId === undefined || typeof value.clusterId === "string") &&
+    (value.serverName === undefined || typeof value.serverName === "string") &&
+    (value.sourceKind === undefined ||
+      value.sourceKind === "compiler" ||
+      value.sourceKind === "linter" ||
+      value.sourceKind === "lsp" ||
+      value.sourceKind === "editor")
   );
 }
 
@@ -340,7 +357,14 @@ function isLoopWarning(value: unknown): value is LoopWarning {
 }
 
 function isEngineStatuses(value: unknown): value is EngineStatuses {
-  const allowedKeys = new Set(["oxlint", "tsc", "biome", "eslint"]);
+  const allowedKeys = new Set([
+    "oxlint",
+    "tsc",
+    "biome",
+    "eslint",
+    "external-lsp",
+    "vscode",
+  ]);
   if (!isRecord(value)) {
     return false;
   }
@@ -367,7 +391,14 @@ function isEngineStatus(value: unknown): value is EngineStatus {
 }
 
 function isIssueEngine(value: unknown): value is IssueEngine {
-  return value === "oxlint" || value === "tsc" || value === "biome" || value === "eslint";
+  return (
+    value === "oxlint" ||
+    value === "tsc" ||
+    value === "biome" ||
+    value === "eslint" ||
+    value === "external-lsp" ||
+    value === "vscode"
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { ALL_ENGINES, ENGINE_REGISTRY, getEngineSpec } from "../src/engines/registry.js";
-import type { IssueEngine } from "../src/schema.js";
+import type { BuiltinEngine } from "../src/schema.js";
 
 describe("Engine registry", () => {
   it("registers all expected issue engines with complete specifications", () => {
-    const expectedEngines: IssueEngine[] = ["oxlint", "tsc", "biome", "eslint"];
+    const expectedEngines: BuiltinEngine[] = ["oxlint", "tsc", "biome", "eslint"];
     expect([...ALL_ENGINES].sort()).toEqual([...expectedEngines].sort());
 
     for (const engine of expectedEngines) {
@@ -30,7 +30,7 @@ describe("Engine registry", () => {
     expect(getEngineSpec("biome").displayName).toBe("Biome");
     expect(getEngineSpec("eslint").displayName).toBe("ESLint");
 
-    expect(() => getEngineSpec("unknown" as unknown as IssueEngine)).toThrow(
+    expect(() => getEngineSpec("unknown" as unknown as BuiltinEngine)).toThrow(
       "Unknown engine: unknown",
     );
   });

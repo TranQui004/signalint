@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { dirname, isAbsolute, relative, resolve } from "node:path";
 
 import { canonicalizePath } from "./projectPaths.js";
-import type { IssueEngine } from "./schema.js";
+import type { BuiltinEngine, IssueEngine } from "./schema.js";
 import { isRecord } from "./util/index.js";
 
 export interface ResolvedEngine {
@@ -17,11 +17,14 @@ import { ENGINE_REGISTRY, type EngineSpec } from "./engines/registry.js";
 
 export type EnginePackageInfo = Pick<EngineSpec, "packageName" | "binRelativePath" | "bundledAvailable">;
 
-export const ENGINE_INFO: Record<IssueEngine, EnginePackageInfo> = new Proxy(
-  {} as Record<IssueEngine, EnginePackageInfo>,
+export const ENGINE_INFO: Record<BuiltinEngine, EnginePackageInfo> = new Proxy(
+  {} as Record<BuiltinEngine, EnginePackageInfo>,
   {
     get(_target, prop: string | symbol) {
-      return ENGINE_REGISTRY[prop as IssueEngine];
+      return ENGINE_REGISTRY[prop as BuiltinEngine];
+    },
+    has(_target, prop: string | symbol) {
+      return prop in ENGINE_REGISTRY;
     },
   },
 );
@@ -42,6 +45,9 @@ export function resolveEngine(
   engine: IssueEngine,
   projectRoot: string = process.cwd(),
 ): ResolvedEngine | undefined {
+  if (!(engine in ENGINE_REGISTRY)) {
+    return undefined;
+  }
   const canonicalRoot = safeRealpath(projectRoot);
   const cacheKey = `${engine}:${canonicalRoot}`;
   if (resolutionCache.has(cacheKey)) {
@@ -49,7 +55,7 @@ export function resolveEngine(
     return cached ?? undefined;
   }
 
-  const info = ENGINE_INFO[engine];
+  const info = ENGINE_INFO[engine as BuiltinEngine];
   const resolved = resolveProjectLocalEngine(engine, info, projectRoot) ??
     (info.bundledAvailable ? resolveBundledEngine(engine, info) : undefined);
 

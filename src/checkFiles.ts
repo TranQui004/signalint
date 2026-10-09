@@ -17,14 +17,14 @@ import {
 import { settleEngineTasks } from "./engineFanout.js";
 import {
   createIssueId,
+  type BuiltinEngine,
   type EngineStatuses,
-  type IssueEngine,
   type NormalizedIssue,
 } from "./schema.js";
 import { resolveProjectPaths, type ResolvedProjectPath } from "./projectPaths.js";
 import { compareIssues, isRecord } from "./util/index.js";
 
-export type CacheEngine = IssueEngine;
+export type CacheEngine = BuiltinEngine;
 
 export interface EngineRunOptions {
   cwd?: string | undefined;
@@ -121,7 +121,7 @@ export async function checkFilesWithStats(
     }
     const resolvedFiles = await resolveProjectPaths(files, cwd);
     const snapshots = await mapConcurrent(resolvedFiles, 32, readSnapshot);
-    const getLocalRunner = (engine: Exclude<IssueEngine, "tsc">): EngineRunner =>
+    const getLocalRunner = (engine: Exclude<BuiltinEngine, "tsc">): EngineRunner =>
       options.runners?.[engine] ?? ((paths, opts) => ENGINE_REGISTRY[engine].run(paths, opts));
     const tscRunner = options.runners?.tsc ?? ((opts) => ENGINE_REGISTRY.tsc.run(["."], opts));
     const engines = options.engines ?? DEFAULT_ENGINES;

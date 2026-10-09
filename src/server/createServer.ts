@@ -25,6 +25,7 @@ import {
   writeFatalError,
 } from "../lifecycle.js";
 import { SessionMemory } from "../memory/sessionMemory.js";
+import { HookPathError } from "../hooks/paths.js";
 import {
   ProjectPathError,
   readCanonicalProjectRootSync,
@@ -35,6 +36,7 @@ import {
   type TestIssueProvider,
   type ToolHandlerContext,
 } from "./context.js";
+import { DiagnosticBuffer } from "../diagnostics/buffer.js";
 import { SnapshotStore } from "../diagnostics/snapshots.js";
 import { isRecord } from "../util/index.js";
 import { resolveSignalintVersion } from "../version.js";
@@ -46,6 +48,8 @@ import {
   type ProgressReporter,
 } from "./handlers/check.js";
 import { handleCompareDiagnostics } from "./handlers/compare.js";
+import { handleGetLiveDiagnostics } from "./handlers/getLiveDiagnostics.js";
+import { handleIngestDiagnostics } from "./handlers/ingestDiagnostics.js";
 import { handleIssueDetail } from "./handlers/issueDetail.js";
 import { handleLoopStatus } from "./handlers/loopStatus.js";
 import { handlePing } from "./handlers/ping.js";
@@ -59,6 +63,7 @@ export interface SignalintServerOptions {
   sessionMemory?: SessionMemory | undefined;
   payloadMode?: McpPayloadMode | undefined;
   snapshotStore?: SnapshotStore | undefined;
+  diagnosticBuffer?: DiagnosticBuffer | undefined;
 }
 
 /** Creates the Signalint MCP server with process-lifetime loop memory and optional test providers. */
@@ -115,6 +120,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
     logPath: sessionLogPath,
   });
   const snapshotStore = options.snapshotStore ?? new SnapshotStore({ projectRoot: cwd });
+  const diagnosticBuffer = options.diagnosticBuffer ?? new DiagnosticBuffer();
   const projectIssueProvider = options.projectIssueProvider === undefined
     ? (paths: readonly string[], signal?: AbortSignal) =>
         collectProjectIssueResult(paths, cwd, signal)
@@ -131,6 +137,7 @@ export function createServer(options: SignalintServerOptions = {}): Server {
     server,
     sessionMemory,
     snapshotStore,
+    diagnosticBuffer,
     projectIssueProvider,
     fileIssueProvider,
     cwd,
@@ -160,6 +167,7 @@ function registerToolHandlers(
   server: Server,
   sessionMemory: SessionMemory,
   snapshotStore: SnapshotStore,
+  diagnosticBuffer: DiagnosticBuffer,
   projectIssueProvider: IssueProvider,
   fileIssueProvider: IssueProvider,
   cwd: string,
@@ -167,6 +175,7 @@ function registerToolHandlers(
 ): void {
   const context: ToolHandlerContext = {
     cwd,
+    diagnosticBuffer,
     fileIssueProvider,
     latestIssues: [],
     projectIssueProvider,
@@ -191,7 +200,11 @@ function registerToolHandlers(
       if (extra.signal.aborted) {
         throw error;
       }
-      if (error instanceof ZodError || error instanceof ProjectPathError) {
+      if (
+        error instanceof ZodError ||
+        error instanceof ProjectPathError ||
+        error instanceof HookPathError
+      ) {
         return createInputRefusal(error, context.cwd, context.payloadMode);
       }
       throw error;
@@ -238,6 +251,12 @@ export async function dispatchToolCall(
   }
   if (name === "get_loop_status") {
     return await handleLoopStatus(context, argumentsValue);
+  }
+  if (name === "ingest_diagnostics") {
+    return await handleIngestDiagnostics(context, argumentsValue);
+  }
+  if (name === "get_live_diagnostics") {
+    return await handleGetLiveDiagnostics(context, argumentsValue);
   }
   throw new McpError(ErrorCode.InvalidParams, `Unknown tool: ${name}`);
 }

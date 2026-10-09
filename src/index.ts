@@ -55,6 +55,28 @@ export {
 };
 
 export {
+  DiagnosticBuffer,
+  type DiagnosticBufferOptions,
+  type DiagnosticQueryFilter,
+} from "./diagnostics/buffer.js";
+export {
+  normalizeLspDiagnostic,
+  decodeFileUri,
+  formatLspRule,
+  type RawLspDiagnostic,
+  type NormalizeLspOptions,
+  type LspPosition,
+  type LspRange,
+} from "./diagnostics/normalize.js";
+export {
+  createDiagnosticSource,
+  inferDiagnosticSource,
+  type DiagnosticSource,
+  type DiagnosticSourceKind,
+  type DiagnosticEngine,
+} from "./diagnostics/provenance.js";
+
+export {
   runHookLauncher,
   type HookLauncherOptions,
   type HookLauncherResult,

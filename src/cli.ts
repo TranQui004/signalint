@@ -9,6 +9,7 @@ import { isMainModule } from "./mainModule.js";
 import type { CheckResponse, NormalizedIssue, RemainingIssue } from "./schema.js";
 import { formatSessionStats, readSessionStats } from "./memory/stats.js";
 import { resolveSignalintVersion } from "./version.js";
+import { runHooksCommand } from "./hooks/launcher.js";
 
 const CHECK_USAGE =
   "Usage: signalint check [path ...] [--format json|github] [--compact] [--fail-on-priority <N>]\n";
@@ -28,7 +29,10 @@ export async function runCli(
 ): Promise<number> {
   const [command, ...rest] = args;
   if (command === "--help" || command === "-h" || command === "help" || command === undefined) {
-    process.stdout.write("Usage: signalint <init | check [path ...] | stats [--json] | doctor>\n");
+    process.stdout.write(
+      "Usage: signalint <init | check [path ...] | stats [--json] | doctor>\n" +
+      "       signalint hooks <run|install|preview> [options]\n",
+    );
     return 0;
   }
   if (command === "--version" || command === "-v") {
@@ -52,9 +56,14 @@ export async function runCli(
     }
     return await runDoctorCommand({ cwd, homeDir });
   }
+  if (command === "hooks") {
+    return await runHooksCommand(rest, cwd);
+  }
   if (command !== "check") {
     process.stderr.write(
-      `Unknown command: ${command}\nUsage: signalint <init | check [path ...] | stats [--json] | doctor>\n`,
+      `Unknown command: ${command}\n` +
+      "Usage: signalint <init | check [path ...] | stats [--json] | doctor>\n" +
+      "       signalint hooks <run|install|preview> [options]\n",
     );
     return 2;
   }

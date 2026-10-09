@@ -1,4 +1,5 @@
 import type {
+  BuiltinEngine,
   EngineStatus,
   EngineStatuses,
   IssueEngine,
@@ -53,7 +54,7 @@ export async function settleEngineTasks<T>(
 
 /** Converts enabled flags into statuses for a check that has no paths to run. */
 export function createIdleEngineStatuses(
-  enabled: Readonly<{ [K in IssueEngine]: boolean | object }>,
+  enabled: Readonly<{ [K in BuiltinEngine]: boolean | object }>,
 ): EngineStatuses {
   return {
     oxlint: enabled.oxlint

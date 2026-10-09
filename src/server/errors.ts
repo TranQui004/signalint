@@ -2,6 +2,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { ZodError } from "zod";
 
 import { type McpPayloadMode, resolveMcpPayloadMode } from "../config.js";
+import { HookPathError } from "../hooks/paths.js";
 import { ProjectPathError } from "../projectPaths.js";
 import { readErrorEngine } from "../subprocess.js";
 import { isRecord } from "../util/index.js";
@@ -81,11 +82,14 @@ export function createStructuredContent(value: unknown): Record<string, unknown>
 
 /** Formats an argument error or path containment error as a structured MCP tool error. */
 export function createInputRefusal(
-  error: ZodError | ProjectPathError,
+  error: ZodError | ProjectPathError | HookPathError,
   projectRoot?: string,
   mode: McpPayloadMode = resolveMcpPayloadMode(),
 ): CallToolResult {
-  const code = error instanceof ProjectPathError ? error.code : "invalid_arguments";
+  const code =
+    error instanceof ProjectPathError || error instanceof HookPathError
+      ? error.code
+      : "invalid_arguments";
   const message = error instanceof ZodError ? formatZodError(error) : error.message;
   return {
     ...createTextResult(

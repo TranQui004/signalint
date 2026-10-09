@@ -138,6 +138,8 @@ export const checkOutputSchema = {
         tsc: engineStatusOutputSchema,
         biome: engineStatusOutputSchema,
         eslint: engineStatusOutputSchema,
+        "external-lsp": engineStatusOutputSchema,
+        vscode: engineStatusOutputSchema,
       },
       additionalProperties: false,
     },
@@ -189,7 +191,14 @@ export const normalizedIssueOutputSchema = {
     col: { type: "integer" as const },
     engine: {
       type: "string" as const,
-      enum: ["oxlint", "tsc", "biome", "eslint"] as const,
+      enum: [
+        "oxlint",
+        "tsc",
+        "biome",
+        "eslint",
+        "external-lsp",
+        "vscode",
+      ] as const,
     },
     rule: { type: "string" as const },
     severity: {
@@ -199,6 +208,11 @@ export const normalizedIssueOutputSchema = {
     message: { type: "string" as const },
     fixable: { type: "boolean" as const },
     clusterId: { type: "string" as const },
+    serverName: { type: "string" as const },
+    sourceKind: {
+      type: "string" as const,
+      enum: ["compiler", "linter", "lsp", "editor"] as const,
+    },
   },
   required: [
     "issueId",
@@ -292,7 +306,7 @@ export const getDiagnosticSnapshotOutputSchema = {
     timestamp: { type: "integer" as const },
     source: {
       type: "string" as const,
-      enum: ["project", "files"] as const,
+      enum: ["project", "files", "lsp"] as const,
     },
     durationMs: { type: "number" as const },
     engines: {
@@ -302,6 +316,8 @@ export const getDiagnosticSnapshotOutputSchema = {
         tsc: engineStatusOutputSchema,
         biome: engineStatusOutputSchema,
         eslint: engineStatusOutputSchema,
+        "external-lsp": engineStatusOutputSchema,
+        vscode: engineStatusOutputSchema,
       },
       additionalProperties: false,
     },
@@ -382,6 +398,8 @@ export const afterEditCheckOutputSchema = {
         tsc: engineStatusOutputSchema,
         biome: engineStatusOutputSchema,
         eslint: engineStatusOutputSchema,
+        "external-lsp": engineStatusOutputSchema,
+        vscode: engineStatusOutputSchema,
       },
       additionalProperties: false,
     },
@@ -417,6 +435,50 @@ export const afterEditCheckOutputSchema = {
     delta: diagnosticDeltaOutputSchema,
   },
   required: ["status"],
+  additionalProperties: false,
+};
+
+export const ingestDiagnosticsOutputSchema = {
+  type: "object" as const,
+  properties: {
+    snapshotId: { type: "string" as const },
+    checkId: { type: "string" as const },
+    totalIssues: { type: "integer" as const },
+    clusters: {
+      type: "array" as const,
+      items: clusterOutputSchema,
+    },
+    remainingIssues: {
+      type: "array" as const,
+      items: remainingIssueOutputSchema,
+    },
+  },
+  required: ["snapshotId", "totalIssues", "clusters"],
+  additionalProperties: false,
+};
+
+export const getLiveDiagnosticsOutputSchema = {
+  type: "object" as const,
+  properties: {
+    status: {
+      type: "string" as const,
+      enum: ["clean", "issues_found", "error"] as const,
+    },
+    totalIssues: { type: "integer" as const },
+    clusters: {
+      type: "array" as const,
+      items: clusterOutputSchema,
+    },
+    remainingIssues: {
+      type: "array" as const,
+      items: remainingIssueOutputSchema,
+    },
+    issues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+  },
+  required: ["status", "totalIssues", "clusters"],
   additionalProperties: false,
 };
 

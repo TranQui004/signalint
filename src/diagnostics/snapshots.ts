@@ -21,7 +21,7 @@ export interface DiagnosticSnapshot {
   filteredOutIssueCount?: number | undefined;
   engines: EngineStatuses;
   cache?: CacheStats | undefined;
-  source: "project" | "files";
+  source: "project" | "files" | "lsp";
   durationMs?: number | undefined;
 }
 

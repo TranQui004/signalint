@@ -84,3 +84,51 @@ export function parseAfterEditCheckArguments(argumentsValue: unknown): {
   return afterEditCheckArgumentsSchema.parse(argumentsValue);
 }
 
+const lspPositionSchema = z.strictObject({
+  line: z.number().int(),
+  character: z.number().int(),
+});
+
+const lspRangeSchema = z.strictObject({
+  start: lspPositionSchema,
+  end: lspPositionSchema,
+});
+
+const lspDiagnosticItemSchema = z.strictObject({
+  file: z.string().min(1),
+  range: lspRangeSchema,
+  severity: z.number().int().optional(),
+  code: z.union([z.string(), z.number()]).optional(),
+  source: z.string().optional(),
+  message: z.string(),
+});
+
+const ingestDiagnosticsArgumentsSchema = z.strictObject({
+  source: z.string().optional(),
+  serverName: z.string().optional(),
+  diagnostics: z.array(lspDiagnosticItemSchema),
+});
+
+export type IngestDiagnosticsArguments = z.infer<typeof ingestDiagnosticsArgumentsSchema>;
+
+/** Parses ingest_diagnostics arguments with closed schema and valid diagnostic positions. */
+export function parseIngestDiagnosticsArguments(
+  argumentsValue: unknown,
+): IngestDiagnosticsArguments {
+  return ingestDiagnosticsArgumentsSchema.parse(argumentsValue);
+}
+
+const getLiveDiagnosticsArgumentsSchema = z.strictObject({
+  files: projectPathsSchema.optional(),
+  severity: z.enum(["error", "warning"]).optional(),
+});
+
+export type GetLiveDiagnosticsArguments = z.infer<typeof getLiveDiagnosticsArgumentsSchema>;
+
+/** Parses get_live_diagnostics arguments with optional file filter and severity filter. */
+export function parseGetLiveDiagnosticsArguments(
+  argumentsValue: unknown,
+): GetLiveDiagnosticsArguments {
+  return getLiveDiagnosticsArgumentsSchema.parse(argumentsValue ?? {});
+}
+

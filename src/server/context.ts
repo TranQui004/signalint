@@ -15,6 +15,7 @@ import {
 import { isRecord } from "../util/index.js";
 import { createTextResult } from "./errors.js";
 
+import { DiagnosticBuffer } from "../diagnostics/buffer.js";
 import { SnapshotStore } from "../diagnostics/snapshots.js";
 
 export type IssueProvider = (
@@ -34,6 +35,7 @@ export interface ToolHandlerContext {
   sessionMemory: SessionMemory;
   payloadMode: McpPayloadMode;
   snapshotStore: SnapshotStore;
+  diagnosticBuffer?: DiagnosticBuffer;
   latestIssues?: NormalizedIssue[];
   latestCheckId?: string | undefined;
 }

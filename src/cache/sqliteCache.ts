@@ -8,6 +8,7 @@ import { DatabaseSync } from "node:sqlite";
 import {
   isNormalizedIssue,
   normalizeIssueMessage,
+  type BuiltinEngine,
   type IssueEngine,
   type NormalizedIssue,
 } from "../schema.js";
@@ -70,7 +71,9 @@ export function resolveCacheVersionInfo(
     return cached;
   }
   let engineVersion = resolveEngineVersion(baseEngine, cwd);
-  const pkgName = ENGINE_REGISTRY[baseEngine]?.packageName;
+  const pkgName = (baseEngine in ENGINE_REGISTRY)
+    ? ENGINE_REGISTRY[baseEngine as BuiltinEngine]?.packageName
+    : undefined;
   if (engineVersion === "0.0.0" && pkgName !== undefined) {
     try {
       engineVersion = readPackageVersion(require.resolve(`${pkgName}/package.json`));

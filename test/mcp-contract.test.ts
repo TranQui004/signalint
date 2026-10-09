@@ -17,7 +17,9 @@ import {
   diagnosticDeltaOutputSchema,
   getDiagnosticSnapshotOutputSchema,
   getIssueDetailOutputSchema,
+  getLiveDiagnosticsOutputSchema,
   getLoopStatusOutputSchema,
+  ingestDiagnosticsOutputSchema,
   normalizedIssueOutputSchema,
   pingOutputSchema,
   remainingIssueOutputSchema,
@@ -289,7 +291,27 @@ describe("MCP protocol contract and schema verification", () => {
     };
     assertMatchesSchemaProperties(afterEditVariant, afterEditCheckOutputSchema);
 
-    // 8. additionalProperties: false checks
+    // 8. ingestDiagnosticsOutputSchema
+    const ingestVariant = {
+      snapshotId: "snap-1",
+      checkId: "snap-1",
+      totalIssues: 0,
+      clusters: [],
+      remainingIssues: [],
+    };
+    assertMatchesSchemaProperties(ingestVariant, ingestDiagnosticsOutputSchema);
+
+    // 9. getLiveDiagnosticsOutputSchema
+    const liveVariant = {
+      status: "clean",
+      totalIssues: 0,
+      clusters: [],
+      remainingIssues: [],
+      issues: [],
+    };
+    assertMatchesSchemaProperties(liveVariant, getLiveDiagnosticsOutputSchema);
+
+    // 10. additionalProperties: false checks
     expect(normalizedIssueOutputSchema.additionalProperties).toBe(false);
     expect(clusterOutputSchema.additionalProperties).toBe(false);
     expect(remainingIssueOutputSchema.additionalProperties).toBe(false);
@@ -297,6 +319,8 @@ describe("MCP protocol contract and schema verification", () => {
     expect(compareDiagnosticsOutputSchema.additionalProperties).toBe(false);
     expect(afterEditCheckOutputSchema.additionalProperties).toBe(false);
     expect(diagnosticDeltaOutputSchema.additionalProperties).toBe(false);
+    expect(ingestDiagnosticsOutputSchema.additionalProperties).toBe(false);
+    expect(getLiveDiagnosticsOutputSchema.additionalProperties).toBe(false);
   });
 
   it("handles outputSchema declaration across payload modes: both, structured, and text", () => {
@@ -304,9 +328,9 @@ describe("MCP protocol contract and schema verification", () => {
     const structuredTools = createTools("structured");
     const textTools = createTools("text");
 
-    expect(bothTools.length).toBe(8);
-    expect(structuredTools.length).toBe(8);
-    expect(textTools.length).toBe(8);
+    expect(bothTools.length).toBe(10);
+    expect(structuredTools.length).toBe(10);
+    expect(textTools.length).toBe(10);
 
     for (const tool of bothTools) {
       expect(tool.outputSchema).toBeDefined();

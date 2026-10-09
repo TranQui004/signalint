@@ -54,11 +54,30 @@ export {
   type TestIssueProvider,
 };
 
+export {
+  runHookLauncher,
+  type HookLauncherOptions,
+  type HookLauncherResult,
+} from "./hooks/launcher.js";
+export {
+  installHook,
+  previewHookInstall,
+  type HookInstallResult,
+  type HookPreviewResult,
+} from "./hooks/install.js";
+export {
+  type HookRuntime,
+  type HookEventType,
+  type NormalizedHookEvent,
+  type HookDecision,
+} from "./hooks/event.js";
+
 export const CLI_VERBS: ReadonlySet<string> = new Set([
   "init",
   "check",
   "doctor",
   "stats",
+  "hooks",
   "help",
   "--help",
   "-h",

@@ -148,16 +148,31 @@ describe("MCP response amendments", () => {
     const client = await connectServer(() => Promise.resolve([]));
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(10);
+    expect(toolsList.tools).toHaveLength(13);
     for (const tool of toolsList.tools) {
       expect(tool.annotations, `${tool.name} missing annotations`).toBeDefined();
       expect(typeof tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint`).toBe("boolean");
       expect(typeof tool.annotations?.destructiveHint, `${tool.name}.destructiveHint`).toBe("boolean");
       expect(typeof tool.annotations?.idempotentHint, `${tool.name}.idempotentHint`).toBe("boolean");
       expect(typeof tool.annotations?.openWorldHint, `${tool.name}.openWorldHint`).toBe("boolean");
-      expect(tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint value`).toBe(true);
-      expect(tool.annotations?.destructiveHint, `${tool.name}.destructiveHint value`).toBe(false);
-      expect(tool.annotations?.idempotentHint, `${tool.name}.idempotentHint value`).toBe(true);
+
+      if (tool.name === "apply_diagnostic_fix") {
+        expect(tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint value`).toBe(false);
+        expect(tool.annotations?.destructiveHint, `${tool.name}.destructiveHint value`).toBe(true);
+        expect(tool.annotations?.idempotentHint, `${tool.name}.idempotentHint value`).toBe(false);
+      } else if (tool.name === "discard_diagnostic_fix") {
+        expect(tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint value`).toBe(false);
+        expect(tool.annotations?.destructiveHint, `${tool.name}.destructiveHint value`).toBe(false);
+        expect(tool.annotations?.idempotentHint, `${tool.name}.idempotentHint value`).toBe(true);
+      } else if (tool.name === "preview_diagnostic_fix") {
+        expect(tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint value`).toBe(true);
+        expect(tool.annotations?.destructiveHint, `${tool.name}.destructiveHint value`).toBe(false);
+        expect(tool.annotations?.idempotentHint, `${tool.name}.idempotentHint value`).toBe(false);
+      } else {
+        expect(tool.annotations?.readOnlyHint, `${tool.name}.readOnlyHint value`).toBe(true);
+        expect(tool.annotations?.destructiveHint, `${tool.name}.destructiveHint value`).toBe(false);
+        expect(tool.annotations?.idempotentHint, `${tool.name}.idempotentHint value`).toBe(true);
+      }
       expect(tool.annotations?.openWorldHint, `${tool.name}.openWorldHint value`).toBe(false);
     }
   });
@@ -168,7 +183,7 @@ describe("MCP response amendments", () => {
     const client = await connectServer(() => Promise.resolve([issue, issue2]));
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(10);
+    expect(toolsList.tools).toHaveLength(13);
     for (const tool of toolsList.tools) {
       expect(tool.outputSchema).toBeDefined();
       expect(tool.outputSchema?.type).toBe("object");
@@ -393,7 +408,7 @@ describe("configurable MCP payload modes across tools", () => {
     const client = await connectServer(() => Promise.resolve([issue]), undefined, "both");
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(10);
+    expect(toolsList.tools).toHaveLength(13);
     for (const tool of toolsList.tools) {
       expect(tool.outputSchema).toBeDefined();
     }
@@ -436,7 +451,7 @@ describe("configurable MCP payload modes across tools", () => {
     const client = await connectServer(() => Promise.resolve([issue]), undefined, "text");
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(10);
+    expect(toolsList.tools).toHaveLength(13);
     for (const tool of toolsList.tools) {
       expect(tool.outputSchema).toBeUndefined();
     }
@@ -482,7 +497,7 @@ describe("configurable MCP payload modes across tools", () => {
     const client = await connectServer(() => Promise.resolve([issue]), undefined, "structured");
 
     const toolsList = await client.listTools();
-    expect(toolsList.tools).toHaveLength(10);
+    expect(toolsList.tools).toHaveLength(13);
     for (const tool of toolsList.tools) {
       expect(tool.outputSchema).toBeDefined();
     }

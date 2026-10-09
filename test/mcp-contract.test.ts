@@ -22,6 +22,9 @@ import {
   ingestDiagnosticsOutputSchema,
   normalizedIssueOutputSchema,
   pingOutputSchema,
+  previewDiagnosticFixOutputSchema,
+  applyDiagnosticFixOutputSchema,
+  discardDiagnosticFixOutputSchema,
   remainingIssueOutputSchema,
 } from "../src/server/toolSchemas.js";
 import { SessionMemory } from "../src/memory/sessionMemory.js";
@@ -311,7 +314,39 @@ describe("MCP protocol contract and schema verification", () => {
     };
     assertMatchesSchemaProperties(liveVariant, getLiveDiagnosticsOutputSchema);
 
-    // 10. additionalProperties: false checks
+    // 10. previewDiagnosticFixOutputSchema variants
+    const previewVariant = {
+      transactionId: "tx_123",
+      filesCount: 1,
+      summary: "Prepared 1 patch",
+      patchesPreview: [
+        {
+          file: "src/index.ts",
+          originalLength: 10,
+          patchedLength: 15,
+        },
+      ],
+      status: "prepared",
+    };
+    assertMatchesSchemaProperties(previewVariant, previewDiagnosticFixOutputSchema);
+
+    // 11. applyDiagnosticFixOutputSchema variants
+    const applyVariant = {
+      transactionId: "tx_123",
+      status: "success",
+      filesModified: ["src/index.ts"],
+      postCheckId: "check_123",
+    };
+    assertMatchesSchemaProperties(applyVariant, applyDiagnosticFixOutputSchema);
+
+    // 12. discardDiagnosticFixOutputSchema variants
+    const discardVariant = {
+      transactionId: "tx_123",
+      discarded: true,
+    };
+    assertMatchesSchemaProperties(discardVariant, discardDiagnosticFixOutputSchema);
+
+    // 13. additionalProperties: false checks
     expect(normalizedIssueOutputSchema.additionalProperties).toBe(false);
     expect(clusterOutputSchema.additionalProperties).toBe(false);
     expect(remainingIssueOutputSchema.additionalProperties).toBe(false);
@@ -321,6 +356,9 @@ describe("MCP protocol contract and schema verification", () => {
     expect(diagnosticDeltaOutputSchema.additionalProperties).toBe(false);
     expect(ingestDiagnosticsOutputSchema.additionalProperties).toBe(false);
     expect(getLiveDiagnosticsOutputSchema.additionalProperties).toBe(false);
+    expect(previewDiagnosticFixOutputSchema.additionalProperties).toBe(false);
+    expect(applyDiagnosticFixOutputSchema.additionalProperties).toBe(false);
+    expect(discardDiagnosticFixOutputSchema.additionalProperties).toBe(false);
   });
 
   it("handles outputSchema declaration across payload modes: both, structured, and text", () => {
@@ -328,9 +366,9 @@ describe("MCP protocol contract and schema verification", () => {
     const structuredTools = createTools("structured");
     const textTools = createTools("text");
 
-    expect(bothTools.length).toBe(10);
-    expect(structuredTools.length).toBe(10);
-    expect(textTools.length).toBe(10);
+    expect(bothTools.length).toBe(13);
+    expect(structuredTools.length).toBe(13);
+    expect(textTools.length).toBe(13);
 
     for (const tool of bothTools) {
       expect(tool.outputSchema).toBeDefined();

@@ -17,6 +17,7 @@ import { createTextResult } from "./errors.js";
 
 import { DiagnosticBuffer } from "../diagnostics/buffer.js";
 import { SnapshotStore } from "../diagnostics/snapshots.js";
+import { TransactionManager } from "../transactions/manager.js";
 
 export type IssueProvider = (
   paths: readonly string[],
@@ -36,6 +37,7 @@ export interface ToolHandlerContext {
   payloadMode: McpPayloadMode;
   snapshotStore: SnapshotStore;
   diagnosticBuffer?: DiagnosticBuffer;
+  transactionManager?: TransactionManager;
   latestIssues?: NormalizedIssue[];
   latestCheckId?: string | undefined;
 }

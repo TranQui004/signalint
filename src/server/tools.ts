@@ -2,14 +2,20 @@ import type { McpPayloadMode } from "../config.js";
 import { MAX_TOOL_PATHS } from "../projectPaths.js";
 import {
   afterEditCheckOutputSchema,
+  applyDiagnosticFixOutputSchema,
+  APPLY_TOOL_ANNOTATIONS,
   checkOutputSchema,
   compareDiagnosticsOutputSchema,
+  discardDiagnosticFixOutputSchema,
+  DISCARD_TOOL_ANNOTATIONS,
   getDiagnosticSnapshotOutputSchema,
   getIssueDetailOutputSchema,
   getLiveDiagnosticsOutputSchema,
   getLoopStatusOutputSchema,
   ingestDiagnosticsOutputSchema,
   pingOutputSchema,
+  previewDiagnosticFixOutputSchema,
+  PREVIEW_TOOL_ANNOTATIONS,
   TOOL_ANNOTATIONS,
 } from "./toolSchemas.js";
 
@@ -219,6 +225,62 @@ export function createTools(mode: McpPayloadMode = "both") {
       },
       ...(advertiseOutput ? { outputSchema: getLiveDiagnosticsOutputSchema } : {}),
       annotations: TOOL_ANNOTATIONS,
+    },
+    {
+      name: "preview_diagnostic_fix",
+      description: "Creates an in-memory preview of proposed diagnostic fixes without touching the filesystem. Validates paths against canonical project root containment and returns a preview with a unique transactionId.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          patches: {
+            type: "array" as const,
+            items: {
+              type: "object" as const,
+              properties: {
+                file: { type: "string" as const },
+                originalContent: { type: "string" as const },
+                patchedContent: { type: "string" as const },
+                description: { type: "string" as const },
+              },
+              required: ["file", "originalContent", "patchedContent"],
+              additionalProperties: false,
+            },
+          },
+        },
+        required: ["patches"],
+        additionalProperties: false,
+      },
+      ...(advertiseOutput ? { outputSchema: previewDiagnosticFixOutputSchema } : {}),
+      annotations: PREVIEW_TOOL_ANNOTATIONS,
+    },
+    {
+      name: "apply_diagnostic_fix",
+      description: "Atomically applies a previously prepared diagnostic fix preview by transactionId. Requires explicit confirm: true. Detects file content drift before writing, automatically rolls back on any write failure, and triggers immediate verification to return a post-apply delta.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          transactionId: { type: "string" as const },
+          confirm: { type: "boolean" as const },
+        },
+        required: ["transactionId", "confirm"],
+        additionalProperties: false,
+      },
+      ...(advertiseOutput ? { outputSchema: applyDiagnosticFixOutputSchema } : {}),
+      annotations: APPLY_TOOL_ANNOTATIONS,
+    },
+    {
+      name: "discard_diagnostic_fix",
+      description: "Discards an in-memory diagnostic fix preview by transactionId, dropping it from server storage.",
+      inputSchema: {
+        type: "object" as const,
+        properties: {
+          transactionId: { type: "string" as const },
+        },
+        required: ["transactionId"],
+        additionalProperties: false,
+      },
+      ...(advertiseOutput ? { outputSchema: discardDiagnosticFixOutputSchema } : {}),
+      annotations: DISCARD_TOOL_ANNOTATIONS,
     },
   ];
 }

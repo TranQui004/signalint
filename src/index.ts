@@ -102,6 +102,25 @@ export {
   type WorkspaceGraph,
   type WorkspacePlan,
 } from "./workspace/index.js";
+export {
+  TransactionManager,
+  type FilePatch,
+  type TransactionStatus,
+  type TransactionPreview,
+  type ApplyStatus,
+  type ApplyResult,
+  type PrepareTransactionOptions,
+  type ApplyTransactionOptions,
+} from "./transactions/index.js";
+export {
+  normalizeRuffDiagnostics,
+  normalizeMypyDiagnostics,
+  normalizeCargoClippyDiagnostics,
+  normalizeGolangCiLintDiagnostics,
+  type PythonAdapterOptions,
+  type RustAdapterOptions,
+  type GoAdapterOptions,
+} from "./diagnostics/adapters/index.js";
 
 export const CLI_VERBS: ReadonlySet<string> = new Set([
   "init",

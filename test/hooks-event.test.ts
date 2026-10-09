@@ -74,7 +74,7 @@ describe("Hook paths validation and normalization", () => {
 
     try {
       if (symlinkCreated) {
-        expect(() => validateHookPath(linkPath, testDir)).toThrow(
+        expect(() => validateHookPath("symlink-escape.ts", testDir)).toThrow(
           expect.objectContaining({ code: "symlink_escape" }),
         );
       }

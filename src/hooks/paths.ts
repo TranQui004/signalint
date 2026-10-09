@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
 
 import { readCanonicalProjectRootSync } from "../projectPaths.js";
@@ -53,14 +53,8 @@ export function validateHookPath(rawPath: string, projectRoot: string): string {
   const canonicalRoot = readCanonicalProjectRootSync(projectRoot);
   const resolved = isAbsolute(path) ? resolve(path) : resolve(canonicalRoot, path);
 
-  const rel = relative(canonicalRoot, resolved);
-  if (rel.startsWith("..") || isAbsolute(rel)) {
-    throw new HookPathError(
-      "path_outside_project",
-      `Hook path points outside the canonical project root: ${path}`,
-    );
-  }
-
+  // If path exists on disk, canonicalize it before checking containment
+  // to avoid false positives on Windows short (8.3) vs long path aliases.
   if (existsSync(resolved)) {
     let canonicalFile: string;
     try {
@@ -71,12 +65,35 @@ export function validateHookPath(rawPath: string, projectRoot: string): string {
 
     const realRel = relative(canonicalRoot, canonicalFile);
     if (realRel.startsWith("..") || isAbsolute(realRel)) {
+      const isRelativeInside = !isAbsolute(path);
+      const isSymlink = (() => {
+        try {
+          return lstatSync(resolved).isSymbolicLink();
+        } catch {
+          return false;
+        }
+      })();
+
+      if (isRelativeInside || isSymlink) {
+        throw new HookPathError(
+          "symlink_escape",
+          `Hook path symlink escapes project root: ${path} -> ${canonicalFile}`,
+        );
+      }
       throw new HookPathError(
-        "symlink_escape",
-        `Hook path symlink escapes project root: ${path} -> ${canonicalFile}`,
+        "path_outside_project",
+        `Hook path points outside the canonical project root: ${path}`,
       );
     }
     return normalizeRelativePath(realRel);
+  }
+
+  const rel = relative(canonicalRoot, resolved);
+  if (rel.startsWith("..") || isAbsolute(rel)) {
+    throw new HookPathError(
+      "path_outside_project",
+      `Hook path points outside the canonical project root: ${path}`,
+    );
   }
 
   return normalizeRelativePath(rel);

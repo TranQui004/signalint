@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, stat } from "node:fs/promises";
-import { basename, dirname, resolve } from "node:path";
+import { basename, dirname, relative, resolve } from "node:path";
 
 import { DEFAULT_CONFIG } from "../config.js";
 import { EngineDisabledError } from "../engineFanout.js";
@@ -169,12 +169,34 @@ function createBuildModeArgs(projectFile: string): string[] {
   return ["--build", projectFile, "--pretty", "false", "--noEmit", "--incremental"];
 }
 
+/** Computes a deterministic project ID slug for tsbuildinfo storage and cache partitioning. */
+export function resolveProjectId(projectFile: string, cwd: string): string {
+  const rel = relative(cwd, dirname(projectFile)).replace(/\\/g, "/");
+  if (rel === "" || rel === ".") {
+    return "root";
+  }
+  const slug = rel.replace(/[^a-zA-Z0-9_-]+/g, "-").replace(/^-+|-+$/g, "");
+  const hash = createHash("sha256").update(rel).digest("hex").slice(0, 8);
+  return `${slug}-${hash}`;
+}
+
+/** Resolves an isolated .tsbuildinfo file path under .signalint/cache/tsc/<project-id>/tsc.tsbuildinfo. */
+export function resolveTsBuildInfoPath(projectFile: string, cwd: string): string {
+  const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+  const cacheBase = stateDir && stateDir !== ""
+    ? resolve(stateDir, "cache", "tsc")
+    : resolve(cwd, ".signalint", "cache", "tsc");
+
+  const projectId = resolveProjectId(projectFile, cwd);
+  return resolve(cacheBase, projectId, "tsc.tsbuildinfo");
+}
+
 async function createProjectModeArgs(
   projectFile: string,
   cwd: string,
   skipLibCheck: boolean | undefined,
 ): Promise<string[]> {
-  const buildInfoFile = resolve(cwd, ".signalint", "cache", "tsc.tsbuildinfo");
+  const buildInfoFile = resolveTsBuildInfoPath(projectFile, cwd);
   await mkdir(dirname(buildInfoFile), { recursive: true });
   const args = [
     "--pretty",
@@ -190,6 +212,29 @@ async function createProjectModeArgs(
     args.push("--skipLibCheck");
   }
   return args;
+}
+
+/** Executes tsc sequentially across packages in topological order. */
+export async function runPackagesTsc(
+  packages: readonly { tsconfigPath?: string; relativePath: string }[],
+  options: TscRunOptions = {},
+): Promise<NormalizedIssue[]> {
+  const allIssues: NormalizedIssue[] = [];
+  const seenIds = new Set<string>();
+
+  for (const pkg of packages) {
+    if (pkg.tsconfigPath !== undefined) {
+      const issues = await runTsc([pkg.tsconfigPath], options);
+      for (const issue of issues) {
+        if (!seenIds.has(issue.issueId)) {
+          seenIds.add(issue.issueId);
+          allIssues.push(issue);
+        }
+      }
+    }
+  }
+
+  return allIssues;
 }
 
 function normalizeTscRule(rule: string): string {

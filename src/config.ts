@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
 import { isRecord } from "./util/index.js";
+import { type MonorepoMode, isMonorepoMode } from "./workspace/types.js";
 
 export const ENGINE_NAMES = ["oxlint", "tsc", "biome", "eslint"] as const;
 
@@ -57,6 +58,7 @@ export interface SignalintConfig {
   ignore: string[];
   timeoutsMs: EngineTimeouts;
   mcpPayload: McpPayloadMode;
+  monorepoMode?: MonorepoMode | undefined;
 }
 
 export const DEFAULT_CONFIG: Readonly<SignalintConfig> = {
@@ -94,6 +96,24 @@ export function resolveMcpPayloadMode(
   return DEFAULT_CONFIG.mcpPayload;
 }
 
+/** Resolves the active monorepo mode considering env var, config setting, and default. */
+export function resolveMonorepoMode(
+  configMode?: MonorepoMode,
+  envValue: string | undefined = process.env.SIGNALINT_MONOREPO_MODE,
+): MonorepoMode {
+  if (envValue !== undefined && envValue.trim() !== "") {
+    const trimmed = envValue.trim();
+    if (isMonorepoMode(trimmed)) {
+      return trimmed;
+    }
+    throw new Error(`Invalid SIGNALINT_MONOREPO_MODE "${envValue}": expected "off", "auto", or "strict".`);
+  }
+  if (configMode !== undefined) {
+    return configMode;
+  }
+  return "off";
+}
+
 /** Loads signalint.config.json from a project root and fills omitted settings with defaults. */
 export async function loadSignalintConfig(cwd: string = process.cwd()): Promise<SignalintConfig> {
   const configPath = resolve(cwd, "signalint.config.json");
@@ -103,18 +123,22 @@ export async function loadSignalintConfig(cwd: string = process.cwd()): Promise<
   } catch (error: unknown) {
     if (isMissingFileError(error)) {
       const def = cloneDefaultConfig(cwd);
+      const monorepo = resolveMonorepoMode(def.monorepoMode);
       return {
         ...def,
         mcpPayload: resolveMcpPayloadMode(def.mcpPayload),
+        ...(monorepo !== "off" ? { monorepoMode: monorepo } : {}),
       };
     }
     throw error;
   }
 
   const parsed = parseSignalintConfig(serialized, cwd);
+  const monorepo = resolveMonorepoMode(parsed.monorepoMode);
   return {
     ...parsed,
     mcpPayload: resolveMcpPayloadMode(parsed.mcpPayload),
+    ...(monorepo !== "off" ? { monorepoMode: monorepo } : {}),
   };
 }
 
@@ -127,18 +151,22 @@ export function loadSignalintConfigSync(cwd: string = process.cwd()): SignalintC
   } catch (error: unknown) {
     if (isMissingFileError(error)) {
       const def = cloneDefaultConfig(cwd);
+      const monorepo = resolveMonorepoMode(def.monorepoMode);
       return {
         ...def,
         mcpPayload: resolveMcpPayloadMode(def.mcpPayload),
+        ...(monorepo !== "off" ? { monorepoMode: monorepo } : {}),
       };
     }
     throw error;
   }
 
   const parsed = parseSignalintConfig(serialized, cwd);
+  const monorepo = resolveMonorepoMode(parsed.monorepoMode);
   return {
     ...parsed,
     mcpPayload: resolveMcpPayloadMode(parsed.mcpPayload),
+    ...(monorepo !== "off" ? { monorepoMode: monorepo } : {}),
   };
 }
 
@@ -148,14 +176,31 @@ export function parseSignalintConfig(serialized: string, cwd?: string): Signalin
   if (!isRecord(parsed)) {
     throw new Error("signalint.config.json must contain a JSON object.");
   }
-  assertKnownKeys(parsed, new Set(["engines", "ignore", "timeoutsMs", "mcpPayload"]), "configuration");
+  assertKnownKeys(
+    parsed,
+    new Set(["engines", "ignore", "timeoutsMs", "mcpPayload", "monorepoMode"]),
+    "configuration",
+  );
+
+  const monorepoMode = parseMonorepoMode(parsed["monorepoMode"]);
 
   return {
     engines: parseEngineSelection(parsed.engines, cwd),
     ignore: parseIgnoreGlobs(parsed.ignore),
     timeoutsMs: parseEngineTimeouts(parsed.timeoutsMs),
     mcpPayload: parseMcpPayload(parsed.mcpPayload),
+    ...(monorepoMode !== undefined ? { monorepoMode } : {}),
   };
+}
+
+function parseMonorepoMode(value: unknown): MonorepoMode | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (isMonorepoMode(value)) {
+    return value;
+  }
+  throw new Error('signalint.config.json field "monorepoMode" must be "off", "auto", or "strict".');
 }
 
 /** Returns true when a normalized project-relative path matches one configured ignore glob. */

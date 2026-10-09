@@ -71,6 +71,15 @@ export {
   type NormalizedHookEvent,
   type HookDecision,
 } from "./hooks/event.js";
+export {
+  discoverWorkspacePackages,
+  buildWorkspaceGraph,
+  planWorkspaceChecks,
+  type MonorepoMode,
+  type WorkspacePackage,
+  type WorkspaceGraph,
+  type WorkspacePlan,
+} from "./workspace/index.js";
 
 export const CLI_VERBS: ReadonlySet<string> = new Set([
   "init",

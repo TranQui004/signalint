@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { ENGINE_REGISTRY } from "./engines/registry.js";
-import { resolveProjectFile } from "./engines/tsc.js";
+import { resolveProjectFile, resolveProjectId } from "./engines/tsc.js";
 import { createLinkedAbortController } from "./abort.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
 import {
@@ -49,13 +50,14 @@ export interface EngineRunners {
 }
 
 export interface CheckFilesOptions {
-  cwd?: string;
-  cache?: SqliteCache;
-  runners?: Partial<EngineRunners>;
-  engines?: EngineSelection;
+  cwd?: string | undefined;
+  cache?: SqliteCache | undefined;
+  runners?: Partial<EngineRunners> | undefined;
+  engines?: EngineSelection | undefined;
   signal?: AbortSignal | undefined;
-  timeoutsMs?: EngineTimeouts;
+  timeoutsMs?: EngineTimeouts | undefined;
   targetPath?: string | undefined;
+  dependencyDirs?: readonly string[] | undefined;
 }
 
 export interface CacheStats {
@@ -149,6 +151,7 @@ export async function checkFilesWithStats(
           timeoutsMs.tsc,
           linkedAbort.controller.signal,
           options.targetPath,
+          options.dependencyDirs,
         ),
       },
       {
@@ -209,6 +212,9 @@ export async function computeEngineConfigHash(
   const hash = createHash("sha256");
   if (engine === "tsc") {
     const projectFile = targetTsconfigPath ?? resolve(cwd, "tsconfig.json");
+    const projectId = resolveProjectId(projectFile, cwd);
+    hash.update(`project:${projectId}`);
+    hash.update("\0");
     const configFiles = await collectTscConfigFiles(projectFile, new Set());
     for (const absolutePath of Array.from(configFiles).sort()) {
       hash.update(absolutePath);
@@ -216,6 +222,9 @@ export async function computeEngineConfigHash(
       hash.update(await readConfigAbsolute(absolutePath));
       hash.update("\0");
     }
+    const lockfileHash = await getWorkspaceLockfileHash(cwd);
+    hash.update(`lockfile:${lockfileHash}`);
+    hash.update("\0");
   } else {
     for (const configFile of ENGINE_REGISTRY[engine].configFiles) {
       hash.update(configFile);
@@ -225,6 +234,20 @@ export async function computeEngineConfigHash(
     }
   }
   return hash.digest("hex");
+}
+
+async function getWorkspaceLockfileHash(cwd: string): Promise<string> {
+  const lockfiles = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"];
+  for (const name of lockfiles) {
+    const lockfilePath = resolve(cwd, name);
+    try {
+      const content = await readFile(lockfilePath, "utf8");
+      return createHash("sha256").update(content).digest("hex");
+    } catch {
+      // not present
+    }
+  }
+  return "none";
 }
 
 async function checkFileLocalEngine(
@@ -276,6 +299,41 @@ function isTscSourceFile(file: string): boolean {
   return /\.[cm]?[jt]sx?$/.test(file);
 }
 
+interface ProgramFileEntry {
+  absolutePath: string;
+  relativePath: string;
+}
+
+async function walkTscFiles(
+  dir: string,
+  relativePrefix: string,
+  files: ProgramFileEntry[],
+): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (
+      entry.name === "node_modules" ||
+      entry.name === ".git" ||
+      entry.name === ".signalint" ||
+      entry.name === "dist"
+    ) {
+      continue;
+    }
+    const relPath = relativePrefix === "" ? entry.name : `${relativePrefix}/${entry.name}`;
+    const absolutePath = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      await walkTscFiles(absolutePath, relPath, files);
+    } else if (entry.isFile() && isTscSourceFile(relPath)) {
+      files.push({ absolutePath, relativePath: relPath });
+    }
+  }
+}
+
 /**
  * Computes a deterministic fingerprint of the whole-program TypeScript files
  * by hashing the sorted file list plus each file's size and mtime.
@@ -283,43 +341,26 @@ function isTscSourceFile(file: string): boolean {
 export async function computeTscProgramFingerprint(
   cwd: string,
   targetTsconfigPath?: string,
+  dependencyDirs: readonly string[] = [],
 ): Promise<string> {
   const hash = createHash("sha256");
   const targetDir = targetTsconfigPath !== undefined ? dirname(targetTsconfigPath) : cwd;
-  const files: string[] = [];
+  const files: ProgramFileEntry[] = [];
 
-  async function walk(dir: string, relativePrefix: string): Promise<void> {
-    let entries;
-    try {
-      entries = await readdir(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      if (
-        entry.name === "node_modules" ||
-        entry.name === ".git" ||
-        entry.name === ".signalint" ||
-        entry.name === "dist"
-      ) {
-        continue;
-      }
-      const relPath = relativePrefix === "" ? entry.name : `${relativePrefix}/${entry.name}`;
-      if (entry.isDirectory()) {
-        await walk(resolve(dir, entry.name), relPath);
-      } else if (entry.isFile() && isTscSourceFile(relPath)) {
-        files.push(relPath);
-      }
+  await walkTscFiles(targetDir, "", files);
+  for (const depDir of dependencyDirs) {
+    if (existsSync(depDir)) {
+      const relPrefix = relative(cwd, depDir).replace(/\\/g, "/");
+      await walkTscFiles(depDir, relPrefix, files);
     }
   }
 
-  await walk(targetDir, "");
-  files.sort();
+  files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
 
   for (const file of files) {
     try {
-      const fileStat = await stat(resolve(targetDir, file));
-      hash.update(file);
+      const fileStat = await stat(file.absolutePath);
+      hash.update(file.relativePath);
       hash.update("\0");
       hash.update(String(fileStat.size));
       hash.update("\0");
@@ -341,6 +382,7 @@ async function checkWholeProgramTsc(
   timeoutMs: number,
   signal: AbortSignal,
   targetPath?: string | undefined,
+  dependencyDirs: readonly string[] = [],
 ): Promise<EngineCheckResult> {
   let targetTsconfigPath: string | undefined;
   const probePath = targetPath ?? snapshots[0]?.file;
@@ -352,13 +394,16 @@ async function checkWholeProgramTsc(
     }
   }
   const configHash = await computeEngineConfigHash("tsc", cwd, targetTsconfigPath);
-  const programFingerprint = await computeTscProgramFingerprint(cwd, targetTsconfigPath);
+  const programFingerprint = await computeTscProgramFingerprint(cwd, targetTsconfigPath, dependencyDirs);
   const stateHash = `${configHash}:${programFingerprint}`;
-  cache.invalidateEngine("tsc", configHash, undefined, stateHash);
-  const latestResult = cache.getEngineResult("tsc", stateHash);
+  const projectId = resolveProjectId(targetTsconfigPath ?? resolve(cwd, "tsconfig.json"), cwd);
+  const engineKey = projectId === "root" ? "tsc" : `tsc:${projectId}`;
+
+  cache.invalidateEngine(engineKey, configHash, undefined, stateHash);
+  const latestResult = cache.getEngineResult(engineKey, stateHash);
   const relevantSnapshots = snapshots.filter((snapshot) => isTypeScriptRelevant(snapshot.file));
   const misses = relevantSnapshots.filter((snapshot) => {
-    const key = createCacheKey(snapshot.content, "tsc", configHash);
+    const key = createCacheKey(snapshot.content, engineKey, configHash);
     return cache.get(key) === undefined;
   });
 
@@ -371,15 +416,16 @@ async function checkWholeProgramTsc(
 
   const freshIssues = await runner({ cwd, signal, timeoutMs });
   for (const snapshot of relevantSnapshots) {
-    const key = createCacheKey(snapshot.content, "tsc", configHash);
+    const key = createCacheKey(snapshot.content, engineKey, configHash);
     cache.set(key, []);
   }
-  cache.setEngineResult("tsc", stateHash, freshIssues);
+  cache.setEngineResult(engineKey, stateHash, freshIssues);
+  const effectiveMisses = misses.length === 0 ? relevantSnapshots.length : misses.length;
   return {
     issues: freshIssues,
     cache: {
-      hits: relevantSnapshots.length - misses.length,
-      misses: misses.length,
+      hits: relevantSnapshots.length - effectiveMisses,
+      misses: effectiveMisses,
     },
   };
 }

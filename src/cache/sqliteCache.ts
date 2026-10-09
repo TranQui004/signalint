@@ -48,7 +48,7 @@ export const DEFAULT_CACHE_ROW_LIMIT = 10_000;
 /** Creates the Section 9 cache key including installed Signalint and engine versions. */
 export function createCacheKey(
   fileContent: string,
-  engine: IssueEngine,
+  engine: IssueEngine | string,
   configHash: string,
   versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
 ): string {
@@ -58,16 +58,19 @@ export function createCacheKey(
 
 /** Resolves installed package versions used to invalidate cache entries after upgrades. */
 export function resolveCacheVersionInfo(
-  engine: IssueEngine,
+  engine: IssueEngine | string,
   cwd: string = process.cwd(),
 ): CacheVersionInfo {
-  const cacheKey = `${engine}:${cwd}`;
+  const baseEngine: IssueEngine = typeof engine === "string" && engine.startsWith("tsc:")
+    ? "tsc"
+    : (engine as IssueEngine);
+  const cacheKey = `${baseEngine}:${cwd}`;
   const cached = resolvedVersionInfo.get(cacheKey);
   if (cached !== undefined) {
     return cached;
   }
-  let engineVersion = resolveEngineVersion(engine, cwd);
-  const pkgName = ENGINE_REGISTRY[engine]?.packageName;
+  let engineVersion = resolveEngineVersion(baseEngine, cwd);
+  const pkgName = ENGINE_REGISTRY[baseEngine]?.packageName;
   if (engineVersion === "0.0.0" && pkgName !== undefined) {
     try {
       engineVersion = readPackageVersion(require.resolve(`${pkgName}/package.json`));
@@ -160,7 +163,7 @@ export class SqliteCache {
 
   /** Deletes entries whose config, Signalint, or engine version is no longer current. */
   public invalidateEngine(
-    engine: IssueEngine,
+    engine: IssueEngine | string,
     currentConfigHash: string,
     versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
     stateConfigHash: string = currentConfigHash,
@@ -178,7 +181,7 @@ export class SqliteCache {
 
   /** Returns the latest whole-program result when its engine config hash is current. */
   public getEngineResult(
-    engine: IssueEngine,
+    engine: IssueEngine | string,
     configHash: string,
     versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
   ): NormalizedIssue[] | undefined {
@@ -196,7 +199,7 @@ export class SqliteCache {
 
   /** Stores the latest whole-program result for an engine and its current config hash. */
   public setEngineResult(
-    engine: IssueEngine,
+    engine: IssueEngine | string,
     configHash: string,
     issues: readonly NormalizedIssue[],
     versions: CacheVersionInfo = resolveCacheVersionInfo(engine),
@@ -311,7 +314,7 @@ function parseIssues(serialized: string, source: string): NormalizedIssue[] {
 
 function createVersionedKey(
   fileHash: string,
-  engine: IssueEngine,
+  engine: IssueEngine | string,
   configHash: string,
   versions: CacheVersionInfo,
 ): string {
@@ -319,7 +322,7 @@ function createVersionedKey(
 }
 
 function createVersionedSuffix(
-  engine: IssueEngine,
+  engine: IssueEngine | string,
   configHash: string,
   versions: CacheVersionInfo,
 ): string {

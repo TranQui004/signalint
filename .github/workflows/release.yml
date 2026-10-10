@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install pnpm
-        uses: pnpm/action-setup@a3252b78d470290f8eab01612bad33886e2469db # v3.0.0
+        uses: pnpm/action-setup@v6
         with:
           version: 11.9.0
 
@@ -77,7 +77,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@a3252b78d470290f8eab01612bad33886e2469db # v3.0.0
+        uses: pnpm/action-setup@v6
         with:
           version: 11.9.0
 

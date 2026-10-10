@@ -13,13 +13,13 @@ Instead of flooding an agent's context window with thousands of raw compiler lin
 
 ## Key Differentiators
 
-- **13 Complete MCP Tools:** From incremental checks and immutable snapshots to live diagnostic ingestion and transactional fix previews.
+- **13 Complete MCP Tools:** From incremental checks and immutable snapshots to live diagnostic ingestion and journaled transactional fix application.
 - **Verification Deltas:** Exact arithmetic on introduced, resolved, and unchanged diagnostics with semantic identity matching that survives line shifts.
-- **Immutable Snapshots:** Isolated in-memory snapshot store eliminates race collisions during concurrent checks.
-- **Monorepo-Aware Planning:** Unites package manifests (`pnpm-workspace.yaml`) and TypeScript Project References, ordering checks topologically and isolating incremental `.tsbuildinfo` per package.
+- **Immutable Snapshots & Concurrency Safety:** Isolated in-memory snapshot store keyed by `checkId` eliminates race collisions during concurrent checks.
+- **Monorepo-Aware Planning:** Unites package manifests (`pnpm-workspace.yaml`) parsed via pure-JS YAML with glob negation exclusions and TypeScript Project References, ordering checks topologically.
 - **Multi-Source Provenance:** Distinguishes compiler, linter, and editor/LSP diagnostics across JavaScript, TypeScript, Python (Ruff/Mypy), Rust (Clippy), and Go (GolangCI-Lint).
 - **Portable Host Hooks:** Native verify-after-change adapters for Claude Code, Cursor, Codex, and VS Code.
-- **Transactional Previews & Atomic Rollback:** In-memory previews never touch disk; apply is atomic and automatically rolls back on failure with drift detection.
+- **Journaled Previews & Atomic Rollback:** In-memory previews never touch disk; apply uses adjacent temporary files with atomic rename replacement, pre-write SHA-256 drift validation, and automatic rollback on failure.
 
 ---
 
@@ -59,7 +59,7 @@ Signalint exposes **13 strictly typed MCP tools** over stdio:
 | `ping` | Diagnostics | Read-only (`idempotent`) | Verifies server responsiveness and canonical project root path. |
 | `check_project` | Diagnostics | Read-only (`idempotent`) | Full project/workspace scan across all enabled engines. |
 | `check_files` | Diagnostics | Read-only (`idempotent`) | Fast incremental check on specific files using content-hash caching. |
-| `get_issue_detail` | Diagnostics | Read-only (`idempotent`) | Retrieves full, unomitted issue records for a specific cluster or issue ID. |
+| `get_issue_detail` | Diagnostics | Read-only (`idempotent`) | Retrieves full, unomitted issue records anchored to an immutable `checkId`. |
 | `get_loop_status` | Diagnostics | Read-only (`idempotent`) | Returns oscillating fix signatures and rule churn detected in the session. |
 | `get_diagnostic_snapshot` | Snapshots | Read-only (`idempotent`) | Retrieves complete state and metrics for an immutable check snapshot. |
 | `compare_diagnostics` | Deltas | Read-only (`idempotent`) | Computes verification delta between a baseline check and a current check. |
@@ -67,7 +67,7 @@ Signalint exposes **13 strictly typed MCP tools** over stdio:
 | `ingest_diagnostics` | Live / LSP | Read-only (`openWorld: false`) | Ingests external LSP or compiler diagnostics into Signalint's clustering model. |
 | `get_live_diagnostics` | Live / LSP | Read-only (`idempotent`) | Returns active buffered diagnostics with source provenance. |
 | `preview_diagnostic_fix` | Transactions | Read-only (`destructive: false`) | Stages proposed code fixes in-memory. **Does not write to disk.** |
-| `apply_diagnostic_fix` | Transactions | **Mutating** (`destructive: true`) | Atomically applies fixes with automatic rollback and post-check delta. |
+| `apply_diagnostic_fix` | Transactions | **Mutating** (`destructive: true`) | Journaled multi-file transaction with pre-write drift detection and automated rollback. |
 | `discard_diagnostic_fix` | Transactions | Read-only (`idempotent`) | Drops an in-memory fix transaction without touching disk. |
 
 See [docs/mcp-contract.md](docs/mcp-contract.md) for full JSON Schemas and error codes.
@@ -100,7 +100,8 @@ npx signalint hooks run --runtime claude --payload '<json-event>'
 ## Monorepo Support
 
 Signalint natively understands multi-package monorepos:
-- Configure `"monorepoMode": "auto"` in `signalint.config.json` to detect `pnpm-workspace.yaml`.
+- Configure `"monorepoMode": "auto"` in `signalint.config.json` to detect `pnpm-workspace.yaml` via pure-JS YAML parsing with glob negation exclusions (`!`).
+- Strictly differentiates local workspace packages (`workspace:*`) from external npm registry dependencies.
 - Builds a topological dependency graph uniting package manifests and TypeScript project references.
 - Caches whole-program TypeScript builds in isolated per-package directories (`.signalint/cache/tsc/<project-id>/`).
 - Changes to a shared package automatically invalidate dependent packages while keeping independent siblings cached.

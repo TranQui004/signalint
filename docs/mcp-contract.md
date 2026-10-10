@@ -17,15 +17,16 @@ This document is the authoritative specification for Signalint's Model Context P
 
 Signalint supports three wire formatting modes configured via `signalint.config.json` (`mcpPayload`) or `SIGNALINT_MCP_PAYLOAD`:
 
-| Mode | `content[0].text` | `structuredContent` | `outputSchema` Advertised | Wire Overlap | Recommended Use Case |
-|---|---|---|---|---|---|
-| **`both`** *(default)* | Minified JSON string equal to `JSON.stringify(structuredContent)` | Full typed response object | Yes (`additionalProperties: false`) | High (~2.1×) | Maximum compatibility across any client. |
-| **`structured`** | Short single-line human summary string (e.g. `Found 3 issues.`) | Full typed response object | Yes (`additionalProperties: false`) | Low | Modern clients rendering structured UI blocks. |
-| **`text`** *(legacy)* | Minified JSON string of response payload | Omitted | Omitted | Lowest (~50% of `both`) | Token-optimized headless agent loops. |
+| Mode | `content[0].text` | `content[1]` (Summary Block) | `structuredContent` | `outputSchema` Advertised | Wire Overlap | Recommended Use Case |
+|---|---|---|---|---|---|---|
+| **`both`** *(default)* | Minified JSON string equal to `JSON.stringify(structuredContent)` | Omitted | Full typed response object | Yes (`additionalProperties: false`) | High (~2.1×) | Maximum compatibility across any client. |
+| **`structured`** | Minified JSON string equal to `JSON.stringify(structuredContent)` | Short single-line human summary text with `audience: ["user"]` | Full typed response object | Yes (`additionalProperties: false`) | Low | Modern clients rendering structured UI blocks with guaranteed JSON text fallback. |
+| **`text`** *(legacy)* | Minified JSON string of response payload | Omitted | Omitted | Omitted | Lowest (~50% of `both`) | Token-optimized headless agent loops. |
 
-### Schema Strictness
+### Schema Strictness & Validation
 - Every tool parameter input schema (`inputSchema`) is a strict JSON Schema closed with `additionalProperties: false`.
 - In `both` and `structured` modes, every tool advertises a corresponding strict `outputSchema` closed with `additionalProperties: false`.
+- All tool responses are validated against declared output schemas at runtime and in test suites using strict Ajv schema compilation.
 
 ---
 
@@ -41,8 +42,18 @@ Signalint strictly differentiates JSON-RPC protocol violations from domain busin
 2. **Structured Business Errors (`CallToolResult` with `isError: true`):**
    - Invalid path arguments (path traversal `..`, leading dash `-`, NUL bytes, symlink escapes, paths outside project root).
    - Uninitialized project directory (missing `signalint.config.json` when `SIGNALINT_ALLOW_UNINITIALIZED` is unset).
-   - Engine timeouts, engine output limit exceeded, execution failures.
-   - Returned as structured machine-readable error responses with status: `"error"`, stable `code`, and human-readable `message`.
+   - Engine timeouts, output limits, and process failures are classified into uniform structured error objects:
+     ```json
+     {
+       "status": "error",
+       "code": "engine_timeout" | "output_limit_exceeded" | "engine_execution_failed" | "project_not_initialized",
+       "engine": "oxlint" | "tsc" | "biome" | "eslint" | "all",
+       "message": "Sanitized error message without absolute runner paths or sensitive environment data",
+       "retryable": true | false,
+       "nextStep": "Actionable instruction for the agent to resolve the condition"
+     }
+     ```
+   - All errors strip absolute runner paths, stack traces, and environment variables.
 
 3. **Cancellation & Abort:**
    - Client-cancelled requests via `AbortSignal` immediately terminate spawned child process groups (`SIGTERM` -> `SIGKILL`).
@@ -73,9 +84,9 @@ Signalint strictly differentiates JSON-RPC protocol violations from domain busin
 - **Output:** Clustered check response with per-engine cache metrics (`cache.hits`, `cache.misses`).
 
 #### 4. `get_issue_detail`
-- **Purpose:** Retrieves full, unomitted issue records for a specific cluster ID or issue ID from a prior check.
+- **Purpose:** Retrieves full, unomitted issue records for a specific cluster ID or issue ID anchored to an immutable snapshot.
 - **Annotations:** `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false`.
-- **Input:** `{ checkId: string, clusterId?: string, issueId?: string }` (`checkId` required; exactly one of `clusterId` or `issueId` required).
+- **Input:** `{ checkId: string, clusterId?: string, issueId?: string }` (`checkId` is strictly required to eliminate concurrency race conditions; exactly one of `clusterId` or `issueId` required).
 - **Output:** Array of `NormalizedIssue` records or `{ status: "stale", code: string, message: string }`.
 
 #### 5. `get_loop_status`

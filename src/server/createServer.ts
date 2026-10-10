@@ -186,7 +186,6 @@ function registerToolHandlers(
     diagnosticBuffer,
     transactionManager,
     fileIssueProvider,
-    latestIssues: [],
     projectIssueProvider,
     sessionMemory,
     payloadMode,

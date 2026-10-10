@@ -157,8 +157,6 @@ async function runCheck(
       durationMs: performance.now() - startedAt,
     };
     context.snapshotStore.saveSnapshot(snapshot);
-    context.latestIssues = clustered.issues;
-    context.latestCheckId = clustered.response.checkId;
 
     let delta: DiagnosticDelta | { status: "stale"; code: string; message: string } | undefined;
     if (baselineCheckId !== undefined) {

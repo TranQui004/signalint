@@ -407,7 +407,6 @@ describe("MCP protocol contract and schema verification", () => {
     const context = {
       cwd: process.cwd(),
       fileIssueProvider: dummyProvider,
-      latestIssues: [],
       projectIssueProvider: dummyProvider,
       sessionMemory: new SessionMemory(),
       payloadMode: "both" as const,
@@ -423,6 +422,28 @@ describe("MCP protocol contract and schema verification", () => {
       expect(mcpError.message).toContain("Malformed tool arguments");
       return true;
     });
+  });
+
+  it("rejects get_issue_detail calls when checkId is missing", async () => {
+    const server = createServer();
+    servers.push(server);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: "schema-rejection-test", version: "1.0.0" });
+    clients.push(client);
+    await client.connect(clientTransport);
+
+    const result = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { clusterId: "c1" },
+    });
+
+    expect(result.isError).toBe(true);
+    const content = result.content as Array<{ type: string; text: string }>;
+    expect(content[0]?.type).toBe("text");
+    const parsed = JSON.parse(content[0]!.text) as { status: string; code: string; message: string };
+    expect(parsed.status).toBe("error");
+    expect(parsed.code).toBe("invalid_arguments");
   });
 });
 

@@ -58,7 +58,6 @@ export async function handleIngestDiagnostics(
   };
 
   context.snapshotStore.saveSnapshot(snapshot);
-  context.latestCheckId = checkId;
 
   return createTextResult(
     {

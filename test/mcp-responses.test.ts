@@ -65,15 +65,19 @@ describe("MCP response amendments", () => {
     }
 
     const currentDetail = parseText(
-      await callTool(client, "get_issue_detail", { clusterId }),
+      await callTool(client, "get_issue_detail", { clusterId, checkId: firstCheck.checkId }),
     );
     expect(Array.isArray(currentDetail)).toBe(true);
     expect(Array.isArray(currentDetail) && currentDetail.every(isNormalizedIssue)).toBe(true);
 
     currentIssues = [];
-    await callTool(client, "check_project", { paths: ["."] });
+    const secondCheck = parseText(
+      await callTool(client, "check_project", { paths: ["."] }),
+    ) as CheckResponse;
     for (const reference of [{ clusterId }, { issueId: issue.issueId }]) {
-      const stale = parseText(await callTool(client, "get_issue_detail", reference));
+      const stale = parseText(
+        await callTool(client, "get_issue_detail", { ...reference, checkId: secondCheck.checkId }),
+      );
       expect(isStaleReferenceResponse(stale)).toBe(true);
       expect(stale).toEqual({
         status: "stale",
@@ -228,14 +232,11 @@ describe("MCP response amendments", () => {
       message: "Check ID 'stale-check-id' is unknown; run check_project again.",
     });
 
-    const detailResult = await client.callTool({
+    const detailWithoutCheckId = await client.callTool({
       name: "get_issue_detail",
       arguments: { clusterId },
     });
-    expect(detailResult.structuredContent).toEqual({
-      issues: [{ ...issue, clusterId }, { ...issue2, clusterId }],
-    });
-    expect(parseText(detailResult.content)).toEqual([{ ...issue, clusterId }, { ...issue2, clusterId }]);
+    expect(detailWithoutCheckId.isError).toBe(true);
 
     const loopResult = await client.callTool({
       name: "get_loop_status",
@@ -300,10 +301,12 @@ describe("MCP response amendments", () => {
     const issue = makeIssue();
     const client = await connectServer(() => Promise.resolve([issue]));
 
-    const checkProjectResult = (await client.callTool({
+    const checkProjectRaw = await client.callTool({
       name: "check_project",
       arguments: { paths: ["."] },
-    })).content as Array<{ type: string; text: string }>;
+    });
+    const checkProjectResult = checkProjectRaw.content as Array<{ type: string; text: string }>;
+    const checkProjectData = JSON.parse(checkProjectResult[0]!.text) as CheckResponse;
 
     expect(checkProjectResult[0]?.text.includes("\n")).toBe(false);
 
@@ -316,7 +319,7 @@ describe("MCP response amendments", () => {
 
     const issueDetailResult = (await client.callTool({
       name: "get_issue_detail",
-      arguments: { issueId: issue.issueId },
+      arguments: { issueId: issue.issueId, checkId: checkProjectData.checkId },
     })).content as Array<{ type: string; text: string }>;
 
     expect(issueDetailResult[0]?.text.includes("\n")).toBe(false);
@@ -342,12 +345,16 @@ describe("MCP response amendments", () => {
     const shortId = checkResult.remainingIssues?.[0]?.issueId;
     expect(shortId).toBe(fullId.slice(0, 12));
 
-    const shortDetail = parseText(await callTool(client, "get_issue_detail", { issueId: shortId }));
+    const shortDetail = parseText(
+      await callTool(client, "get_issue_detail", { issueId: shortId, checkId: checkResult.checkId }),
+    );
     expect(Array.isArray(shortDetail)).toBe(true);
     expect(shortDetail).toHaveLength(1);
     expect((shortDetail as NormalizedIssue[])[0]?.issueId).toBe(fullId);
 
-    const fullDetail = parseText(await callTool(client, "get_issue_detail", { issueId: fullId }));
+    const fullDetail = parseText(
+      await callTool(client, "get_issue_detail", { issueId: fullId, checkId: checkResult.checkId }),
+    );
     expect(Array.isArray(fullDetail)).toBe(true);
     expect(fullDetail).toHaveLength(1);
     expect((fullDetail as NormalizedIssue[])[0]?.issueId).toBe(fullId);
@@ -382,21 +389,29 @@ describe("MCP response amendments", () => {
     expect(emittedIdA).toBe(`${prefix12}0`);
     expect(emittedIdB).toBe(`${prefix12}1`);
 
-    const detailA = parseText(await callTool(client, "get_issue_detail", { issueId: emittedIdA })) as NormalizedIssue[];
+    const detailA = parseText(
+      await callTool(client, "get_issue_detail", { issueId: emittedIdA, checkId: checkResult.checkId }),
+    ) as NormalizedIssue[];
     expect(detailA).toHaveLength(1);
     expect(detailA[0]?.issueId).toBe(fullIdA);
     expect(detailA[0]?.file).toBe("src/a.ts");
 
-    const detailB = parseText(await callTool(client, "get_issue_detail", { issueId: emittedIdB })) as NormalizedIssue[];
+    const detailB = parseText(
+      await callTool(client, "get_issue_detail", { issueId: emittedIdB, checkId: checkResult.checkId }),
+    ) as NormalizedIssue[];
     expect(detailB).toHaveLength(1);
     expect(detailB[0]?.issueId).toBe(fullIdB);
     expect(detailB[0]?.file).toBe("src/b.ts");
 
-    const detailFullA = parseText(await callTool(client, "get_issue_detail", { issueId: fullIdA })) as NormalizedIssue[];
+    const detailFullA = parseText(
+      await callTool(client, "get_issue_detail", { issueId: fullIdA, checkId: checkResult.checkId }),
+    ) as NormalizedIssue[];
     expect(detailFullA).toHaveLength(1);
     expect(detailFullA[0]?.issueId).toBe(fullIdA);
 
-    const detailFullB = parseText(await callTool(client, "get_issue_detail", { issueId: fullIdB })) as NormalizedIssue[];
+    const detailFullB = parseText(
+      await callTool(client, "get_issue_detail", { issueId: fullIdB, checkId: checkResult.checkId }),
+    ) as NormalizedIssue[];
     expect(detailFullB).toHaveLength(1);
     expect(detailFullB[0]?.issueId).toBe(fullIdB);
   });
@@ -433,7 +448,11 @@ describe("configurable MCP payload modes across tools", () => {
     expect(JSON.parse(filesText)).toEqual(checkFilesRes.structuredContent);
 
     // 4. get_issue_detail
-    const detailRes = await client.callTool({ name: "get_issue_detail", arguments: { issueId: issue.issueId } });
+    const checkId = (checkRes.structuredContent as CheckResponse).checkId;
+    const detailRes = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { issueId: issue.issueId, checkId },
+    });
     const detailText = getFirstText(detailRes.content);
     expect(detailText).not.toContain("\n");
     expect(detailRes.structuredContent).toEqual({ issues: JSON.parse(detailText) });
@@ -478,7 +497,10 @@ describe("configurable MCP payload modes across tools", () => {
     expect(JSON.parse(filesText)).toMatchObject({ status: "issues_found" });
 
     // 4. get_issue_detail
-    const detailRes = await client.callTool({ name: "get_issue_detail", arguments: { issueId: issue.issueId } });
+    const detailRes = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { issueId: issue.issueId, checkId: parsedCheck.checkId },
+    });
     expect("structuredContent" in detailRes).toBe(false);
     const detailText = getFirstText(detailRes.content);
     expect(detailText).not.toContain("\n");
@@ -524,7 +546,11 @@ describe("configurable MCP payload modes across tools", () => {
     expect(filesText).toBe("1 issue found.");
 
     // 4. get_issue_detail
-    const detailRes = await client.callTool({ name: "get_issue_detail", arguments: { issueId: issue.issueId } });
+    const structuredCheckId = (checkRes.structuredContent as CheckResponse).checkId;
+    const detailRes = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { issueId: issue.issueId, checkId: structuredCheckId },
+    });
     expect(detailRes.structuredContent).toBeDefined();
     const detailText = getFirstText(detailRes.content);
     expect(detailText).not.toContain("\n");

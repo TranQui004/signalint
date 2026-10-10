@@ -10,7 +10,18 @@ const checkProjectArgumentsSchema = z.strictObject({
 const checkFilesArgumentsSchema = z.strictObject({
   files: projectPathsSchema,
 });
-const issueReferenceSchema = z.union([
+const strictIssueReferenceSchema = z.union([
+  z.strictObject({
+    clusterId: z.string().min(1),
+    checkId: z.string().min(1),
+  }),
+  z.strictObject({
+    issueId: z.string().min(1),
+    checkId: z.string().min(1),
+  }),
+]);
+
+const legacyIssueReferenceSchema = z.union([
   z.strictObject({
     clusterId: z.string().min(1),
     checkId: z.string().min(1).optional(),
@@ -21,7 +32,11 @@ const issueReferenceSchema = z.union([
   }),
 ]);
 
-export type IssueReference = z.infer<typeof issueReferenceSchema>;
+export interface ParseIssueReferenceOptions {
+  allowLegacyLatestDetail?: boolean;
+}
+
+export type IssueReference = z.infer<typeof legacyIssueReferenceSchema>;
 
 /** Parses ping arguments and rejects unknown properties at runtime. */
 export function parsePingArguments(argumentsValue: unknown): void {
@@ -39,9 +54,15 @@ export function parseCheckFilesArguments(argumentsValue: unknown): string[] {
   return checkFilesArgumentsSchema.parse(argumentsValue).files;
 }
 
-/** Parses exactly one non-empty clusterId or issueId reference. */
-export function parseIssueReference(argumentsValue: unknown): IssueReference {
-  return issueReferenceSchema.parse(argumentsValue);
+/** Parses issue reference requiring checkId unless allowLegacyLatestDetail is true. */
+export function parseIssueReference(
+  argumentsValue: unknown,
+  options: ParseIssueReferenceOptions = {},
+): IssueReference {
+  const schema = options.allowLegacyLatestDetail
+    ? legacyIssueReferenceSchema
+    : strictIssueReferenceSchema;
+  return schema.parse(argumentsValue);
 }
 
 /** Parses get_loop_status arguments and rejects unknown properties at runtime. */
@@ -155,6 +176,7 @@ export function parsePreviewDiagnosticFixArguments(
 const applyDiagnosticFixArgumentsSchema = z.strictObject({
   transactionId: z.string().min(1),
   confirm: z.boolean(),
+  baselineCheckId: z.string().min(1).optional(),
 });
 
 export type ApplyDiagnosticFixArguments = z.infer<typeof applyDiagnosticFixArgumentsSchema>;

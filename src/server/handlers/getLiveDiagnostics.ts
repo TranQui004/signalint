@@ -21,7 +21,10 @@ export async function handleGetLiveDiagnostics(
 
   const targetFileSet = targetFiles ? new Set(targetFiles) : undefined;
 
-  const internalIssues = (context.latestIssues ?? []).filter((issue) => {
+  const internalSnapshot = context.snapshotStore.getLatestSnapshot(
+    (snapshot) => snapshot.source !== "lsp",
+  );
+  const internalIssues = (internalSnapshot?.issues ?? []).filter((issue) => {
     if (targetFileSet && !targetFileSet.has(issue.file)) {
       return false;
     }

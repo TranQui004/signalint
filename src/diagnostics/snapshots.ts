@@ -31,6 +31,19 @@ export interface SnapshotStoreOptions {
   projectRoot?: string;
 }
 
+function deepFreeze<T>(obj: T): Readonly<T> {
+  if (obj === null || typeof obj !== "object") {
+    return obj;
+  }
+  Object.freeze(obj);
+  for (const value of Object.values(obj)) {
+    if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+      deepFreeze(value);
+    }
+  }
+  return obj;
+}
+
 export class SnapshotStore {
   private readonly snapshots = new Map<string, DiagnosticSnapshot>();
   private readonly insertionOrder: string[] = [];
@@ -55,7 +68,9 @@ export class SnapshotStore {
         this.recordExpired(oldestId);
       }
     }
-    this.snapshots.set(snapshot.checkId, Object.freeze({ ...snapshot }));
+    const cloned = structuredClone(snapshot);
+    deepFreeze(cloned);
+    this.snapshots.set(snapshot.checkId, cloned);
     this.insertionOrder.push(snapshot.checkId);
   }
 
@@ -74,17 +89,19 @@ export class SnapshotStore {
       }
       return undefined;
     }
-    return snapshot;
+    return structuredClone(snapshot);
   }
 
-  /** Returns the newest available non-expired snapshot, or undefined if the store is empty. */
-  public getLatestSnapshot(): DiagnosticSnapshot | undefined {
+  /** Returns the newest available non-expired snapshot, optionally matching a filter predicate. */
+  public getLatestSnapshot(
+    predicate?: (snapshot: DiagnosticSnapshot) => boolean,
+  ): DiagnosticSnapshot | undefined {
     this.pruneExpired();
     for (let i = this.insertionOrder.length - 1; i >= 0; i--) {
       const id = this.insertionOrder[i];
       if (id !== undefined) {
         const snapshot = this.getSnapshot(id);
-        if (snapshot !== undefined) {
+        if (snapshot !== undefined && (predicate === undefined || predicate(snapshot))) {
           return snapshot;
         }
       }
@@ -97,40 +114,36 @@ export class SnapshotStore {
     return this.expiredCheckIds.has(checkId);
   }
 
-  /** Resolves issues for a reference from an explicit checkId or newest active snapshot. */
+  /** Resolves issues for a reference from an explicit checkId. */
   public resolveIssues(
     reference: IssueReference,
     checkId?: string,
   ): NormalizedIssue[] | StaleReferenceResponse {
     const targetCheckId = checkId ?? reference.checkId;
-    if (targetCheckId !== undefined) {
-      const snapshot = this.getSnapshot(targetCheckId);
-      if (!snapshot) {
-        if (this.isExpired(targetCheckId)) {
-          return {
-            status: "stale",
-            code: "snapshot_expired",
-            message: `Diagnostic snapshot '${targetCheckId}' has expired; run check_project again.`,
-          };
-        }
-        return {
-          status: "stale",
-          code: "unknown_check_id",
-          message: `Check ID '${targetCheckId}' is unknown; run check_project again.`,
-        };
-      }
-      return resolveIssuesInSnapshot(snapshot, reference);
-    }
-
-    const latest = this.getLatestSnapshot();
-    if (!latest) {
+    if (targetCheckId === undefined) {
       return {
         status: "stale",
         code: "unknown_check_id",
-        message: "No diagnostic checks have been run in this session; run check_project first.",
+        message: "No checkId provided; run check_project first.",
       };
     }
-    return resolveIssuesInSnapshot(latest, reference);
+
+    const snapshot = this.getSnapshot(targetCheckId);
+    if (!snapshot) {
+      if (this.isExpired(targetCheckId)) {
+        return {
+          status: "stale",
+          code: "snapshot_expired",
+          message: `Diagnostic snapshot '${targetCheckId}' has expired; run check_project again.`,
+        };
+      }
+      return {
+        status: "stale",
+        code: "unknown_check_id",
+        message: `Check ID '${targetCheckId}' is unknown; run check_project again.`,
+      };
+    }
+    return resolveIssuesInSnapshot(snapshot, reference);
   }
 
   /** Returns count of active non-expired snapshots in store. */

@@ -38,8 +38,6 @@ export interface ToolHandlerContext {
   snapshotStore: SnapshotStore;
   diagnosticBuffer?: DiagnosticBuffer;
   transactionManager?: TransactionManager;
-  latestIssues?: NormalizedIssue[];
-  latestCheckId?: string | undefined;
 }
 
 /** Resolves tool paths to relative paths safe within the project root. */

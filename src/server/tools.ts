@@ -70,7 +70,7 @@ export function createTools(mode: McpPayloadMode = "both") {
     },
     {
       name: "get_issue_detail",
-      description: "Returns the full issue list for either one cluster ID or one issue ID from the most recent check_project or check_files call. Read-only; no files are written or modified. Supply exactly one of clusterId or issueId — supplying both or neither returns an argument error. If the referenced cluster or issue no longer exists in the latest results (e.g., after re-running a check), returns a status: \"stale\" response instead of an error; call check_project or check_files again to refresh.",
+      description: "Returns the full issue list for either one cluster ID or one issue ID for a specific checkId. Read-only; no files are written or modified. Supply checkId (required) and exactly one of clusterId or issueId — supplying both or neither returns an argument error. If the referenced checkId is unknown/expired or the issue/cluster no longer exists in that check snapshot, returns a status: \"stale\" response instead of an error.",
       inputSchema: {
         type: "object" as const,
         properties: {
@@ -78,6 +78,7 @@ export function createTools(mode: McpPayloadMode = "both") {
           issueId: { type: "string" as const },
           checkId: { type: "string" as const },
         },
+        required: ["checkId"],
         oneOf: [
           { required: ["clusterId"] },
           { required: ["issueId"] },
@@ -255,12 +256,13 @@ export function createTools(mode: McpPayloadMode = "both") {
     },
     {
       name: "apply_diagnostic_fix",
-      description: "Atomically applies a previously prepared diagnostic fix preview by transactionId. Requires explicit confirm: true. Detects file content drift before writing, automatically rolls back on any write failure, and triggers immediate verification to return a post-apply delta.",
+      description: "Atomically applies a previously prepared diagnostic fix preview by transactionId. Requires explicit confirm: true. Detects file content drift before writing, automatically rolls back on any write failure, and triggers immediate verification to return a post-apply delta if baselineCheckId is provided.",
       inputSchema: {
         type: "object" as const,
         properties: {
           transactionId: { type: "string" as const },
           confirm: { type: "boolean" as const },
+          baselineCheckId: { type: "string" as const },
         },
         required: ["transactionId", "confirm"],
         additionalProperties: false,

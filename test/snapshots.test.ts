@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { SnapshotStore, type DiagnosticSnapshot } from "../src/diagnostics/snapshots.js";
 import { createServer } from "../src/server/createServer.js";
-import type { NormalizedIssue } from "../src/schema.js";
+import type { Cluster, NormalizedIssue } from "../src/schema.js";
 
 const clients: Client[] = [];
 const servers: Server[] = [];
@@ -114,6 +114,50 @@ describe("SnapshotStore unit tests", () => {
       message: "Check ID 'nonexistent-check' is unknown; run check_project again.",
     });
   });
+
+  it("enforces deep immutability by preventing mutations to returned snapshots from affecting the store", () => {
+    const store = new SnapshotStore({ maxSnapshots: 10 });
+    const issue = makeMockIssue({ issueId: "immutable-1", file: "src/immutable.ts" });
+    const snapshot = makeMockSnapshot("check-immutable", [issue]);
+    snapshot.clusters = [
+      {
+        clusterId: "c1",
+        rootCauseSummary: "Summary",
+        ruleIds: ["rule-1"],
+        issueCount: 1,
+        fileCount: 1,
+        priority: 1,
+      },
+    ];
+
+    store.saveSnapshot(snapshot);
+
+    const retrieved1 = store.getSnapshot("check-immutable");
+    expect(retrieved1).toBeDefined();
+    expect(retrieved1?.issues).toHaveLength(1);
+    expect(retrieved1?.clusters).toHaveLength(1);
+
+    // Mutate the retrieved snapshot copy
+    (retrieved1!.issues as NormalizedIssue[]).push(
+      makeMockIssue({ issueId: "injected-issue", file: "src/injected.ts" }),
+    );
+    (retrieved1!.clusters as Cluster[]).push({
+      clusterId: "c2",
+      rootCauseSummary: "Injected",
+      ruleIds: ["rule-2"],
+      issueCount: 1,
+      fileCount: 1,
+      priority: 2,
+    });
+
+    // Retrieve again from store and assert internal store remains unmodified
+    const retrieved2 = store.getSnapshot("check-immutable");
+    expect(retrieved2).toBeDefined();
+    expect(retrieved2?.issues).toHaveLength(1);
+    expect(retrieved2?.issues[0]?.issueId).toBe("immutable-1");
+    expect(retrieved2?.clusters).toHaveLength(1);
+    expect(retrieved2?.clusters[0]?.clusterId).toBe("c1");
+  });
 });
 
 describe("Concurrent Client Isolation", () => {
@@ -193,6 +237,17 @@ describe("Concurrent Client Isolation", () => {
     const parsedDetail2 = parseToolResult(detail2);
     expect(Array.isArray(parsedDetail2)).toBe(true);
     expect((parsedDetail2 as NormalizedIssue[])[0]?.issueId).toBe("issue-B-1");
+
+    // Client 1 requests detail using checkId2 but issueId belonging only to A -> returns deterministic stale response
+    const crossDetail = await client1.callTool({
+      name: "get_issue_detail",
+      arguments: { issueId: "issue-A-1", checkId: content2.checkId },
+    });
+    const parsedCrossDetail = parseToolResult(crossDetail);
+    expect(parsedCrossDetail).toEqual({
+      status: "stale",
+      message: "This cluster/issue no longer exists; run check_project again.",
+    });
 
     // Verify snapshot 1 contains only package.json diagnostics
     const snap1 = await client1.callTool({

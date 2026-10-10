@@ -20,7 +20,7 @@ Signalint supports three wire formatting modes configured via `signalint.config.
 | Mode | `content[0].text` | `structuredContent` | `outputSchema` Advertised | Wire Overlap | Recommended Use Case |
 |---|---|---|---|---|---|
 | **`both`** *(default)* | Minified JSON string equal to `JSON.stringify(structuredContent)` | Full typed response object | Yes (`additionalProperties: false`) | High (~2.1×) | Maximum compatibility across any client. |
-| **`structured`** | Short single-line human summary string (e.g. `Found 3 issues.`) | Full typed response object | Yes (`additionalProperties: false`) | Low | Modern clients rendering structured UI blocks. |
+| **`structured`** | Minified JSON string equal to `JSON.stringify(structuredContent)` (plus optional second content block with human summary) | Full typed response object | Yes (`additionalProperties: false`) | Balanced | Modern clients rendering structured UI blocks with JSON fallback. |
 | **`text`** *(legacy)* | Minified JSON string of response payload | Omitted | Omitted | Lowest (~50% of `both`) | Token-optimized headless agent loops. |
 
 ### Schema Strictness

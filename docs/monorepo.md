@@ -33,10 +33,11 @@ Example `signalint.config.json`:
 
 When `monorepoMode` is active:
 
-1. **Package Discovery:**
-   - Reads `pnpm-workspace.yaml` to extract package globs (e.g. `packages/*`, `apps/*`, `libs/**`).
-   - Discovers packages by matching `package.json` manifests within the resolved globs.
-   - Extracts internal `workspace:*` dependencies from `dependencies`, `devDependencies`, and `peerDependencies`.
+1. **Package Discovery & Filtering:**
+   - Parses `pnpm-workspace.yaml` using a pure-JavaScript YAML parser (`yaml`), supporting both standard list syntax and inline flow arrays while safely ignoring comments and blank lines.
+   - Evaluates positive glob patterns (`packages/*`, `apps/*`) alongside negation exclusion globs (e.g. `!**/test/**`, `!fixtures/**`, `!packages/legacy-*`).
+   - Discovers packages by matching `package.json` manifests within the resolved globs and canonicalizes all paths using native filesystem resolution to eliminate symlink and Windows 8.3 short-name mismatches.
+   - Differentiates internal workspace protocols (`workspace:*`, `workspace:^`, `workspace:~`, `workspace:path`, `file:`, `link:`) from external npm registry packages (`react`, `typescript`, `@types/node`), preventing third-party packages from introducing phantom dependency cycles.
    - Reads package `tsconfig.json` files and parses TypeScript `references` (`[ { "path": "../shared" } ]`).
 
 2. **Union Dependency Graph:**

@@ -27,6 +27,7 @@ export interface ApplyResult {
   filesModified: string[];
   postCheckId?: string | undefined;
   delta?: unknown;
+  message?: string | undefined;
   error?: string | undefined;
 }
 
@@ -38,7 +39,7 @@ export interface PrepareTransactionOptions {
 export interface ApplyTransactionOptions {
   projectRoot: string;
   confirm: boolean;
-  onPostCheck?: ((modifiedFiles: string[]) => Promise<{ postCheckId?: string; delta?: unknown }>) | undefined;
+  onPostCheck?: ((modifiedFiles: string[]) => Promise<{ postCheckId?: string | undefined; delta?: unknown; message?: string | undefined }>) | undefined;
   writeFile?: ((path: string, content: string) => void) | undefined;
   readFile?: ((path: string) => string) | undefined;
 }

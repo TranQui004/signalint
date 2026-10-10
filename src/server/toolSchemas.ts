@@ -554,6 +554,7 @@ export const applyDiagnosticFixOutputSchema = {
     },
     postCheckId: { type: "string" as const },
     delta: diagnosticDeltaOutputSchema,
+    message: { type: "string" as const },
     error: { type: "string" as const },
   },
   required: ["transactionId", "status", "filesModified"],

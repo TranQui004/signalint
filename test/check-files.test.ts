@@ -93,7 +93,10 @@ describe("check_files scope filtering", () => {
 
     const clusterDetailResult = await client.callTool({
       name: "get_issue_detail",
-      arguments: { clusterId: projectResponse.clusters[0]!.clusterId },
+      arguments: {
+        clusterId: projectResponse.clusters[0]!.clusterId,
+        checkId: projectResponse.checkId,
+      },
     });
     const firstDetailContent = Array.isArray(clusterDetailResult.content)
       ? clusterDetailResult.content[0]

@@ -75,8 +75,8 @@ Signalint strictly differentiates JSON-RPC protocol violations from domain busin
 #### 4. `get_issue_detail`
 - **Purpose:** Retrieves full, unomitted issue records for a specific cluster ID or issue ID from a prior check.
 - **Annotations:** `readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false`.
-- **Input:** `{ clusterId?: string, issueId?: string, checkId?: string }` (exactly one of `clusterId` or `issueId` required; `checkId` pins to an immutable snapshot).
-- **Output:** Array of `NormalizedIssue` records or `{ status: "stale", message: string }`.
+- **Input:** `{ checkId: string, clusterId?: string, issueId?: string }` (`checkId` required; exactly one of `clusterId` or `issueId` required).
+- **Output:** Array of `NormalizedIssue` records or `{ status: "stale", code: string, message: string }`.
 
 #### 5. `get_loop_status`
 - **Purpose:** Returns diagnostic signatures currently oscillating or churning in the agent's session.
@@ -135,8 +135,8 @@ Signalint strictly differentiates JSON-RPC protocol violations from domain busin
 #### 12. `apply_diagnostic_fix`
 - **Purpose:** Atomically writes a prepared transaction to disk with automatic rollback on failure and post-apply check.
 - **Annotations:** `readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false`.
-- **Input:** `{ transactionId: string, confirm: boolean }` (`confirm: true` is strictly required).
-- **Output:** `{ transactionId: string, status: "success" | "rolled_back" | "error", filesModified: string[], postCheckId?: string, delta?: unknown, error?: string }`.
+- **Input:** `{ transactionId: string, confirm: boolean, baselineCheckId?: string }` (`confirm: true` is strictly required; optional `baselineCheckId` triggers delta computation).
+- **Output:** `{ transactionId: string, status: "success" | "rolled_back" | "error", filesModified: string[], postCheckId?: string, delta?: unknown, message?: string, error?: string }`.
 
 #### 13. `discard_diagnostic_fix`
 - **Purpose:** Discards a prepared transaction from in-memory storage without touching disk.

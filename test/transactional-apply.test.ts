@@ -4,7 +4,7 @@ import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { SessionMemory } from "../src/memory/sessionMemory.js";
-import { SnapshotStore } from "../src/diagnostics/snapshots.js";
+import { type DiagnosticSnapshot, SnapshotStore } from "../src/diagnostics/snapshots.js";
 import { dispatchToolCall } from "../src/server/createServer.js";
 import type { ToolHandlerContext } from "../src/server/context.js";
 import { TransactionManager } from "../src/transactions/manager.js";
@@ -308,6 +308,8 @@ describe("Transactional previews, safe apply, and rollback", () => {
     );
     expect(applyText.status).toBe("success");
     expect(applyText.filesModified).toContain(fileRel);
+    expect(applyText.delta).toBeUndefined();
+    expect(applyText.message).toBe("No baselineCheckId provided; baseline delta was not requested.");
     expect(readFileSync(fileAbs, "utf-8")).toBe("const mcp = 2;\n");
 
     // 3. discard_diagnostic_fix after already applied
@@ -323,5 +325,120 @@ describe("Transactional previews, safe apply, and rollback", () => {
       (discardResult.content[0] as { text: string }).text,
     );
     expect(discardText.discarded).toBe(false);
+  });
+
+  it("computes delta against explicit baselineCheckId and handles omitted/unknown baselines", async () => {
+    const fileRel = "src/baseline_test.ts";
+    const fileAbs = resolve(canonicalRoot, fileRel);
+    writeFileSync(fileAbs, "const val = 1;\n");
+
+    const baselineSnapshot: DiagnosticSnapshot = {
+      checkId: "base-check-123",
+      projectRoot: canonicalRoot,
+      timestamp: Date.now(),
+      status: "clean",
+      issues: [],
+      clusters: [],
+      remainingIssues: [],
+      totalIssues: 0,
+      omittedIssueCount: 0,
+      filteredOutIssueCount: 0,
+      engines: { oxlint: { status: "ok" } },
+      cache: { hits: 0, misses: 0 },
+      source: "files",
+      durationMs: 10,
+    };
+
+    const snapshotStore = new SnapshotStore({ projectRoot: canonicalRoot });
+    snapshotStore.saveSnapshot(baselineSnapshot);
+
+    const context: ToolHandlerContext = {
+      cwd: canonicalRoot,
+      fileIssueProvider: () =>
+        Promise.resolve({
+          issues: [],
+          cache: { hits: 0, misses: 0 },
+          engines: { oxlint: { status: "ok" } },
+        }),
+      projectIssueProvider: () =>
+        Promise.resolve({
+          issues: [],
+          cache: { hits: 0, misses: 0 },
+          engines: { oxlint: { status: "ok" } },
+        }),
+      sessionMemory: new SessionMemory(),
+      payloadMode: "both",
+      snapshotStore,
+      transactionManager: new TransactionManager(),
+    };
+
+    // 1. Prepare transaction
+    const previewResult = await dispatchToolCall(
+      "preview_diagnostic_fix",
+      {
+        patches: [
+          {
+            file: fileRel,
+            originalContent: "const val = 1;\n",
+            patchedContent: "const val = 10;\n",
+          },
+        ],
+      },
+      new AbortController().signal,
+      context,
+    );
+    const preview = JSON.parse((previewResult.content[0] as { text: string }).text);
+
+    // 2. Apply with valid baselineCheckId
+    const applyResult = await dispatchToolCall(
+      "apply_diagnostic_fix",
+      {
+        transactionId: preview.transactionId,
+        confirm: true,
+        baselineCheckId: "base-check-123",
+      },
+      new AbortController().signal,
+      context,
+    );
+
+    const applyData = JSON.parse((applyResult.content[0] as { text: string }).text);
+    expect(applyData.status).toBe("success");
+    expect(applyData.delta).toBeDefined();
+    expect(applyData.delta.errorsResolved).toBe(0);
+    expect(applyData.delta.errorsIntroduced).toBe(0);
+    expect(applyData.delta.baselineCheckId).toBe("base-check-123");
+    expect(applyData.message).toBeUndefined();
+
+    // 3. Prepare another transaction to test unknown baselineCheckId
+    const previewResult2 = await dispatchToolCall(
+      "preview_diagnostic_fix",
+      {
+        patches: [
+          {
+            file: fileRel,
+            originalContent: "const val = 10;\n",
+            patchedContent: "const val = 20;\n",
+          },
+        ],
+      },
+      new AbortController().signal,
+      context,
+    );
+    const preview2 = JSON.parse((previewResult2.content[0] as { text: string }).text);
+
+    const applyUnknown = await dispatchToolCall(
+      "apply_diagnostic_fix",
+      {
+        transactionId: preview2.transactionId,
+        confirm: true,
+        baselineCheckId: "nonexistent-baseline",
+      },
+      new AbortController().signal,
+      context,
+    );
+    const unknownData = JSON.parse((applyUnknown.content[0] as { text: string }).text);
+    expect(unknownData.status).toBe("success");
+    expect(unknownData.delta).toBeUndefined();
+    expect(unknownData.message).toContain("Baseline check 'nonexistent-baseline' was not found");
   });
 });

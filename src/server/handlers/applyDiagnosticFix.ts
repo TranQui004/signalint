@@ -13,7 +13,7 @@ export async function handleApplyDiagnosticFix(
   context: ToolHandlerContext,
   argumentsValue: unknown,
 ): Promise<CallToolResult> {
-  const { transactionId, confirm } = parseApplyDiagnosticFixArguments(argumentsValue);
+  const { transactionId, confirm, baselineCheckId } = parseApplyDiagnosticFixArguments(argumentsValue);
 
   if (confirm !== true) {
     return {
@@ -32,8 +32,6 @@ export async function handleApplyDiagnosticFix(
 
   const manager = context.transactionManager ?? new TransactionManager();
   context.transactionManager = manager;
-
-  const baselineCheckId = context.latestCheckId;
 
   const result = await manager.applyTransaction(transactionId, {
     projectRoot: context.cwd,
@@ -65,17 +63,21 @@ export async function handleApplyDiagnosticFix(
         durationMs: 0,
       };
       context.snapshotStore.saveSnapshot(postSnapshot);
-      context.latestIssues = clustered.issues;
-      context.latestCheckId = postCheckId;
 
       let delta: unknown | undefined;
+      let message: string | undefined;
       if (baselineCheckId !== undefined) {
         const baseline = context.snapshotStore.getSnapshot(baselineCheckId);
         if (baseline) {
           delta = computeDiagnosticDelta(baseline, postSnapshot);
+        } else {
+          const isExpired = context.snapshotStore.isExpired(baselineCheckId);
+          message = `Baseline check '${baselineCheckId}' ${isExpired ? "has expired" : "was not found"}; baseline delta was not computed.`;
         }
+      } else {
+        message = "No baselineCheckId provided; baseline delta was not requested.";
       }
-      return { postCheckId, delta };
+      return { postCheckId, delta, message };
     },
   });
 

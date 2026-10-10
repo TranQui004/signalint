@@ -209,11 +209,13 @@ export class TransactionManager {
     // Step 3: Post-apply automatic verification
     let postCheckId: string | undefined;
     let delta: unknown | undefined;
+    let message: string | undefined;
     if (options.onPostCheck !== undefined) {
       try {
         const checkResult = await options.onPostCheck(filesModified);
         postCheckId = checkResult.postCheckId;
         delta = checkResult.delta;
+        message = checkResult.message;
       } catch (checkError: unknown) {
         // Post-check error does not roll back an intentionally applied patch, but captures the warning
         postCheckId = undefined;
@@ -227,6 +229,7 @@ export class TransactionManager {
       filesModified,
       ...(postCheckId !== undefined ? { postCheckId } : {}),
       ...(delta !== undefined ? { delta } : {}),
+      ...(message !== undefined ? { message } : {}),
     };
   }
 

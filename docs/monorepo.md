@@ -33,11 +33,12 @@ Example `signalint.config.json`:
 
 When `monorepoMode` is active:
 
-1. **Package Discovery:**
-   - Reads `pnpm-workspace.yaml` to extract package globs (e.g. `packages/*`, `apps/*`, `libs/**`).
-   - Discovers packages by matching `package.json` manifests within the resolved globs.
-   - Extracts internal `workspace:*` dependencies from `dependencies`, `devDependencies`, and `peerDependencies`.
-   - Reads package `tsconfig.json` files and parses TypeScript `references` (`[ { "path": "../shared" } ]`).
+1. **Robust Package Discovery:**
+   - **Pure-JS YAML Parsing:** Parses `pnpm-workspace.yaml` with the pure-JavaScript `yaml` parser, replacing brittle regular expressions with full YAML 1.2 compliance (handling comments, multi-line arrays, quotes, and anchors safely).
+   - **Glob Patterns & Negations:** Evaluates include globs (e.g. `packages/*`, `apps/*`, `libs/**`) and negation filters (e.g. `!**/test/**`, `!fixtures/**`, `!node_modules/**`), correctly excluding non-workspace test fixtures and example projects.
+   - **Path Canonicalization:** Canonicalizes all package directories and references across platforms (resolving Windows 8.3 short-name aliases like `RUNNER~1` and case variations) using native realpath resolution to ensure cross-platform graph key consistency.
+   - **Dependency Differentiation:** Strictly distinguishes internal workspace dependencies (`workspace:*`, `workspace:^`, or exact versions matching sibling workspace package names) from third-party registry packages (`react`, `typescript`, `@types/node`). External npm dependencies never create phantom graph edges.
+   - **Project References:** Inspects package `tsconfig.json` files and parses TypeScript `references` (`[ { "path": "../shared" } ]`), resolving project reference paths against canonicalized package roots.
 
 2. **Union Dependency Graph:**
    - Constructs a directed acyclic graph (DAG) uniting package-manager dependencies and TypeScript project references.

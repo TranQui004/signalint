@@ -16,6 +16,7 @@ export interface WorkspacePackage {
   relativePath: string;
   absolutePath: string;
   manifestPath: string;
+  version?: string | undefined;
   tsconfigPath?: string | undefined;
   dependencies: string[];
   tsReferences: string[];
@@ -26,6 +27,7 @@ export interface WorkspaceGraph {
   packages: Map<string, WorkspacePackage>;
   topologicalOrder: string[];
   hasCycles: boolean;
+  cycleNodes?: string[] | undefined;
 }
 
 export interface WorkspacePlan {

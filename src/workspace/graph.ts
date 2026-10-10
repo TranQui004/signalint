@@ -1,4 +1,5 @@
 import type { WorkspaceGraph, WorkspacePackage } from "./types.js";
+import { canonicalizePath } from "../projectPaths.js";
 
 /** Builds a union dependency graph combining package manifests and TypeScript project references. */
 export function buildWorkspaceGraph(
@@ -64,12 +65,19 @@ export function buildWorkspaceGraph(
   }
 
   const hasCycles = topologicalOrder.length < packages.length;
+  const cycleNodes = hasCycles
+    ? packages
+        .filter((p) => !topologicalOrder.includes(p.name))
+        .map((p) => p.name)
+        .sort()
+    : undefined;
 
   return {
-    rootDir,
+    rootDir: canonicalizePath(rootDir),
     packages: packageMap,
     topologicalOrder,
     hasCycles,
+    ...(cycleNodes !== undefined ? { cycleNodes } : {}),
   };
 }
 
@@ -78,7 +86,7 @@ export function getTransitiveDependencies(
   packageName: string,
   graph: WorkspaceGraph,
 ): WorkspacePackage[] {
-  const visited = new Set<string>();
+  const visited = new Set<string>([packageName]);
   const target = graph.packages.get(packageName);
   if (target === undefined) {
     return [];
@@ -102,6 +110,7 @@ export function getTransitiveDependencies(
   }
 
   return Array.from(visited)
+    .filter((name) => name !== packageName)
     .sort()
     .map((name) => graph.packages.get(name))
     .filter((pkg): pkg is WorkspacePackage => pkg !== undefined);

@@ -122,4 +122,58 @@ describe("release workflow definition", () => {
     expect(tagInputSection).not.toMatch(/default:/);
     expect(tagInputSection).not.toContain("default: 'v1.0.0'");
   });
+
+  it("pins all external GitHub Actions to immutable 40-character commit SHAs in ci.yml and release.yml", () => {
+    const workflows = [".github/workflows/ci.yml", ".github/workflows/release.yml"];
+    const shaPattern = /^[a-f0-9]{40}$/;
+
+    for (const relPath of workflows) {
+      const fullPath = resolve(process.cwd(), relPath);
+      const content = readFileSync(fullPath, "utf8");
+      const usesMatches = content.match(/uses:\s+([^#\r\n]+)/g) || [];
+
+      expect(usesMatches.length).toBeGreaterThan(0);
+      for (const match of usesMatches) {
+        const actionRef = match.replace(/uses:\s+/, "").trim();
+        const parts = actionRef.split("@");
+        expect(parts).toHaveLength(2);
+        const [actionName, commitSha] = parts;
+        expect(actionName).toMatch(/^[\w-]+\/[\w-]+$/);
+        expect(commitSha).toMatch(shaPattern);
+      }
+    }
+  });
+
+  it("enforces pre-publish gate, cache isolation, and provenance permissions in release.yml", () => {
+    const workflowPath = resolve(process.cwd(), ".github/workflows/release.yml");
+    const content = readFileSync(workflowPath, "utf8");
+
+    // Publish job requires gate completion
+    expect(content).toMatch(/publish:[\s\S]*?needs:\s*gate/);
+
+    // Publish job requires id-token write and contents write permissions
+    expect(content).toMatch(/permissions:[\s\S]*?contents:\s*write[\s\S]*?id-token:\s*write/);
+
+    // Publish job does not configure cache: pnpm
+    const publishJobMatch = content.match(/publish:[\s\S]*$/);
+    expect(publishJobMatch).not.toBeNull();
+    const publishJobContent = publishJobMatch ? publishJobMatch[0] : "";
+    expect(publishJobContent).not.toMatch(/cache:\s*pnpm/);
+
+    // Smoke test is executed strictly before npm publish in publish job
+    const smokeIndex = publishJobContent.indexOf("smoke-tarball.mjs");
+    const publishIndex = publishJobContent.indexOf("npm publish");
+    expect(smokeIndex).toBeGreaterThan(-1);
+    expect(publishIndex).toBeGreaterThan(-1);
+    expect(smokeIndex).toBeLessThan(publishIndex);
+
+    // Provenance flag is included in npm publish
+    expect(publishJobContent).toMatch(/npm publish [^\r\n]*--provenance/);
+  });
+
+  it("runs smoke-tarball in ci.yml steps", () => {
+    const ciPath = resolve(process.cwd(), ".github/workflows/ci.yml");
+    const content = readFileSync(ciPath, "utf8");
+    expect(content).toMatch(/node scripts\/smoke-tarball\.mjs/);
+  });
 });

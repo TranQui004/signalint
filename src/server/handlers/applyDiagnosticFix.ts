@@ -30,6 +30,32 @@ export async function handleApplyDiagnosticFix(
     };
   }
 
+  // Pre-validate baselineCheckId BEFORE modifying any files
+  let validatedBaselineSnapshot: DiagnosticSnapshot | undefined;
+  if (baselineCheckId !== undefined) {
+    validatedBaselineSnapshot = context.snapshotStore.getSnapshot(baselineCheckId);
+    if (!validatedBaselineSnapshot) {
+      const isExpired = context.snapshotStore.isExpired(baselineCheckId);
+      const code = isExpired ? "baseline_snapshot_expired" : "baseline_check_unknown";
+      const message = isExpired
+        ? `Supplied baselineCheckId '${baselineCheckId}' has expired. Re-run check_project to establish a fresh baseline.`
+        : `Supplied baselineCheckId '${baselineCheckId}' was not found in snapshot store. Re-run check_project to establish a fresh baseline.`;
+      return {
+        ...createTextResult(
+          {
+            transactionId,
+            status: "error",
+            code,
+            filesModified: [],
+            message,
+          },
+          context.payloadMode,
+        ),
+        isError: true,
+      };
+    }
+  }
+
   const manager = context.transactionManager ?? new TransactionManager();
   context.transactionManager = manager;
 
@@ -66,14 +92,8 @@ export async function handleApplyDiagnosticFix(
 
       let delta: unknown | undefined;
       let message: string | undefined;
-      if (baselineCheckId !== undefined) {
-        const baseline = context.snapshotStore.getSnapshot(baselineCheckId);
-        if (baseline) {
-          delta = computeDiagnosticDelta(baseline, postSnapshot);
-        } else {
-          const isExpired = context.snapshotStore.isExpired(baselineCheckId);
-          message = `Baseline check '${baselineCheckId}' ${isExpired ? "has expired" : "was not found"}; baseline delta was not computed.`;
-        }
+      if (validatedBaselineSnapshot !== undefined) {
+        delta = computeDiagnosticDelta(validatedBaselineSnapshot, postSnapshot);
       } else {
         message = "No baselineCheckId provided; baseline delta was not requested.";
       }

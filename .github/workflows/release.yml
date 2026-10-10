@@ -96,12 +96,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Verify tag matches package version
+      - name: Verify release metadata
         env:
           EVENT_NAME: ${{ github.event_name }}
           INPUT_TAG: ${{ inputs.tag }}
           REF_NAME: ${{ github.ref_name }}
-        run: node scripts/verify-release-tag.mjs
+        run: node scripts/verify-release-metadata.mjs
 
       - name: Build
         run: pnpm build
@@ -200,15 +200,6 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
-
-      - name: Verify server.json version matches package.json
-        run: |
-          server_version="$(node -p "require('./server.json').version")"
-          package_version="$(node -p "require('./package.json').version")"
-          if [ "$server_version" != "$package_version" ]; then
-            echo "server.json version $server_version does not match package.json version $package_version" >&2
-            exit 1
-          fi
 
       - name: Install mcp-publisher
         run: |

@@ -33,12 +33,12 @@ Example `signalint.config.json`:
 
 When `monorepoMode` is active:
 
-1. **Package Discovery & Filtering:**
-   - Parses `pnpm-workspace.yaml` using a pure-JavaScript YAML parser (`yaml`), supporting both standard list syntax and inline flow arrays while safely ignoring comments and blank lines.
-   - Evaluates positive glob patterns (`packages/*`, `apps/*`) alongside negation exclusion globs (e.g. `!**/test/**`, `!fixtures/**`, `!packages/legacy-*`).
-   - Discovers packages by matching `package.json` manifests within the resolved globs and canonicalizes all paths using native filesystem resolution to eliminate symlink and Windows 8.3 short-name mismatches.
-   - Differentiates internal workspace protocols (`workspace:*`, `workspace:^`, `workspace:~`, `workspace:path`, `file:`, `link:`) from external npm registry packages (`react`, `typescript`, `@types/node`), preventing third-party packages from introducing phantom dependency cycles.
-   - Reads package `tsconfig.json` files and parses TypeScript `references` (`[ { "path": "../shared" } ]`).
+1. **Robust Package Discovery:**
+   - **Pure-JS YAML Parsing:** Parses `pnpm-workspace.yaml` with the pure-JavaScript `yaml` parser, replacing brittle regular expressions with full YAML 1.2 compliance (handling comments, multi-line arrays, quotes, and anchors safely).
+   - **Glob Patterns & Negations:** Evaluates include globs (e.g. `packages/*`, `apps/*`, `libs/**`) and negation filters (e.g. `!**/test/**`, `!fixtures/**`, `!node_modules/**`), correctly excluding non-workspace test fixtures and example projects.
+   - **Path Canonicalization:** Canonicalizes all package directories and references across platforms (resolving Windows 8.3 short-name aliases like `RUNNER~1` and case variations) using native realpath resolution to ensure cross-platform graph key consistency.
+   - **Package-Manager-Compatible Dependency Policy:** Strictly distinguishes internal workspace dependencies from external registry packages (`react`, `typescript`, `@types/node`). Signalint adopts the **Package-manager-compatible policy**: it recognizes explicit workspace protocols (`workspace:*`, `workspace:^`, `workspace:~`, `workspace:>=`, etc.) as well as matching/compatible sibling versions declared across package manifests. This dependency edge detection is intentional heuristic static analysis based on manifests; it does not parse lockfiles (`pnpm-lock.yaml`, `package-lock.json`) or perform full registry/lockfile resolution. External npm dependencies never create phantom graph edges, and ambiguous sibling relationships are safely included to prevent under-checking.
+   - **Project References:** Inspects package `tsconfig.json` files and parses TypeScript `references` (`[ { "path": "../shared" } ]`), resolving project reference paths against canonicalized package roots.
 
 2. **Union Dependency Graph:**
    - Constructs a directed acyclic graph (DAG) uniting package-manager dependencies and TypeScript project references.

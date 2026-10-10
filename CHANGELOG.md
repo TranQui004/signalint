@@ -10,6 +10,62 @@ full detail.
 > response `schemaVersion` from `1.2` to `1.3`, and adds ESLint as a fourth
 > diagnostic engine.
 
+## [1.2.0] - 2026-10-10
+
+- **Features:** 13 strictly typed MCP tools, Immutable SnapshotStore (`checkId`), verification delta computation (`compare_diagnostics`, `after_edit_check`), portable verify-after-change hook adapters (Claude Code, Cursor, Codex, VS Code), monorepo workspace planning (`pnpm-workspace.yaml`), incremental TypeScript `.tsbuildinfo` isolation, live LSP diagnostics ingestion (`ingest_diagnostics`, `get_live_diagnostics`), transactional fix previews with atomic rollback (`preview_diagnostic_fix`, `apply_diagnostic_fix`), and external language adapters (Ruff, Mypy, Clippy, GolangCI-Lint).
+- **Fixes & Hardening:** JSON-RPC protocol error codes (`-32602`), strict schema validation (`additionalProperties: false`), cross-platform path canonicalization, and parallel SQLite state isolation.
+
+## 1.1.2 - 2026-10-08
+
+### SQLite concurrency and Windows test stability
+- **Concurrent access no longer fails.** The SQLite cache now sets `PRAGMA busy_timeout = 5000`, so a second Signalint process touching the same project waits for the lock instead of dying instantly with `database is locked`. Practical effect: an MCP server and a one-off `signalint check .` (or two agents) can now run against the same project at the same time. Measured before/after with a process holding an exclusive lock on `.signalint/cache.sqlite`: previously exit 1 in 59 ms with no output; now waits for the lock (2.8 s in that test) and returns a complete response.
+- **Windows CI stability.** Test fixtures that shared one cache database now use ephemeral per-test copies; directory cleanup retries on NTFS `EBUSY`; `testTimeout` raised to 20 s for subprocess integration tests. This removes the `database is locked` flake that intermittently failed `Test (windows-latest)`.
+- **CI can be re-run on demand.** `workflow_dispatch:` added to `ci.yml`.
+
+## 1.1.1 - 2026-10-08
+
+### CLI entrypoint dispatch and interactive terminal safety
+- Recognised CLI verbs (`init`, `check`, `doctor`, `stats`, `help`, `--help`, `-h`, `--version`, `-v`) directly from the `signalint-mcp` entry point (`dist/src/index.js`), dispatching them to the CLI runner instead of starting the MCP stdio server.
+- Fixed indefinite hang when invoking `npx signalint-mcp <command>` from an interactive terminal with stdin held open.
+- Emitted actionable guidance to stderr and exited with code 2 when `signalint-mcp` is invoked bare on an interactive TTY console.
+- Preserved existing stdio MCP server startup behavior when invoked by MCP clients with non-TTY stdin pipes.
+- Corrected documentation in `README.md` and `RELEASE.md` that taught `npx signalint-mcp doctor` to use `npx --yes -p signalint-mcp signalint doctor`.
+
+## 1.1.0 - 2026-10-08
+
+### Response schema and payload efficiency
+- Bumped `schemaVersion` to `"1.4"` while maintaining backward compatibility with `"1.3"`.
+- Added `remainingIssues`, `omittedIssueCount`, and `nextStep` to `CheckResponse`.
+- Eliminated information loss from the 10-cluster cap: groups of 2+ issues remain clustered, while single-issue groups and overflow clusters are routed to flat `remainingIssues` (bounded to 100 entries with `omittedIssueCount` and actionable `nextStep` guidance).
+- Emitted 12-character issue IDs in `remainingIssues[].issueId` and `clusters[].sampleIssueIds` with automatic prefix extension on internal hash collisions; full 64-character hashes remain fully resolvable via `get_issue_detail`.
+- Minified MCP tool payload text (`content[0].text`), stripping indentation and newlines across all tools.
+- Trimmed envelope overhead by omitting empty engine statuses, omitting `sampleIssueIds` on small clusters (<=2 issues), and omitting `suggestedAction` when unfixable.
+- Omitted `loopWarning` and `fileRuleChurnWarning` fields when inactive instead of emitting `null`, saving 47 bytes on standard checks.
+- Added opt-in compact mode (`signalint check --compact` and `SIGNALINT_COMPACT=1`) with abbreviated keys.
+
+### Scoped file checking
+- `check_files` now filters returned diagnostics down to requested files only, surfacing issues in unrequested files via `filteredOutIssueCount` / `filteredOutCount` with a `nextStep` directing agents to `check_project`.
+- Robust whole-program `tsc` cache invalidation: fingerprinted project TypeScript sources so `check_files` cache reliably invalidates when unrequested dependencies change.
+
+### Configurable MCP payload mode
+- Added configurable MCP payload modes (`SIGNALINT_MCP_PAYLOAD=both|text|structured` and `signalint.config.json` -> `mcpPayload`):
+  - `"both"` (default): emits both minified JSON in `content[0].text` and structured JSON in `structuredContent` for universal client compatibility.
+  - `"text"`: emits only `content[0].text`, completely suppressing `structuredContent` and schema advertisement for a ~46% wire reduction.
+  - `"structured"`: emits full data in `structuredContent` and replaces `content[0].text` with a single-line summary.
+- Active payload mode is reported in `signalint doctor`.
+
+### Package footprint and dependencies
+- Reclassified `typescript` and `oxlint` as optional `peerDependencies` only (removed from `optionalDependencies`), cutting default install footprint from 74 MB to ~27 MB.
+- Gracefully degrades `tsc` and `oxlint` with structured disabled statuses when unresolvable, with missing-linter guidance in `signalint doctor` and `signalint init`.
+- Updated GitHub Action (`action.yml`) default version input to `"1.1.0"`.
+
+### CLI, metrics, and documentation
+- Added `signalint stats --json` for machine-readable session metrics.
+- Added `--compact` flag to `signalint check`.
+- Added `docs/benchmarks.md` with single-run like-for-like measurements across all payload modes.
+- Added client compatibility guidance and real-world MCP client validation notes (Claude Desktop, Claude Code, Cursor) in `docs/benchmarks.md` and `docs/known-limitations.md`.
+- Added "When not to use Signalint" guidance in `README.md`.
+
 ## 1.0.0 - 2026-10-06
 
 

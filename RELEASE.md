@@ -1,8 +1,8 @@
 # Release checklist
 
 Signalint is published from CI only. Nothing is published from a developer
-machine. A release starts by pushing a tag that matches `v*` and whose version
-matches `package.json`.
+machine. A release starts by pushing a tag that matches `v*.*.*` (or triggering manual
+dispatch) and whose version matches `package.json`.
 
 ## 1. Prepare (through a pull request)
 
@@ -19,8 +19,8 @@ matches `package.json`.
 ```sh
 git switch main
 git pull
-git tag v1.0.0
-git push origin v1.0.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 ## 3. What the workflow does
@@ -32,21 +32,23 @@ git push origin v1.0.0
 2. Fails if the tag version does not match `package.json` `version`.
 3. Builds and runs `npm pack --dry-run` so the packed file list is visible in
    the log.
-4. Runs `npm publish --provenance --access public` with the `NPM_TOKEN` secret.
+4. Runs `npm publish --provenance --access public` with the `NPM_TOKEN` secret
+   (skipped if already published on npm).
 5. Verifies `server.json` matches `package.json`, then publishes the listing to
-   the official MCP Registry with `mcp-publisher` (GitHub OIDC).
-6. Creates or updates the GitHub Release with notes grouped by `type(scope):`
-   commit prefixes.
+   the official MCP Registry with `mcp-publisher` (GitHub OIDC) with automatic
+   retry for npm propagation delay (skipped if already on the MCP Registry).
+6. Creates or updates the GitHub Release with title and notes grouped by
+   `type(scope):` commit prefixes.
 
-Steps 4–6 are skipped when the version already exists on npm, so re-running the
-workflow after a partial failure is safe.
+Re-running the workflow or triggering it via workflow dispatch after a partial failure
+is safe: published artifacts on npm and MCP Registry are idempotently detected.
 
 ## 4. After the release
 
 - Move the `v1` major tag so the GitHub Action can be pinned to a stable ref:
 
   ```sh
-  git tag -f v1 v1.0.0
+  git tag -f v1 vX.Y.Z
   git push -f origin v1
   ```
 
@@ -54,7 +56,7 @@ workflow after a partial failure is safe.
 
   ```sh
   npm view signalint-mcp version
-  gh release view v1.0.0
+  gh release view vX.Y.Z
   ```
 
   MCP Registry listing:
@@ -63,9 +65,9 @@ workflow after a partial failure is safe.
 - Smoke-test the published tarball in a clean project:
 
   ```sh
-  npx --yes signalint-mcp@1.0.0 init
-  npx --yes signalint-mcp@1.0.0 check .
-  npx --yes signalint-mcp@1.0.0 doctor
+  npx --yes signalint-mcp@X.Y.Z init
+  npx --yes -p signalint-mcp@X.Y.Z signalint check .
+  npx --yes -p signalint-mcp@X.Y.Z signalint doctor
   ```
 
 ## One-time setup

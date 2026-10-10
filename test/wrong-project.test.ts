@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { clusterIssues } from "../src/cluster/clusterEngine.js";
 import { checkProject } from "../src/index.js";
@@ -14,11 +14,33 @@ import { isCheckResponse } from "../src/schema.js";
 const clients: Client[] = [];
 const tempDirs: string[] = [];
 
+async function cleanupFixtureCaches(): Promise<void> {
+  await rm(resolve("test/fixtures/fresh-install-project/.signalint"), {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+  }).catch(() => {});
+  await rm(resolve("test/fixtures/config-project/.signalint"), {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+  }).catch(() => {});
+}
+
+beforeAll(async () => {
+  await cleanupFixtureCaches();
+});
+
 afterEach(async () => {
   await Promise.all(clients.map((client) => client.close()));
   clients.length = 0;
-  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
+  await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true, maxRetries: 5 })));
   tempDirs.length = 0;
+  await cleanupFixtureCaches();
+});
+
+afterAll(async () => {
+  await cleanupFixtureCaches();
 });
 
 describe("Phase 0 acceptance tests (wrong project and safety nets)", () => {
@@ -42,10 +64,10 @@ describe("Phase 0 acceptance tests (wrong project and safety nets)", () => {
     expect(response.status).toBe("error");
     expect(response.code).toBe("nothing_checked");
     expect(response.message).toBe("No paths were checked; nothing can be reported clean.");
-    expect(response.engines.oxlint.status).toBe("disabled");
-    expect(response.engines.tsc.status).toBe("disabled");
-    expect(response.engines.biome.status).toBe("disabled");
-    expect(response.engines.eslint.status).toBe("disabled");
+    expect(response.engines.oxlint?.status).toBe("disabled");
+    expect(response.engines.tsc?.status).toBe("disabled");
+    expect(response.engines.biome).toBeUndefined();
+    expect(response.engines.eslint).toBeUndefined();
   });
 
   it("3. Stdio integration: server started with cwd = fixtureProjectA returns projectRoot === realpath(fixtureProjectA)", async () => {

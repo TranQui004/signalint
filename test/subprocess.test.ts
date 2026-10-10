@@ -1,11 +1,13 @@
 import { spawn } from "node:child_process";
-import { mkdir, readFile, rm } from "node:fs/promises";
+import { mkdtempSync } from "node:fs";
+import { readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createServer } from "../src/index.js";
 import {
@@ -25,7 +27,7 @@ interface TaskkillResult {
 }
 
 const fixturePath = resolve("test/fixtures/hanging-process.cjs");
-const pidDirectory = resolve(".signalint/test");
+const pidDirectory = mkdtempSync(resolve(tmpdir(), "signalint-test-subprocess-"));
 const timeoutPidPath = resolve(pidDirectory, "timeout-pids.json");
 const disconnectPidPath = resolve(pidDirectory, "disconnect-pids.json");
 const permissionPidPath = resolve(pidDirectory, "taskkill-permission-pids.json");
@@ -34,8 +36,11 @@ const clients: Client[] = [];
 const servers: Server[] = [];
 let taskkillPermissionDenied = false;
 
+afterAll(async () => {
+  await rm(pidDirectory, { force: true, recursive: true });
+});
+
 beforeAll(async () => {
-  await mkdir(pidDirectory, { recursive: true });
   if (process.platform !== "win32") {
     return;
   }

@@ -40,6 +40,7 @@ describe("signalint init", () => {
       engines: { oxlint: false, tsc: true, biome: true, eslint: false },
       ignore: ["node_modules/**", "dist/**", ".signalint/**"],
       timeoutsMs: { oxlint: 30_000, tsc: 60_000, biome: 30_000, eslint: 30_000 },
+      mcpPayload: "both",
     });
     expect(output.join("")).toContain("Detected project tooling: tsconfig.json, biome.json.");
     expect(output.join("")).toContain("Claude Code");
@@ -62,6 +63,27 @@ describe("signalint init", () => {
 
     const config = await readJson(join(root, "signalint.config.json"));
     expect(config.engines).toEqual({ oxlint: true, tsc: false, biome: false, eslint: false });
+  });
+
+  it("warns when no linter is available during init", async () => {
+    const root = await createTemporaryProject();
+    const engineResolution = await import("../src/engineResolution.js");
+    const spy = vi.spyOn(engineResolution, "resolveEngine").mockReturnValue(undefined);
+    const output: string[] = [];
+
+    try {
+      await runInitCommand({
+        cwd: root,
+        homeDir: root,
+        interactive: false,
+        platform: "linux",
+        writeOutput: (msg) => output.push(msg),
+      });
+
+      expect(output.join("")).toContain("No linter available. Run 'npm i -D oxlint'");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it("asks which client when multiple configs are present and preserves other servers", async () => {

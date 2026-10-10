@@ -16,6 +16,7 @@ import {
   type BiomeEngineConfig,
   type SignalintConfig,
 } from "./config.js";
+import { resolveEngine } from "./engineResolution.js";
 import { isRecord } from "./util/index.js";
 
 export type McpClientName = string;
@@ -102,6 +103,7 @@ export function createDetectedConfig(detection: ProjectToolDetection): Signalint
     },
     ignore: [...DEFAULT_CONFIG.ignore],
     timeoutsMs: { ...DEFAULT_CONFIG.timeoutsMs },
+    mcpPayload: DEFAULT_CONFIG.mcpPayload,
   };
 }
 
@@ -156,6 +158,24 @@ export async function runInitCommand(options: InitCommandOptions = {}): Promise<
   const configCreated = await writeConfigIfMissing(configPath, detectedConfig);
   const effectiveConfig = configCreated ? detectedConfig : await loadSignalintConfig(cwd);
   writeOutput(formatDetectionSummary(detection, effectiveConfig, configCreated));
+
+  const hasAvailableLinter = Boolean(
+    resolveEngine("oxlint", cwd) ??
+    resolveEngine("biome", cwd) ??
+    resolveEngine("eslint", cwd),
+  );
+  if (!hasAvailableLinter) {
+    writeOutput(
+      `\n[WARNING] No linter available. Run 'npm i -D oxlint' to install the fallback linter, or point Signalint at the project's ESLint/Biome.\n\n`,
+    );
+  }
+
+  const hasTsc = Boolean(resolveEngine("tsc", cwd));
+  if (!hasTsc && detection.tsconfig) {
+    writeOutput(
+      `\n[WARNING] TypeScript is not installed. Run 'npm i -D typescript' to enable type-checking.\n\n`,
+    );
+  }
 
   const interactive = options.interactive ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
   await ensureGitignore(cwd, options.prompts, interactive, writeOutput);

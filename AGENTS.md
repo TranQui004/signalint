@@ -5,7 +5,6 @@ contributors and coding agents alike.
 
 Start with [ARCHITECTURE.md](ARCHITECTURE.md) for how the system fits together,
 and [CONTRIBUTING.md](CONTRIBUTING.md) for setup and the pull request process.
-You do not need to read the historical build plan to make a correct change.
 
 ## Coding standards
 
@@ -62,9 +61,10 @@ No new runtime dependency may be added without first checking: (a) does the
 standard library or an already-installed package cover this? (b) is the package
 actively maintained? If unsure, ask a maintainer before installing.
 
-The dependency set is deliberately small and pinned. `better-sqlite3` is a native
-module bound to the Node ABI, so changes near it need testing on every supported
-Node line.
+The dependency set is deliberately small and pinned (currently only
+`@modelcontextprotocol/sdk` and `zod`). The cache layer uses built-in
+`node:sqlite` (`DatabaseSync`), requiring Node >=22.12.0 without native C++
+compilation or external database drivers.
 
 ## When to stop and ask
 

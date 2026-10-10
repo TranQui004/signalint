@@ -235,6 +235,91 @@ describe("signalint doctor", () => {
     const code = await runCli(["doctor"], root, homeDir);
     expect(code).toBe(0);
   });
+
+  it("warns when no linter is available", async () => {
+    const root = await createTemporaryProject();
+    const homeDir = await createTemporaryProject();
+    await writeFile(join(root, "signalint.config.json"), "{}\n", "utf8");
+    await writeFile(join(root, "package.json"), '{"name":"test"}\n', "utf8");
+
+    const output: string[] = [];
+    const code = await runDoctorCommand({
+      cwd: root,
+      homeDir,
+      inspectEngines: async () => [
+        { name: "oxlint", source: "not_installed", version: undefined },
+        { name: "tsc", source: "bundled", version: "7.0.2" },
+        { name: "biome", source: "not_installed", version: undefined },
+        { name: "eslint", source: "not_installed", version: undefined },
+      ],
+      writeOutput: (msg) => output.push(msg),
+    });
+
+    expect(code).toBe(0);
+    const combined = output.join("");
+    expect(combined).toContain("No linter available");
+    expect(combined).toContain("Run 'npm i -D oxlint'");
+  });
+
+  it("warns when TypeScript is not installed", async () => {
+    const root = await createTemporaryProject();
+    const homeDir = await createTemporaryProject();
+    await writeFile(join(root, "signalint.config.json"), "{}\n", "utf8");
+    await writeFile(join(root, "package.json"), '{"name":"test"}\n', "utf8");
+
+    const output: string[] = [];
+    const code = await runDoctorCommand({
+      cwd: root,
+      homeDir,
+      inspectEngines: async () => [
+        { name: "oxlint", source: "bundled", version: "1.86.0" },
+        { name: "tsc", source: "not_installed", version: undefined },
+        { name: "biome", source: "not_installed", version: undefined },
+        { name: "eslint", source: "not_installed", version: undefined },
+      ],
+      writeOutput: (msg) => output.push(msg),
+    });
+
+    expect(code).toBe(0);
+    const combined = output.join("");
+    expect(combined).toContain("TypeScript is not installed");
+    expect(combined).toContain("Run 'npm i -D typescript'");
+  });
+
+  it("reports active MCP payload mode from config and env override", async () => {
+    const root = await createTemporaryProject();
+    const homeDir = await createTemporaryProject();
+    await writeFile(join(root, "signalint.config.json"), '{"mcpPayload":"text"}\n', "utf8");
+    await writeFile(join(root, "package.json"), '{"name":"test"}\n', "utf8");
+
+    // 1. Without env var, uses config value "text"
+    const output1: string[] = [];
+    await runDoctorCommand({
+      cwd: root,
+      homeDir,
+      writeOutput: (msg) => output1.push(msg),
+    });
+    expect(output1.join("")).toContain("MCP payload mode: text");
+
+    // 2. With env var, env overrides config
+    const origEnv = process.env.SIGNALINT_MCP_PAYLOAD;
+    try {
+      process.env.SIGNALINT_MCP_PAYLOAD = "structured";
+      const output2: string[] = [];
+      await runDoctorCommand({
+        cwd: root,
+        homeDir,
+        writeOutput: (msg) => output2.push(msg),
+      });
+      expect(output2.join("")).toContain("MCP payload mode: structured");
+    } finally {
+      if (origEnv !== undefined) {
+        process.env.SIGNALINT_MCP_PAYLOAD = origEnv;
+      } else {
+        delete process.env.SIGNALINT_MCP_PAYLOAD;
+      }
+    }
+  });
 });
 
 async function createTemporaryProject(): Promise<string> {

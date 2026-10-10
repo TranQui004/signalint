@@ -92,7 +92,10 @@ export class SessionMemory {
 
   /** Creates diagnostic memory restored from valid entries in its append-only session log. */
   public constructor(options: SessionMemoryOptions = {}) {
-    this.logPath = options.logPath ?? resolve(process.cwd(), ".signalint", "session.jsonl");
+    const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+    this.logPath = options.logPath ?? (stateDir && stateDir !== ""
+      ? resolve(stateDir, "session.jsonl")
+      : resolve(process.cwd(), ".signalint", "session.jsonl"));
     this.maxLogBytes = options.maxLogBytes ?? DEFAULT_SESSION_LOG_MAX_BYTES;
     this.maxReplayEntries = options.maxReplayEntries ?? DEFAULT_SESSION_REPLAY_LIMIT;
     assertPositiveInteger(this.maxLogBytes, "maxLogBytes");
@@ -139,10 +142,13 @@ export class SessionMemory {
       }
 
       const status = this.getStatus();
+      const loop = status.signatures[0];
+      const churn = status.fileRuleChurns[0];
+      const { loopWarning: _lw, fileRuleChurnWarning: _cw, ...baseResponse } = response;
       const responseWithWarning: CheckResponse = {
-        ...response,
-        loopWarning: status.signatures[0] ?? null,
-        fileRuleChurnWarning: status.fileRuleChurns[0] ?? null,
+        ...baseResponse,
+        ...(loop !== undefined ? { loopWarning: loop } : {}),
+        ...(churn !== undefined ? { fileRuleChurnWarning: churn } : {}),
       };
       await this.appendLog({
         timestamp,

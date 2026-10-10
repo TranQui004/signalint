@@ -39,3 +39,14 @@ export function readString(
   const value = record[key];
   return typeof value === "string" ? value : fallback;
 }
+
+/** Returns whether a project-relative file path matches or resides within any candidate path. */
+export function isPathMatching(file: string, candidatePaths: readonly string[]): boolean {
+  return candidatePaths.some((candidate) => {
+    if (candidate === "." || candidate === "") {
+      return true;
+    }
+    const normalized = candidate.replaceAll("\\", "/").replace(/\/+$/, "");
+    return file === normalized || file.startsWith(`${normalized}/`);
+  });
+}

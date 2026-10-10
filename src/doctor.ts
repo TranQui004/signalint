@@ -4,19 +4,21 @@ import { homedir } from "node:os";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { CLIENT_REGISTRY, getLegacyAntigravityConfigPath, type McpClientSpec } from "./clients/registry.js";
+import { loadSignalintConfig, resolveMcpPayloadMode, type SignalintConfig } from "./config.js";
 import { canonicalizePath, readCanonicalProjectRoot } from "./projectPaths.js";
 import { isRecord } from "./util/index.js";
+
+export interface EngineInfo {
+  name: string;
+  source: "project" | "bundled" | "not_installed";
+  version: string | undefined;
+}
 
 export interface DoctorOptions {
   cwd?: string | undefined;
   homeDir?: string | undefined;
+  inspectEngines?: ((projectRoot: string) => Promise<EngineInfo[]>) | undefined;
   writeOutput?: ((message: string) => void) | undefined;
-}
-
-interface EngineInfo {
-  name: string;
-  source: "project" | "bundled" | "not_installed";
-  version: string | undefined;
 }
 
 interface StaleCwdFinding {
@@ -47,13 +49,22 @@ export async function runDoctorCommand(options: DoctorOptions = {}): Promise<num
 
   // 1. Check signalint.config.json
   const hasConfigFile = await pathExists(resolve(projectRoot, "signalint.config.json"));
+  let config: SignalintConfig | undefined;
   if (hasConfigFile) {
     writeOutput(`[OK] Configuration: signalint.config.json found.\n`);
+    try {
+      config = await loadSignalintConfig(projectRoot);
+    } catch {
+      // Preserve any config parse errors for other diagnostics
+    }
   } else {
     hasBlockingProblem = true;
     writeOutput(`[ERROR] Configuration: signalint.config.json is missing in ${projectRoot}.\n`);
     writeOutput(`  Fix: Run 'npx signalint-mcp init' in ${projectRoot} before running checks.\n`);
   }
+
+  const payloadMode = resolveMcpPayloadMode(config?.mcpPayload);
+  writeOutput(`MCP payload mode: ${payloadMode}\n`);
 
   // 2. Check project markers
   const isJsProject = await hasJsProjectMarkers(projectRoot);
@@ -67,13 +78,31 @@ export async function runDoctorCommand(options: DoctorOptions = {}): Promise<num
 
   // 3. Check engines
   writeOutput(`\nDiagnostics engines:\n`);
-  const engines = await inspectEngines(projectRoot);
+  const engines = await (options.inspectEngines ?? inspectEngines)(projectRoot);
   for (const engine of engines) {
     if (engine.source === "not_installed") {
       writeOutput(`  - ${engine.name}: not installed\n`);
     } else {
       writeOutput(`  - ${engine.name}: ${engine.source} copy (${engine.version ?? "unknown version"})\n`);
     }
+  }
+
+  const hasAvailableLinter = engines.some(
+    (e) => (e.name === "oxlint" || e.name === "biome" || e.name === "eslint") && e.source !== "not_installed",
+  );
+  if (!hasAvailableLinter) {
+    writeOutput(
+      `\n[WARNING] No linter available.\n` +
+      `  Fix: Run 'npm i -D oxlint' to install the fallback linter, or point Signalint at the project's ESLint/Biome.\n`,
+    );
+  }
+
+  const tscEngine = engines.find((e) => e.name === "tsc");
+  if (tscEngine !== undefined && tscEngine.source === "not_installed") {
+    writeOutput(
+      `\n[WARNING] TypeScript is not installed.\n` +
+      `  Fix: Run 'npm i -D typescript' to enable type-checking.\n`,
+    );
   }
 
   // 4. Check MCP clients
@@ -128,6 +157,7 @@ async function inspectEngines(projectRoot: string): Promise<EngineInfo[]> {
     await inspectEngine("oxlint", "oxlint/package.json", projectRoot),
     await inspectEngine("tsc", "typescript/package.json", projectRoot),
     await inspectEngine("biome", "@biomejs/biome/package.json", projectRoot),
+    await inspectEngine("eslint", "eslint/package.json", projectRoot),
   ];
 }
 

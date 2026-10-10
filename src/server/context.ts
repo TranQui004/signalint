@@ -4,6 +4,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 
 import type { IssueProviderResult } from "../check/checkProject.js";
 import { filterDefaultExcludedIssues } from "../check/exclusions.js";
+import type { McpPayloadMode } from "../config.js";
+import { resolveMcpPayloadMode } from "../config.js";
 import { SessionMemory } from "../memory/sessionMemory.js";
 import { resolveProjectPaths } from "../projectPaths.js";
 import {
@@ -12,6 +14,10 @@ import {
 } from "../schema.js";
 import { isRecord } from "../util/index.js";
 import { createTextResult } from "./errors.js";
+
+import { DiagnosticBuffer } from "../diagnostics/buffer.js";
+import { SnapshotStore } from "../diagnostics/snapshots.js";
+import { TransactionManager } from "../transactions/manager.js";
 
 export type IssueProvider = (
   paths: readonly string[],
@@ -26,10 +32,12 @@ export type TestIssueProvider = (
 export interface ToolHandlerContext {
   cwd: string;
   fileIssueProvider: IssueProvider;
-  latestIssues: NormalizedIssue[];
-  latestCheckId?: string | undefined;
   projectIssueProvider: IssueProvider;
   sessionMemory: SessionMemory;
+  payloadMode: McpPayloadMode;
+  snapshotStore: SnapshotStore;
+  diagnosticBuffer?: DiagnosticBuffer;
+  transactionManager?: TransactionManager;
 }
 
 /** Resolves tool paths to relative paths safe within the project root. */
@@ -59,7 +67,10 @@ export function wrapIssueProvider(
 }
 
 /** Verifies that a project is initialized and has JS/TS markers before checking it. */
-export async function checkProjectSafety(projectRoot: string): Promise<CallToolResult | undefined> {
+export async function checkProjectSafety(
+  projectRoot: string,
+  mode: McpPayloadMode = resolveMcpPayloadMode(),
+): Promise<CallToolResult | undefined> {
   let hasConfigFile = false;
   try {
     await stat(resolve(projectRoot, "signalint.config.json"));
@@ -70,12 +81,15 @@ export async function checkProjectSafety(projectRoot: string): Promise<CallToolR
 
   if (!hasConfigFile && process.env.SIGNALINT_ALLOW_UNINITIALIZED !== "1") {
     return {
-      ...createTextResult({
-        status: "error",
-        code: "project_not_initialized",
-        message: `Run 'npx signalint-mcp init' in ${projectRoot} before checking it.`,
-        projectRoot,
-      }),
+      ...createTextResult(
+        {
+          status: "error",
+          code: "project_not_initialized",
+          message: `Run 'npx signalint-mcp init' in ${projectRoot} before checking it.`,
+          projectRoot,
+        },
+        mode,
+      ),
       isError: true,
     };
   }
@@ -83,12 +97,15 @@ export async function checkProjectSafety(projectRoot: string): Promise<CallToolR
   const isJs = await hasJsProjectMarkers(projectRoot);
   if (!isJs) {
     return {
-      ...createTextResult({
-        status: "error",
-        code: "not_a_js_project",
-        message: `No JavaScript or TypeScript project markers found in ${projectRoot}.`,
-        projectRoot,
-      }),
+      ...createTextResult(
+        {
+          status: "error",
+          code: "not_a_js_project",
+          message: `No JavaScript or TypeScript project markers found in ${projectRoot}.`,
+          projectRoot,
+        },
+        mode,
+      ),
       isError: true,
     };
   }

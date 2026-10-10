@@ -3,16 +3,19 @@
 import { resolve } from "node:path";
 
 import { runDoctorCommand } from "./doctor.js";
-import { runInitCommand } from "./init.js";
-import { checkProjectWithIssues } from "./index.js";
+import { runInitCommandSafely } from "./init.js";
+import { checkProjectWithIssues } from "./check/checkProject.js";
 import { isMainModule } from "./mainModule.js";
-import type { CheckResponse, NormalizedIssue } from "./schema.js";
+import type { CheckResponse, NormalizedIssue, RemainingIssue } from "./schema.js";
 import { formatSessionStats, readSessionStats } from "./memory/stats.js";
+import { resolveSignalintVersion } from "./version.js";
+import { runHooksCommand } from "./hooks/launcher.js";
 
 const CHECK_USAGE =
-  "Usage: signalint check [path ...] [--format json|github] [--fail-on-priority <N>]\n";
+  "Usage: signalint check [path ...] [--format json|github] [--compact] [--fail-on-priority <N>]\n";
 
 interface ParsedCheckArgs {
+  compact: boolean;
   failOnPriority: number | undefined;
   format: "json" | "github";
   paths: string[];
@@ -25,8 +28,15 @@ export async function runCli(
   homeDir?: string,
 ): Promise<number> {
   const [command, ...rest] = args;
-  if (command === "--help" || command === "-h" || command === undefined) {
-    process.stdout.write("Usage: signalint <init | check [path ...] | stats | doctor>\n");
+  if (command === "--help" || command === "-h" || command === "help" || command === undefined) {
+    process.stdout.write(
+      "Usage: signalint <init | check [path ...] | stats [--json] | doctor>\n" +
+      "       signalint hooks <run|install|preview> [options]\n",
+    );
+    return 0;
+  }
+  if (command === "--version" || command === "-v") {
+    process.stdout.write(`${resolveSignalintVersion()}\n`);
     return 0;
   }
   if (command === "init") {
@@ -34,17 +44,10 @@ export async function runCli(
       process.stderr.write("Usage: signalint init\n");
       return 2;
     }
-    return await runInitCommand({ cwd, homeDir });
+    return await runInitCommandSafely({ cwd, homeDir });
   }
   if (command === "stats") {
-    if (rest.length > 0) {
-      process.stderr.write("Usage: signalint stats\n");
-      return 2;
-    }
-    process.stdout.write(
-      `${formatSessionStats(await readSessionStats(resolve(cwd, ".signalint", "session.jsonl")))}\n`,
-    );
-    return 0;
+    return await runStatsCommand(rest, cwd);
   }
   if (command === "doctor") {
     if (rest.length > 0) {
@@ -53,14 +56,45 @@ export async function runCli(
     }
     return await runDoctorCommand({ cwd, homeDir });
   }
+  if (command === "hooks") {
+    return await runHooksCommand(rest, cwd);
+  }
   if (command !== "check") {
     process.stderr.write(
-      `Unknown command: ${command}\nUsage: signalint <init | check [path ...] | stats | doctor>\n`,
+      `Unknown command: ${command}\n` +
+      "Usage: signalint <init | check [path ...] | stats [--json] | doctor>\n" +
+      "       signalint hooks <run|install|preview> [options]\n",
     );
     return 2;
   }
 
-  const parsed = parseCheckArgs(rest);
+  return await runCheckCommand(rest, cwd);
+}
+
+/** Handles the stats CLI subcommand given trailing arguments and working directory. */
+async function runStatsCommand(args: readonly string[], cwd: string): Promise<number> {
+  const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+  const logPath = stateDir && stateDir !== ""
+    ? resolve(stateDir, "session.jsonl")
+    : resolve(cwd, ".signalint", "session.jsonl");
+  if (args.length === 1 && args[0] === "--json") {
+    const stats = await readSessionStats(logPath);
+    process.stdout.write(`${JSON.stringify(stats, null, 2)}\n`);
+    return 0;
+  }
+  if (args.length > 0) {
+    process.stderr.write("Usage: signalint stats [--json]\n");
+    return 2;
+  }
+  process.stdout.write(
+    `${formatSessionStats(await readSessionStats(logPath))}\n`,
+  );
+  return 0;
+}
+
+/** Handles the check CLI subcommand given trailing arguments and working directory. */
+async function runCheckCommand(args: readonly string[], cwd: string): Promise<number> {
+  const parsed = parseCheckArgs(args);
   if (parsed === undefined) {
     process.stderr.write(CHECK_USAGE);
     return 2;
@@ -69,6 +103,7 @@ export async function runCli(
   const { issues, response } = await checkProjectWithIssues(
     parsed.paths.length === 0 ? ["."] : parsed.paths,
     cwd,
+    { compact: parsed.compact },
   );
   writeCheckOutput(parsed.format, issues, response);
   return shouldFailCheck(response, parsed.failOnPriority) ? 1 : 0;
@@ -79,9 +114,14 @@ function parseCheckArgs(args: readonly string[]): ParsedCheckArgs | undefined {
   const paths: string[] = [];
   let format: "json" | "github" = "json";
   let failOnPriority: number | undefined;
+  let compact = process.env.SIGNALINT_COMPACT === "1";
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
+    if (arg === "--compact") {
+      compact = true;
+      continue;
+    }
     if (arg === "--format") {
       const value = args[index + 1];
       if (value !== "json" && value !== "github") {
@@ -105,7 +145,7 @@ function parseCheckArgs(args: readonly string[]): ParsedCheckArgs | undefined {
     }
   }
 
-  return { failOnPriority, format, paths };
+  return { compact, failOnPriority, format, paths };
 }
 
 /** Writes either the default JSON response or GitHub Actions annotations for each issue. */
@@ -144,7 +184,16 @@ function shouldFailCheck(response: CheckResponse, failOnPriority: number | undef
   if (failOnPriority === undefined) {
     return response.status !== "clean";
   }
-  return response.clusters.some((cluster) => cluster.priority <= failOnPriority);
+  const clusterFailed = response.clusters.some((cluster) => cluster.priority <= failOnPriority);
+  const remainingIssues =
+    response.remainingIssues ??
+    (response as unknown as { remaining?: RemainingIssue[] }).remaining ??
+    [];
+  const remainingFailed = remainingIssues.some((issue) => {
+    const priority = issue.priority ?? (issue.severity === "error" ? (issue.fixable ? 3 : 2) : (issue.fixable ? 5 : 4));
+    return priority <= failOnPriority;
+  });
+  return clusterFailed || remainingFailed;
 }
 
 /** Runs the CLI with a concise stderr failure instead of an uncaught Node stack dump. */

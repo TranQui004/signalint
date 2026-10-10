@@ -2,7 +2,7 @@
 
 ## Development setup
 
-Install Node.js 20.19 or later in the Node 20 line, or Node.js 22.12 or later,
+Install Node.js 22.13.0 or later (required by pnpm 11.9.0; the package runtime requires Node.js 22.12.0 or later for `node:sqlite`),
 and pnpm 11.9.0. Then clone the repository and install the locked dependencies:
 
 ```sh
@@ -41,7 +41,6 @@ A pull request can merge only after these GitHub Actions checks pass:
 - `Test (windows-latest)`
 - `Test (ubuntu-latest)`
 - `Test (macos-latest)`
-- `Test (ubuntu-node-20.19)`
 
 Direct pushes and force-pushes to `main` are blocked, including for administrators.
 Do not bypass or disable the checks to merge a change.
@@ -77,10 +76,10 @@ git switch main
 git pull
 # bump version in package.json and server.json, move CHANGELOG "Unreleased"
 # entries into a versioned section, update docs, then merge through a PR
-git commit -am "ci(release): 1.0.0"
+git commit -am "ci(release): X.Y.Z"
 # after that PR is merged and main is updated:
-git tag v1.0.0
-git push origin v1.0.0
+git tag vX.Y.Z
+git push origin vX.Y.Z
 ```
 
 Remember to bump `version` and `packages[0].version` in `server.json` together
@@ -112,5 +111,4 @@ Read [AGENTS.md](AGENTS.md) before changing code. It defines the TypeScript,
 testing, dependency, schema, and trust-boundary standards used by this repository.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes how the layers fit together and what
-each module is responsible for. For the historical design rationale and the
-pre-launch audit trail, see [docs/history/](docs/history/).
+each module is responsible for.

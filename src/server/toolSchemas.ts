@@ -1,9 +1,18 @@
+import type { McpPayloadMode } from "../config.js";
 import type { StaleReferenceResponse } from "../schema.js";
 
 export const STALE_REFERENCE_RESPONSE: StaleReferenceResponse = {
   status: "stale",
   message: "This cluster/issue no longer exists; run check_project again.",
 };
+
+/** Resolves the output schema for an MCP tool, returning undefined when the mode suppresses structured content. */
+export function resolveToolOutputSchema(
+  schema: Record<string, unknown>,
+  mode: McpPayloadMode = "both",
+): Record<string, unknown> | undefined {
+  return mode === "text" ? undefined : schema;
+}
 
 export const engineStatusOutputSchema = {
   type: "object" as const,
@@ -43,8 +52,33 @@ export const clusterOutputSchema = {
     "issueCount",
     "fileCount",
     "priority",
-    "suggestedAction",
-    "sampleIssueIds",
+  ],
+  additionalProperties: false,
+};
+
+export const remainingIssueOutputSchema = {
+  type: "object" as const,
+  properties: {
+    issueId: { type: "string" as const },
+    file: { type: "string" as const },
+    line: { type: "integer" as const },
+    col: { type: "integer" as const },
+    rule: { type: "string" as const },
+    severity: {
+      type: "string" as const,
+      enum: ["error", "warning"] as const,
+    },
+    fixable: { type: "boolean" as const },
+    priority: { type: "integer" as const },
+  },
+  required: [
+    "issueId",
+    "file",
+    "line",
+    "col",
+    "rule",
+    "severity",
+    "fixable",
   ],
   additionalProperties: false,
 };
@@ -91,10 +125,10 @@ export const pingOutputSchema = {
 export const checkOutputSchema = {
   type: "object" as const,
   properties: {
-    schemaVersion: { type: "string" as const, enum: ["1.3"] as const },
+    schemaVersion: { type: "string" as const, enum: ["1.3", "1.4"] as const },
     status: {
       type: "string" as const,
-      enum: ["clean", "issues_found", "error"] as const,
+      enum: ["clean", "issues_found", "error", "stale"] as const,
     },
     projectRoot: { type: "string" as const },
     engines: {
@@ -104,8 +138,9 @@ export const checkOutputSchema = {
         tsc: engineStatusOutputSchema,
         biome: engineStatusOutputSchema,
         eslint: engineStatusOutputSchema,
+        "external-lsp": engineStatusOutputSchema,
+        vscode: engineStatusOutputSchema,
       },
-      required: ["oxlint", "tsc", "biome", "eslint"],
       additionalProperties: false,
     },
     totalIssues: { type: "integer" as const },
@@ -113,6 +148,15 @@ export const checkOutputSchema = {
       type: "array" as const,
       items: clusterOutputSchema,
     },
+    remainingIssues: {
+      type: "array" as const,
+      items: remainingIssueOutputSchema,
+    },
+    omittedIssueCount: { type: "integer" as const },
+    filteredOutIssueCount: { type: "integer" as const },
+    filteredOutCount: { type: "integer" as const },
+    filteredOut: { type: "integer" as const },
+    nextStep: { type: "string" as const },
     truncated: { type: "boolean" as const },
     loopWarning: {
       oneOf: [
@@ -128,13 +172,48 @@ export const checkOutputSchema = {
     },
     engine: {
       type: "string" as const,
-      enum: ["oxlint", "tsc", "biome", "eslint"] as const,
+      enum: [
+        "oxlint",
+        "tsc",
+        "biome",
+        "eslint",
+        "external-lsp",
+        "vscode",
+        "all",
+      ] as const,
     },
+    retryable: { type: "boolean" as const },
     checkId: { type: "string" as const },
     code: { type: "string" as const },
     message: { type: "string" as const },
   },
   required: ["status"],
+  additionalProperties: false,
+};
+
+export const diagnosticSourceOutputSchema = {
+  type: "object" as const,
+  properties: {
+    kind: {
+      type: "string" as const,
+      enum: ["compiler", "linter", "lsp", "editor"] as const,
+    },
+    engine: {
+      type: "string" as const,
+      enum: [
+        "oxlint",
+        "tsc",
+        "biome",
+        "eslint",
+        "external-lsp",
+        "vscode",
+      ] as const,
+    },
+    serverName: { type: "string" as const },
+    timestamp: { type: "integer" as const },
+  },
+  required: ["kind", "engine", "timestamp"],
+  additionalProperties: false,
 };
 
 export const normalizedIssueOutputSchema = {
@@ -146,7 +225,14 @@ export const normalizedIssueOutputSchema = {
     col: { type: "integer" as const },
     engine: {
       type: "string" as const,
-      enum: ["oxlint", "tsc", "biome", "eslint"] as const,
+      enum: [
+        "oxlint",
+        "tsc",
+        "biome",
+        "eslint",
+        "external-lsp",
+        "vscode",
+      ] as const,
     },
     rule: { type: "string" as const },
     severity: {
@@ -156,6 +242,12 @@ export const normalizedIssueOutputSchema = {
     message: { type: "string" as const },
     fixable: { type: "boolean" as const },
     clusterId: { type: "string" as const },
+    serverName: { type: "string" as const },
+    sourceKind: {
+      type: "string" as const,
+      enum: ["compiler", "linter", "lsp", "editor"] as const,
+    },
+    provenance: diagnosticSourceOutputSchema,
   },
   required: [
     "issueId",
@@ -184,7 +276,9 @@ export const getIssueDetailOutputSchema = {
     },
     code: { type: "string" as const },
     message: { type: "string" as const },
+    projectRoot: { type: "string" as const },
   },
+  additionalProperties: false,
 };
 
 export const getLoopStatusOutputSchema = {
@@ -205,10 +299,330 @@ export const getLoopStatusOutputSchema = {
   additionalProperties: false,
 };
 
-/** Hints applied uniformly to every tool: local-only reads, no external writes or network. */
+export const diagnosticDeltaOutputSchema = {
+  type: "object" as const,
+  properties: {
+    status: { type: "string" as const },
+    baselineId: { type: "string" as const },
+    currentId: { type: "string" as const },
+    baselineCheckId: { type: "string" as const },
+    currentCheckId: { type: "string" as const },
+    errorsIntroduced: { type: "integer" as const },
+    errorsResolved: { type: "integer" as const },
+    netDelta: { type: "integer" as const },
+    introducedIssues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+    resolvedIssues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+    unchangedIssues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+    nextStep: { type: "string" as const },
+    code: { type: "string" as const },
+    message: { type: "string" as const },
+  },
+  additionalProperties: false,
+};
+
+export const getDiagnosticSnapshotOutputSchema = {
+  type: "object" as const,
+  properties: {
+    status: {
+      type: "string" as const,
+      enum: ["clean", "issues_found", "error", "stale"] as const,
+    },
+    checkId: { type: "string" as const },
+    projectRoot: { type: "string" as const },
+    timestamp: { type: "integer" as const },
+    source: {
+      type: "string" as const,
+      enum: ["project", "files", "lsp"] as const,
+    },
+    durationMs: { type: "number" as const },
+    engines: {
+      type: "object" as const,
+      properties: {
+        oxlint: engineStatusOutputSchema,
+        tsc: engineStatusOutputSchema,
+        biome: engineStatusOutputSchema,
+        eslint: engineStatusOutputSchema,
+        "external-lsp": engineStatusOutputSchema,
+        vscode: engineStatusOutputSchema,
+      },
+      additionalProperties: false,
+    },
+    totalIssues: { type: "integer" as const },
+    clusters: {
+      type: "array" as const,
+      items: clusterOutputSchema,
+    },
+    remainingIssues: {
+      type: "array" as const,
+      items: remainingIssueOutputSchema,
+    },
+    omittedIssueCount: { type: "integer" as const },
+    filteredOutIssueCount: { type: "integer" as const },
+    cache: {
+      type: "object" as const,
+      properties: {
+        hits: { type: "integer" as const },
+        misses: { type: "integer" as const },
+      },
+      required: ["hits", "misses"],
+      additionalProperties: false,
+    },
+    code: { type: "string" as const },
+    message: { type: "string" as const },
+  },
+  required: ["status"],
+  additionalProperties: false,
+};
+
+export const compareDiagnosticsOutputSchema = {
+  type: "object" as const,
+  properties: {
+    status: {
+      type: "string" as const,
+      enum: ["ok", "stale", "error"] as const,
+    },
+    baselineId: { type: "string" as const },
+    currentId: { type: "string" as const },
+    baselineCheckId: { type: "string" as const },
+    currentCheckId: { type: "string" as const },
+    errorsIntroduced: { type: "integer" as const },
+    errorsResolved: { type: "integer" as const },
+    netDelta: { type: "integer" as const },
+    introducedIssues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+    resolvedIssues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+    unchangedIssues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+    nextStep: { type: "string" as const },
+    code: { type: "string" as const },
+    message: { type: "string" as const },
+  },
+  required: ["status"],
+  additionalProperties: false,
+};
+
+export const afterEditCheckOutputSchema = {
+  type: "object" as const,
+  properties: {
+    schemaVersion: { type: "string" as const, enum: ["1.3", "1.4"] as const },
+    status: {
+      type: "string" as const,
+      enum: ["clean", "issues_found", "error", "stale"] as const,
+    },
+    projectRoot: { type: "string" as const },
+    engines: {
+      type: "object" as const,
+      properties: {
+        oxlint: engineStatusOutputSchema,
+        tsc: engineStatusOutputSchema,
+        biome: engineStatusOutputSchema,
+        eslint: engineStatusOutputSchema,
+        "external-lsp": engineStatusOutputSchema,
+        vscode: engineStatusOutputSchema,
+      },
+      additionalProperties: false,
+    },
+    totalIssues: { type: "integer" as const },
+    clusters: {
+      type: "array" as const,
+      items: clusterOutputSchema,
+    },
+    remainingIssues: {
+      type: "array" as const,
+      items: remainingIssueOutputSchema,
+    },
+    omittedIssueCount: { type: "integer" as const },
+    filteredOutIssueCount: { type: "integer" as const },
+    filteredOutCount: { type: "integer" as const },
+    nextStep: { type: "string" as const },
+    truncated: { type: "boolean" as const },
+    loopWarning: {
+      anyOf: [
+        loopWarningOutputSchema,
+        { type: "null" as const },
+      ],
+    },
+    fileRuleChurnWarning: {
+      anyOf: [
+        fileRuleChurnWarningOutputSchema,
+        { type: "null" as const },
+      ],
+    },
+    engine: {
+      type: "string" as const,
+      enum: [
+        "oxlint",
+        "tsc",
+        "biome",
+        "eslint",
+        "external-lsp",
+        "vscode",
+        "all",
+      ] as const,
+    },
+    retryable: { type: "boolean" as const },
+    checkId: { type: "string" as const },
+    code: { type: "string" as const },
+    message: { type: "string" as const },
+    delta: diagnosticDeltaOutputSchema,
+  },
+  required: ["status"],
+  additionalProperties: false,
+};
+
+export const ingestDiagnosticsOutputSchema = {
+  type: "object" as const,
+  properties: {
+    snapshotId: { type: "string" as const },
+    checkId: { type: "string" as const },
+    totalIssues: { type: "integer" as const },
+    clusters: {
+      type: "array" as const,
+      items: clusterOutputSchema,
+    },
+    remainingIssues: {
+      type: "array" as const,
+      items: remainingIssueOutputSchema,
+    },
+  },
+  required: ["snapshotId", "totalIssues", "clusters"],
+  additionalProperties: false,
+};
+
+export const getLiveDiagnosticsOutputSchema = {
+  type: "object" as const,
+  properties: {
+    status: {
+      type: "string" as const,
+      enum: ["clean", "issues_found", "error"] as const,
+    },
+    totalIssues: { type: "integer" as const },
+    clusters: {
+      type: "array" as const,
+      items: clusterOutputSchema,
+    },
+    remainingIssues: {
+      type: "array" as const,
+      items: remainingIssueOutputSchema,
+    },
+    issues: {
+      type: "array" as const,
+      items: normalizedIssueOutputSchema,
+    },
+  },
+  required: ["status", "totalIssues", "clusters"],
+  additionalProperties: false,
+};
+
+export const patchPreviewItemOutputSchema = {
+  type: "object" as const,
+  properties: {
+    file: { type: "string" as const },
+    description: { type: "string" as const },
+    originalLength: { type: "integer" as const },
+    patchedLength: { type: "integer" as const },
+  },
+  required: ["file", "originalLength", "patchedLength"],
+  additionalProperties: false,
+};
+
+export const previewDiagnosticFixOutputSchema = {
+  type: "object" as const,
+  properties: {
+    transactionId: { type: "string" as const },
+    filesCount: { type: "integer" as const },
+    summary: { type: "string" as const },
+    patchesPreview: {
+      type: "array" as const,
+      items: patchPreviewItemOutputSchema,
+    },
+    status: {
+      type: "string" as const,
+      enum: ["prepared", "error"] as const,
+    },
+    error: { type: "string" as const },
+  },
+  required: ["transactionId", "filesCount", "summary", "status"],
+  additionalProperties: false,
+};
+
+export const applyDiagnosticFixOutputSchema = {
+  type: "object" as const,
+  properties: {
+    transactionId: { type: "string" as const },
+    status: {
+      type: "string" as const,
+      enum: ["success", "rolled_back", "error"] as const,
+    },
+    code: { type: "string" as const },
+    filesModified: {
+      type: "array" as const,
+      items: { type: "string" as const },
+    },
+    postCheckId: { type: "string" as const },
+    delta: diagnosticDeltaOutputSchema,
+    message: { type: "string" as const },
+    error: { type: "string" as const },
+  },
+  required: ["transactionId", "status", "filesModified"],
+  additionalProperties: false,
+};
+
+export const discardDiagnosticFixOutputSchema = {
+  type: "object" as const,
+  properties: {
+    transactionId: { type: "string" as const },
+    discarded: { type: "boolean" as const },
+  },
+  required: ["transactionId", "discarded"],
+  additionalProperties: false,
+};
+
+/** Hints applied uniformly to every read-only tool: local-only reads, no external writes or network. */
 export const TOOL_ANNOTATIONS = {
   readOnlyHint: true,
   destructiveHint: false,
   idempotentHint: true,
   openWorldHint: false,
 } as const;
+
+/** Hints for non-destructive in-memory preview tools. */
+export const PREVIEW_TOOL_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
+/** Hints for irreversible/modifying apply tools. */
+export const APPLY_TOOL_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: true,
+  idempotentHint: false,
+  openWorldHint: false,
+} as const;
+
+/** Hints for idempotent discard tools. */
+export const DISCARD_TOOL_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+

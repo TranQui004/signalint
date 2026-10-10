@@ -1,16 +1,22 @@
+import { mkdtempSync } from "node:fs";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, describe, expect, it, vi } from "vitest";
 
 import { runCli, runCliSafely } from "../src/cli.js";
 
-const fixtureRoot = resolve(".signalint/test/stats-cli");
+const fixtureRoot = mkdtempSync(resolve(tmpdir(), "signalint-test-stats-cli-"));
 const checkFixtureRoot = resolve("test/fixtures/cli-check-project");
+
+afterAll(async () => {
+  await rm(fixtureRoot, { force: true, recursive: true, maxRetries: 5 }).catch(() => {});
+});
 
 afterEach(async () => {
   vi.restoreAllMocks();
-  await rm(fixtureRoot, { force: true, recursive: true });
+  await rm(resolve(fixtureRoot, ".signalint"), { force: true, recursive: true, maxRetries: 5 }).catch(() => {});
 });
 
 describe("signalint stats CLI", () => {
@@ -48,6 +54,32 @@ describe("signalint stats CLI", () => {
     );
   });
 
+  it("reads the project session log and prints JSON aggregates when --json is passed", async () => {
+    const logPath = resolve(fixtureRoot, ".signalint", "session.jsonl");
+    await mkdir(resolve(fixtureRoot, ".signalint"), { recursive: true });
+    await writeFile(
+      logPath,
+      `${JSON.stringify({
+        loopWarnings: [],
+        metrics: {
+          rawPayloadBytes: 100,
+          clusteredPayloadBytes: 25,
+          cacheHits: 3,
+          cacheMisses: 1,
+          latencyMs: 40,
+        },
+      })}\n`,
+      "utf8",
+    );
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    await expect(runCli(["stats", "--json"], fixtureRoot)).resolves.toBe(0);
+    const printed = stdout.mock.calls[0]?.[0] as string;
+    const parsed = JSON.parse(printed) as { checks: number; averagePayloadReductionPercent: number };
+    expect(parsed.checks).toBe(1);
+    expect(parsed.averagePayloadReductionPercent).toBe(75);
+  });
+
   it("prints a concise stderr message for rejected check paths", async () => {
     await mkdir(fixtureRoot, { recursive: true });
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
@@ -57,6 +89,25 @@ describe("signalint stats CLI", () => {
     expect(stderr).toHaveBeenCalledWith(
       "[signalint] CLI failed: Requested path resolves outside the project root.\n",
     );
+  });
+});
+
+describe("signalint check --compact", () => {
+  it("outputs a compact response shape with shortened keys and v: 1.4", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    const exitCode = await runCli(["check", ".", "--compact"], checkFixtureRoot);
+    expect(exitCode).toBe(1);
+
+    const output = stdout.mock.calls.map((call) => call[0]).join("");
+    const parsed = JSON.parse(output) as Record<string, unknown>;
+    expect(parsed.v).toBe("1.4");
+    expect(parsed.projectRoot).toBeUndefined();
+    expect(parsed.total).toBeDefined();
+    expect(parsed.totalIssues).toBeUndefined();
+    expect(parsed.remainingIssues).toBeUndefined();
+    expect(parsed.omittedIssueCount).toBeUndefined();
+    expect(parsed.schemaVersion).toBeUndefined();
   });
 });
 
@@ -119,3 +170,52 @@ describe("signalint check --fail-on-priority", () => {
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("Usage: signalint check"));
   });
 });
+
+describe("signalint help and version CLI", () => {
+  it("prints usage and returns 0 for --help, -h, help, and no arguments", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    for (const flags of [["--help"], ["-h"], ["help"], []]) {
+      stdout.mockClear();
+      await expect(runCli(flags)).resolves.toBe(0);
+      expect(stdout).toHaveBeenCalledWith(
+        expect.stringContaining("Usage: signalint <init | check [path ...] | stats [--json] | doctor>"),
+      );
+    }
+  });
+
+  it("prints version and returns 0 for --version and -v", async () => {
+    const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
+
+    for (const flags of [["--version"], ["-v"]]) {
+      stdout.mockClear();
+      await expect(runCli(flags)).resolves.toBe(0);
+      expect(stdout).toHaveBeenCalledWith(expect.stringMatching(/^\d+\.\d+\.\d+\n$/));
+    }
+  });
+
+  it("prints unknown command error and returns 2 for unrecognized command", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    await expect(runCli(["not-a-command"])).resolves.toBe(2);
+    expect(stderr).toHaveBeenCalledWith(
+      expect.stringContaining("Unknown command: not-a-command"),
+    );
+  });
+
+  it("rejects extra arguments to doctor, init, and stats", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    await expect(runCli(["doctor", "unexpected"])).resolves.toBe(2);
+    expect(stderr).toHaveBeenCalledWith("Usage: signalint doctor\n");
+
+    stderr.mockClear();
+    await expect(runCli(["init", "unexpected"])).resolves.toBe(2);
+    expect(stderr).toHaveBeenCalledWith("Usage: signalint init\n");
+
+    stderr.mockClear();
+    await expect(runCli(["stats", "unexpected"])).resolves.toBe(2);
+    expect(stderr).toHaveBeenCalledWith("Usage: signalint stats [--json]\n");
+  });
+});
+

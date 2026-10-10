@@ -1,5 +1,5 @@
 import { FLAT_ESLINT_CONFIG_FILES } from "../config.js";
-import type { IssueEngine, NormalizedIssue } from "../schema.js";
+import type { BuiltinEngine, NormalizedIssue } from "../schema.js";
 import { runBiome, type BiomeRunOptions } from "./biome.js";
 import { runEslint, type EslintRunOptions } from "./eslint.js";
 import { runOxlint, type OxlintRunOptions } from "./oxlint.js";
@@ -18,7 +18,7 @@ export type EngineRunner = (
 ) => Promise<NormalizedIssue[]>;
 
 export interface EngineSpec {
-  id: IssueEngine;
+  id: BuiltinEngine;
   displayName: string;
   packageName: string;
   binRelativePath: string;
@@ -31,7 +31,7 @@ export interface EngineSpec {
   versionSource: "packageJson";
 }
 
-export const ENGINE_REGISTRY: Record<IssueEngine, EngineSpec> = {
+export const ENGINE_REGISTRY: Record<BuiltinEngine, EngineSpec> = {
   oxlint: {
     id: "oxlint",
     displayName: "Oxlint",
@@ -90,12 +90,12 @@ export const ENGINE_REGISTRY: Record<IssueEngine, EngineSpec> = {
   },
 };
 
-export const ALL_ENGINES: readonly IssueEngine[] = Object.keys(
+export const ALL_ENGINES: readonly BuiltinEngine[] = Object.keys(
   ENGINE_REGISTRY,
-) as IssueEngine[];
+) as BuiltinEngine[];
 
 /** Retrieves the specification for a registered diagnostics engine. */
-export function getEngineSpec(engine: IssueEngine): EngineSpec {
+export function getEngineSpec(engine: BuiltinEngine): EngineSpec {
   const spec = ENGINE_REGISTRY[engine];
   if (!spec) {
     throw new Error(`Unknown engine: ${engine}`);

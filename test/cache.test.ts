@@ -1,6 +1,7 @@
 import { performance } from "node:perf_hooks";
 import { createHash } from "node:crypto";
-import { readdir, readFile, writeFile } from "node:fs/promises";
+import { readdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -99,6 +100,25 @@ describe("SQLite cache", () => {
     expect(cache.get(firstKey)).toEqual([]);
     expect(cache.get(thirdKey)).toEqual([]);
     expect(cache.get(fourthKey)).toEqual([]);
+  });
+
+  it("allows multiple cache instances to access the same database file without locking", async () => {
+    const tempDir = resolve(tmpdir(), `signalint-cache-busy-${Date.now()}`);
+    const dbPath = resolve(tempDir, "cache.sqlite");
+    try {
+      const cache1 = new SqliteCache(dbPath);
+      openCaches.push(cache1);
+      const cache2 = new SqliteCache(dbPath);
+      openCaches.push(cache2);
+
+      const key = createCacheKey("concurrent", "oxlint", "config-a");
+      const issue = makeIssue("src/concurrent.ts", "oxlint");
+
+      cache1.set(key, [issue]);
+      expect(cache2.get(key)).toEqual([issue]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
   });
 
   it("changes the engine config hash when a recognized config is edited", async () => {
@@ -210,6 +230,32 @@ describe("Phase 2 acceptance benchmark", () => {
         `tsc whole-project calls=${String(tscRunner.mock.calls.length)}; ` +
         `unchanged tsc calls=0; changed=${changedFile}\n`,
     );
+  });
+
+  it("invalidates whole-program tsc cache when an unpassed project file changes", async () => {
+    const cache = createMemoryCache();
+    const passedFile = "src/index.ts";
+    const unpassedFile = "src/generated/file01.ts";
+    const oxlintRunner = vi.fn(createRunner("oxlint"));
+    const tscRunner = vi.fn(createWholeProgramRunner());
+    const runners = { oxlint: oxlintRunner, tsc: tscRunner };
+
+    await checkFiles([passedFile], { cwd: fixtureRoot, cache, runners });
+    expect(tscRunner).toHaveBeenCalledTimes(1);
+    tscRunner.mockClear();
+
+    await checkFiles([passedFile], { cwd: fixtureRoot, cache, runners });
+    expect(tscRunner).not.toHaveBeenCalled();
+
+    const unpassedPath = resolve(fixtureRoot, unpassedFile);
+    const original = await readFile(unpassedPath, "utf8");
+    try {
+      await writeFile(unpassedPath, `${original}\nexport const depChanged = 1;\n`, "utf8");
+      await checkFiles([passedFile], { cwd: fixtureRoot, cache, runners });
+      expect(tscRunner).toHaveBeenCalledTimes(1);
+    } finally {
+      await writeFile(unpassedPath, original, "utf8");
+    }
   });
 });
 

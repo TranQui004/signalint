@@ -1,10 +1,12 @@
+import { mkdtempSync } from "node:fs";
 import { readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, describe, expect, it } from "vitest";
 
 import {
   filterDefaultExcludedIssues,
@@ -22,9 +24,14 @@ import {
 const fixtureFile = resolve(
   "test/fixtures/node-modules-project/node_modules/broken-package/index.d.ts",
 );
-const logPath = resolve(".signalint/test/default-exclusions.jsonl");
+const exclusionsTestDir = mkdtempSync(resolve(tmpdir(), "signalint-test-exclusions-"));
+const logPath = resolve(exclusionsTestDir, "default-exclusions.jsonl");
 const clients: Client[] = [];
 const servers: Server[] = [];
+
+afterAll(async () => {
+  await rm(exclusionsTestDir, { force: true, recursive: true });
+});
 
 afterEach(async () => {
   await Promise.all(clients.map((client) => client.close()));
@@ -70,8 +77,9 @@ describe("Default exclusions", () => {
     const response = await callCheckProject(client);
 
     expect(response.totalIssues).toBe(1);
-    expect(response.clusters).toHaveLength(1);
-    expect(response.clusters[0]?.sampleIssueIds).toEqual(["user-code"]);
+    expect(response.clusters).toHaveLength(0);
+    expect(response.remainingIssues).toHaveLength(1);
+    expect(response.remainingIssues?.[0]?.issueId).toBe("user-code");
   });
 });
 

@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
@@ -33,7 +33,7 @@ interface StructuredRefusal {
   message: string;
 }
 
-const securityRoot = resolve(".signalint/test/security");
+const securityRoot = mkdtempSync(resolve(tmpdir(), "signalint-test-security-"));
 const projectRoot = resolve(securityRoot, "project");
 const outsideRoot = resolve(securityRoot, "outside");
 const clients: Client[] = [];

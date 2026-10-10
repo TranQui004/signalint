@@ -104,7 +104,7 @@ async function runEslintProcess(
     cwd,
     engine: "eslint",
     signal: options.signal,
-    timeoutMs: options.timeoutMs ?? DEFAULT_CONFIG.timeoutsMs.oxlint,
+    timeoutMs: options.timeoutMs ?? DEFAULT_CONFIG.timeoutsMs.eslint,
   });
 }
 

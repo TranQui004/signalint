@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import type { NormalizedIssue } from "../src/schema.js";
 import {
   compareIssues,
+  isPathMatching,
   isRecord,
   normalizeFile,
   readString,
@@ -87,6 +88,19 @@ describe("Utility functions", () => {
       expect(readString({ key: 123 }, "key", "fallback")).toBe("fallback");
       expect(readString({}, "missing", "default")).toBe("default");
       expect(readString({}, "missing")).toBe("");
+    });
+  });
+
+  describe("isPathMatching", () => {
+    it("matches exact paths, nested directories, and root matches", () => {
+      expect(isPathMatching("src/index.ts", ["src/index.ts"])).toBe(true);
+      expect(isPathMatching("src/nested/file.ts", ["src/nested"])).toBe(true);
+      expect(isPathMatching("src/nested/file.ts", ["src/nested/"])).toBe(true);
+      expect(isPathMatching("src/file.ts", ["."])).toBe(true);
+      expect(isPathMatching("src/file.ts", [""])).toBe(true);
+
+      expect(isPathMatching("src/clean.ts", ["src/consumer.ts"])).toBe(false);
+      expect(isPathMatching("src/other.ts", ["src/nested"])).toBe(false);
     });
   });
 });

@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { readdir, readFile, stat } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 
 import { ENGINE_REGISTRY } from "./engines/registry.js";
-import { resolveProjectFile } from "./engines/tsc.js";
+import { resolveProjectFile, resolveProjectId } from "./engines/tsc.js";
 import { createLinkedAbortController } from "./abort.js";
 import { createCacheKey, SqliteCache } from "./cache/sqliteCache.js";
 import {
@@ -16,14 +17,14 @@ import {
 import { settleEngineTasks } from "./engineFanout.js";
 import {
   createIssueId,
+  type BuiltinEngine,
   type EngineStatuses,
-  type IssueEngine,
   type NormalizedIssue,
 } from "./schema.js";
 import { resolveProjectPaths, type ResolvedProjectPath } from "./projectPaths.js";
 import { compareIssues, isRecord } from "./util/index.js";
 
-export type CacheEngine = IssueEngine;
+export type CacheEngine = BuiltinEngine;
 
 export interface EngineRunOptions {
   cwd?: string | undefined;
@@ -49,13 +50,14 @@ export interface EngineRunners {
 }
 
 export interface CheckFilesOptions {
-  cwd?: string;
-  cache?: SqliteCache;
-  runners?: Partial<EngineRunners>;
-  engines?: EngineSelection;
+  cwd?: string | undefined;
+  cache?: SqliteCache | undefined;
+  runners?: Partial<EngineRunners> | undefined;
+  engines?: EngineSelection | undefined;
   signal?: AbortSignal | undefined;
-  timeoutsMs?: EngineTimeouts;
+  timeoutsMs?: EngineTimeouts | undefined;
   targetPath?: string | undefined;
+  dependencyDirs?: readonly string[] | undefined;
 }
 
 export interface CacheStats {
@@ -67,6 +69,7 @@ export interface CheckFilesResult {
   issues: NormalizedIssue[];
   cache: CacheStats;
   engines: EngineStatuses;
+  filteredOutIssueCount?: number;
 }
 
 interface FileSnapshot {
@@ -104,14 +107,21 @@ export async function checkFilesWithStats(
   options: CheckFilesOptions = {},
 ): Promise<CheckFilesResult> {
   const cwd = options.cwd ?? process.cwd();
-  const cache = options.cache ?? new SqliteCache(resolve(cwd, ".signalint", "cache.sqlite"));
+  const stateDir = process.env.SIGNALINT_STATE_DIR?.trim();
+  const cachePath = stateDir && stateDir !== ""
+    ? resolve(stateDir, "cache.sqlite")
+    : resolve(cwd, ".signalint", "cache.sqlite");
+  const cache = options.cache ?? new SqliteCache(cachePath);
   const ownsCache = options.cache === undefined;
   const linkedAbort = createLinkedAbortController(options.signal);
 
   try {
+    if (options.signal?.aborted === true || linkedAbort.controller.signal.aborted) {
+      throw options.signal?.reason ?? new Error("Check cancelled");
+    }
     const resolvedFiles = await resolveProjectPaths(files, cwd);
     const snapshots = await mapConcurrent(resolvedFiles, 32, readSnapshot);
-    const getLocalRunner = (engine: Exclude<IssueEngine, "tsc">): EngineRunner =>
+    const getLocalRunner = (engine: Exclude<BuiltinEngine, "tsc">): EngineRunner =>
       options.runners?.[engine] ?? ((paths, opts) => ENGINE_REGISTRY[engine].run(paths, opts));
     const tscRunner = options.runners?.tsc ?? ((opts) => ENGINE_REGISTRY.tsc.run(["."], opts));
     const engines = options.engines ?? DEFAULT_ENGINES;
@@ -141,6 +151,7 @@ export async function checkFilesWithStats(
           timeoutsMs.tsc,
           linkedAbort.controller.signal,
           options.targetPath,
+          options.dependencyDirs,
         ),
       },
       {
@@ -173,6 +184,9 @@ export async function checkFilesWithStats(
         ),
       },
     ]);
+    if (linkedAbort.controller.signal.aborted) {
+      throw options.signal?.reason ?? new Error("Check cancelled");
+    }
     return {
       issues: fanout.results.flatMap((result) => result.issues).sort(compareIssues),
       cache: sumCacheStats(fanout.results.map((result) => result.cache)),
@@ -198,6 +212,9 @@ export async function computeEngineConfigHash(
   const hash = createHash("sha256");
   if (engine === "tsc") {
     const projectFile = targetTsconfigPath ?? resolve(cwd, "tsconfig.json");
+    const projectId = resolveProjectId(projectFile, cwd);
+    hash.update(`project:${projectId}`);
+    hash.update("\0");
     const configFiles = await collectTscConfigFiles(projectFile, new Set());
     for (const absolutePath of Array.from(configFiles).sort()) {
       hash.update(absolutePath);
@@ -205,6 +222,9 @@ export async function computeEngineConfigHash(
       hash.update(await readConfigAbsolute(absolutePath));
       hash.update("\0");
     }
+    const lockfileHash = await getWorkspaceLockfileHash(cwd);
+    hash.update(`lockfile:${lockfileHash}`);
+    hash.update("\0");
   } else {
     for (const configFile of ENGINE_REGISTRY[engine].configFiles) {
       hash.update(configFile);
@@ -214,6 +234,20 @@ export async function computeEngineConfigHash(
     }
   }
   return hash.digest("hex");
+}
+
+async function getWorkspaceLockfileHash(cwd: string): Promise<string> {
+  const lockfiles = ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"];
+  for (const name of lockfiles) {
+    const lockfilePath = resolve(cwd, name);
+    try {
+      const content = await readFile(lockfilePath, "utf8");
+      return createHash("sha256").update(content).digest("hex");
+    } catch {
+      // not present
+    }
+  }
+  return "none";
 }
 
 async function checkFileLocalEngine(
@@ -261,6 +295,85 @@ async function checkFileLocalEngine(
   };
 }
 
+function isTscSourceFile(file: string): boolean {
+  return /\.[cm]?[jt]sx?$/.test(file);
+}
+
+interface ProgramFileEntry {
+  absolutePath: string;
+  relativePath: string;
+}
+
+async function walkTscFiles(
+  dir: string,
+  relativePrefix: string,
+  files: ProgramFileEntry[],
+): Promise<void> {
+  let entries;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch {
+    return;
+  }
+  for (const entry of entries) {
+    if (
+      entry.name === "node_modules" ||
+      entry.name === ".git" ||
+      entry.name === ".signalint" ||
+      entry.name === "dist"
+    ) {
+      continue;
+    }
+    const relPath = relativePrefix === "" ? entry.name : `${relativePrefix}/${entry.name}`;
+    const absolutePath = resolve(dir, entry.name);
+    if (entry.isDirectory()) {
+      await walkTscFiles(absolutePath, relPath, files);
+    } else if (entry.isFile() && isTscSourceFile(relPath)) {
+      files.push({ absolutePath, relativePath: relPath });
+    }
+  }
+}
+
+/**
+ * Computes a deterministic fingerprint of the whole-program TypeScript files
+ * by hashing the sorted file list plus each file's size and mtime.
+ */
+export async function computeTscProgramFingerprint(
+  cwd: string,
+  targetTsconfigPath?: string,
+  dependencyDirs: readonly string[] = [],
+): Promise<string> {
+  const hash = createHash("sha256");
+  const targetDir = targetTsconfigPath !== undefined ? dirname(targetTsconfigPath) : cwd;
+  const files: ProgramFileEntry[] = [];
+
+  await walkTscFiles(targetDir, "", files);
+  for (const depDir of dependencyDirs) {
+    if (existsSync(depDir)) {
+      const relPrefix = relative(cwd, depDir).replace(/\\/g, "/");
+      await walkTscFiles(depDir, relPrefix, files);
+    }
+  }
+
+  files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+
+  for (const file of files) {
+    try {
+      const fileStat = await stat(file.absolutePath);
+      hash.update(file.relativePath);
+      hash.update("\0");
+      hash.update(String(fileStat.size));
+      hash.update("\0");
+      hash.update(String(fileStat.mtimeMs));
+      hash.update("\0");
+    } catch {
+      // File removed concurrently
+    }
+  }
+
+  return hash.digest("hex");
+}
+
 async function checkWholeProgramTsc(
   snapshots: readonly FileSnapshot[],
   cwd: string,
@@ -269,6 +382,7 @@ async function checkWholeProgramTsc(
   timeoutMs: number,
   signal: AbortSignal,
   targetPath?: string | undefined,
+  dependencyDirs: readonly string[] = [],
 ): Promise<EngineCheckResult> {
   let targetTsconfigPath: string | undefined;
   const probePath = targetPath ?? snapshots[0]?.file;
@@ -280,11 +394,16 @@ async function checkWholeProgramTsc(
     }
   }
   const configHash = await computeEngineConfigHash("tsc", cwd, targetTsconfigPath);
-  cache.invalidateEngine("tsc", configHash);
-  const latestResult = cache.getEngineResult("tsc", configHash);
+  const programFingerprint = await computeTscProgramFingerprint(cwd, targetTsconfigPath, dependencyDirs);
+  const stateHash = `${configHash}:${programFingerprint}`;
+  const projectId = resolveProjectId(targetTsconfigPath ?? resolve(cwd, "tsconfig.json"), cwd);
+  const engineKey = projectId === "root" ? "tsc" : `tsc:${projectId}`;
+
+  cache.invalidateEngine(engineKey, configHash, undefined, stateHash);
+  const latestResult = cache.getEngineResult(engineKey, stateHash);
   const relevantSnapshots = snapshots.filter((snapshot) => isTypeScriptRelevant(snapshot.file));
   const misses = relevantSnapshots.filter((snapshot) => {
-    const key = createCacheKey(snapshot.content, "tsc", configHash);
+    const key = createCacheKey(snapshot.content, engineKey, configHash);
     return cache.get(key) === undefined;
   });
 
@@ -297,15 +416,16 @@ async function checkWholeProgramTsc(
 
   const freshIssues = await runner({ cwd, signal, timeoutMs });
   for (const snapshot of relevantSnapshots) {
-    const key = createCacheKey(snapshot.content, "tsc", configHash);
+    const key = createCacheKey(snapshot.content, engineKey, configHash);
     cache.set(key, []);
   }
-  cache.setEngineResult("tsc", configHash, freshIssues);
+  cache.setEngineResult(engineKey, stateHash, freshIssues);
+  const effectiveMisses = misses.length === 0 ? relevantSnapshots.length : misses.length;
   return {
     issues: freshIssues,
     cache: {
-      hits: relevantSnapshots.length - misses.length,
-      misses: misses.length,
+      hits: relevantSnapshots.length - effectiveMisses,
+      misses: effectiveMisses,
     },
   };
 }

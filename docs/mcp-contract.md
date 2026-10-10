@@ -144,10 +144,15 @@ Signalint strictly differentiates JSON-RPC protocol violations from domain busin
 - **Output:** `{ transactionId: string, filesCount: number, summary: string, patchesPreview: Array<{ file, addedLines, removedLines, description? }> }`.
 
 #### 12. `apply_diagnostic_fix`
-- **Purpose:** Applies diagnostic modifications using a journaled, recoverable multi-file transaction with pre-write drift detection and automated rollback.
+- **Purpose:** Applies diagnostic modifications using per-file adjacent temporary-file replacement, pre-write drift detection, and in-process best-effort rollback for multi-file writes.
+- **Safety & Guarantees:** Provides adjacent temporary-file replacement (`fs.renameSync`) and in-process best-effort rollback upon mid-transaction write failures. Does **not** provide persistent crash recovery or kernel-level atomicity across multiple files if the process is terminated abruptly (e.g. `SIGKILL`, power failure).
 - **Annotations:** `readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false`.
-- **Input:** `{ transactionId: string, confirm: boolean, baselineCheckId?: string }` (`confirm: true` is strictly required; optional `baselineCheckId` triggers delta computation).
-- **Output:** `{ transactionId: string, status: "success" | "rolled_back" | "error", filesModified: string[], postCheckId?: string, delta?: unknown, message?: string, error?: string }`.
+- **Input:** `{ transactionId: string, confirm: boolean, baselineCheckId?: string }` (`confirm: true` is strictly required).
+- **Output:** `{ transactionId: string, status: "success" | "rolled_back" | "error", code?: string, filesModified: string[], postCheckId?: string, delta?: unknown, message?: string, error?: string }`.
+- **Execution Modes:**
+  - **Mode A (Baseline Omitted):** Applies transaction without computing delta; returns `message: "No baselineCheckId provided; baseline delta was not requested."`.
+  - **Mode B (Valid Baseline):** Validates active `baselineCheckId` in `SnapshotStore`, applies transaction, runs post-check, and returns computed `delta`.
+  - **Mode C (Unknown or Expired Baseline Refusal):** Validates `baselineCheckId` *before* modifying any files. If unknown, returns `{ status: "error", code: "baseline_check_unknown", message: "Supplied baselineCheckId '...' was not found in snapshot store. Re-run check_project to establish a fresh baseline." }` with `isError: true`. If expired, returns `{ status: "error", code: "baseline_snapshot_expired", message: "Supplied baselineCheckId '...' has expired. Re-run check_project to establish a fresh baseline." }` with `isError: true`. No files on disk are modified, and the staged in-memory transaction preview is preserved intact for retry.
 
 #### 13. `discard_diagnostic_fix`
 - **Purpose:** Discards a prepared transaction from in-memory storage without touching disk.

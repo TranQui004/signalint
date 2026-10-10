@@ -256,7 +256,7 @@ export function createTools(mode: McpPayloadMode = "both") {
     },
     {
       name: "apply_diagnostic_fix",
-      description: "Applies diagnostic modifications using a journaled, recoverable multi-file transaction with pre-write drift detection and automated rollback. Requires explicit confirm: true. Triggers immediate verification to return a post-apply delta if baselineCheckId is provided.",
+      description: "Applies diagnostic modifications using per-file adjacent temporary-file replacement, pre-write drift detection, and in-process best-effort rollback for multi-file writes. Requires explicit confirm: true. If baselineCheckId is provided, it must be valid and active in the snapshot store; unknown or expired baselines abort immediately without modifying files. Does not provide persistent crash recovery if the process terminates abruptly.",
       inputSchema: {
         type: "object" as const,
         properties: {

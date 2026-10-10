@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { extractActionVersion, verifyReleaseMetadata } from "../scripts/verify-release-metadata.mjs";
 import { resolveAndValidateReleaseTag } from "../scripts/verify-release-tag.mjs";
 
 describe("release tag validation and resolution", () => {
@@ -106,6 +107,40 @@ describe("release tag validation and resolution", () => {
   });
 });
 
+describe("release metadata verification script", () => {
+  it("verifies current workspace release metadata consistently", () => {
+    const result = verifyReleaseMetadata({
+      rootDir: process.cwd(),
+      env: { RELEASE_TAG: "v1.2.0" },
+    });
+    expect(result.packageName).toBe("signalint-mcp");
+    expect(result.packageVersion).toBe("1.2.0");
+    expect(result.validatedTag).toBe("v1.2.0");
+  });
+
+  it("fails closed when RELEASE_TAG mismatches package.json version", () => {
+    expect(() =>
+      verifyReleaseMetadata({
+        rootDir: process.cwd(),
+        env: { RELEASE_TAG: "v9.9.9" },
+      }),
+    ).toThrow(/does not match package\.json version/);
+  });
+
+  it("extracts action.yml inputs.version.default correctly", () => {
+    const sampleYml = `
+name: Signalint
+inputs:
+  version:
+    description: 'Version of Signalint'
+    required: false
+    default: '1.2.0'
+`;
+    expect(extractActionVersion(sampleYml)).toBe("1.2.0");
+    expect(extractActionVersion("no version input here")).toBeUndefined();
+  });
+});
+
 describe("release workflow definition", () => {
   it("configures workflow_dispatch to require an explicit tag with no stale default", () => {
     const workflowPath = resolve(process.cwd(), ".github/workflows/release.yml");
@@ -169,6 +204,38 @@ describe("release workflow definition", () => {
 
     // Provenance flag is included in npm publish
     expect(publishJobContent).toMatch(/npm publish [^\r\n]*--provenance/);
+  });
+
+  it("enforces that all verification and tarball checks occur strictly before npm publish", () => {
+    const workflowPath = resolve(process.cwd(), ".github/workflows/release.yml");
+    const content = readFileSync(workflowPath, "utf8");
+
+    const publishJobMatch = content.match(/publish:[\s\S]*$/);
+    expect(publishJobMatch).not.toBeNull();
+    const publishJob = publishJobMatch ? publishJobMatch[0] : "";
+
+    const verifyMetadataIdx = publishJob.indexOf("Verify release metadata");
+    const packTarballIdx = publishJob.indexOf("Pack and inspect release tarball");
+    const smokeTestIdx = publishJob.indexOf("Smoke test verified tarball");
+    const npmPublishIdx = publishJob.indexOf("- name: Publish to npm");
+
+    expect(verifyMetadataIdx).toBeGreaterThan(-1);
+    expect(packTarballIdx).toBeGreaterThan(-1);
+    expect(smokeTestIdx).toBeGreaterThan(-1);
+    expect(npmPublishIdx).toBeGreaterThan(-1);
+
+    // Strict sequential ordering: metadata -> pack -> smoke -> publish
+    expect(verifyMetadataIdx).toBeLessThan(packTarballIdx);
+    expect(packTarballIdx).toBeLessThan(smokeTestIdx);
+    expect(smokeTestIdx).toBeLessThan(npmPublishIdx);
+
+    // Ensure no server.json, tarball inspection, or metadata check occurs after npm publish
+    const postPublishSection = publishJob.slice(npmPublishIdx);
+    expect(postPublishSection).not.toContain("verify-release-metadata.mjs");
+    expect(postPublishSection).not.toContain("smoke-tarball.mjs");
+    expect(postPublishSection).not.toContain("server.json");
+    expect(postPublishSection).not.toContain(".tarball-inspect");
+    expect(postPublishSection).not.toContain("npm pack");
   });
 
   it("runs smoke-tarball in ci.yml steps", () => {

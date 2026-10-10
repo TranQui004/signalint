@@ -19,7 +19,7 @@ Instead of flooding an agent's context window with thousands of raw compiler lin
 - **Monorepo-Aware Planning:** Unites package manifests (`pnpm-workspace.yaml`) parsed via pure-JS YAML with glob negation exclusions and TypeScript Project References, ordering checks topologically.
 - **Multi-Source Provenance:** Distinguishes compiler, linter, and editor/LSP diagnostics across JavaScript, TypeScript, Python (Ruff/Mypy), Rust (Clippy), and Go (GolangCI-Lint).
 - **Portable Host Hooks:** Native verify-after-change adapters for Claude Code, Cursor, Codex, and VS Code.
-- **Journaled Previews & Atomic Rollback:** In-memory previews never touch disk; apply uses adjacent temporary files with atomic rename replacement, pre-write SHA-256 drift validation, and automatic rollback on failure.
+- **In-Memory Previews & In-Process Rollback:** In-memory previews never touch disk; apply uses per-file adjacent temporary-file replacement, pre-write drift detection, and in-process best-effort rollback for multi-file writes (does not claim persistent crash recovery if aborted abruptly).
 
 ---
 
@@ -67,7 +67,7 @@ Signalint exposes **13 strictly typed MCP tools** over stdio:
 | `ingest_diagnostics` | Live / LSP | Read-only (`openWorld: false`) | Ingests external LSP or compiler diagnostics into Signalint's clustering model. |
 | `get_live_diagnostics` | Live / LSP | Read-only (`idempotent`) | Returns active buffered diagnostics with source provenance. |
 | `preview_diagnostic_fix` | Transactions | Read-only (`destructive: false`) | Stages proposed code fixes in-memory. **Does not write to disk.** |
-| `apply_diagnostic_fix` | Transactions | **Mutating** (`destructive: true`) | Journaled multi-file transaction with pre-write drift detection and automated rollback. |
+| `apply_diagnostic_fix` | Transactions | **Mutating** (`destructive: true`) | Per-file adjacent temp replacement, pre-write drift check, and in-process best-effort rollback. |
 | `discard_diagnostic_fix` | Transactions | Read-only (`idempotent`) | Drops an in-memory fix transaction without touching disk. |
 
 See [docs/mcp-contract.md](docs/mcp-contract.md) for full JSON Schemas and error codes.

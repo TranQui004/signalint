@@ -409,7 +409,7 @@ describe("Transactional previews, safe apply, and rollback", () => {
     expect(applyData.delta.baselineCheckId).toBe("base-check-123");
     expect(applyData.message).toBeUndefined();
 
-    // 3. Prepare another transaction to test unknown baselineCheckId
+    // 3. Prepare another transaction to test unknown and expired baselineCheckId refusal
     const previewResult2 = await dispatchToolCall(
       "preview_diagnostic_fix",
       {
@@ -426,6 +426,7 @@ describe("Transactional previews, safe apply, and rollback", () => {
     );
     const preview2 = JSON.parse((previewResult2.content[0] as { text: string }).text);
 
+    // 3a. Unknown baselineCheckId must refuse without modifying files and preserve the staged transaction
     const applyUnknown = await dispatchToolCall(
       "apply_diagnostic_fix",
       {
@@ -436,10 +437,106 @@ describe("Transactional previews, safe apply, and rollback", () => {
       new AbortController().signal,
       context,
     );
+    expect(applyUnknown.isError).toBe(true);
     const unknownData = JSON.parse((applyUnknown.content[0] as { text: string }).text);
-    expect(unknownData.status).toBe("success");
-    expect(unknownData.delta).toBeUndefined();
-    expect(unknownData.message).toContain("Baseline check 'nonexistent-baseline' was not found");
+    expect(unknownData.status).toBe("error");
+    expect(unknownData.code).toBe("baseline_check_unknown");
+    expect(unknownData.message).toContain("Supplied baselineCheckId 'nonexistent-baseline' was not found in snapshot store");
+    expect(unknownData.filesModified).toEqual([]);
+    expect(readFileSync(fileAbs, "utf-8")).toBe("const val = 10;\n");
+    // Verify staged transaction preview is intact and ready for retry
+    const storedPreviewAfterUnknown = context.transactionManager?.getPreview(preview2.transactionId);
+    expect(storedPreviewAfterUnknown).toBeDefined();
+    expect(storedPreviewAfterUnknown?.status).toBe("prepared");
+
+    // 3b. Expired baselineCheckId must refuse without modifying files and preserve the staged transaction
+    const expiredTimestamp = Date.now() - 3600000; // 1 hour ago (exceeds default 30m TTL)
+    snapshotStore.saveSnapshot({
+      ...baselineSnapshot,
+      checkId: "expired-check-789",
+      timestamp: expiredTimestamp,
+    });
+
+    const applyExpired = await dispatchToolCall(
+      "apply_diagnostic_fix",
+      {
+        transactionId: preview2.transactionId,
+        confirm: true,
+        baselineCheckId: "expired-check-789",
+      },
+      new AbortController().signal,
+      context,
+    );
+    expect(applyExpired.isError).toBe(true);
+    const expiredData = JSON.parse((applyExpired.content[0] as { text: string }).text);
+    expect(expiredData.status).toBe("error");
+    expect(expiredData.code).toBe("baseline_snapshot_expired");
+    expect(expiredData.message).toContain("Supplied baselineCheckId 'expired-check-789' has expired");
+    expect(expiredData.filesModified).toEqual([]);
+    expect(readFileSync(fileAbs, "utf-8")).toBe("const val = 10;\n");
+    const storedPreviewAfterExpired = context.transactionManager?.getPreview(preview2.transactionId);
+    expect(storedPreviewAfterExpired).toBeDefined();
+    expect(storedPreviewAfterExpired?.status).toBe("prepared");
+
+    // 3c. Re-attempting apply with fresh/corrected baseline succeeds on the preserved transaction
+    const freshBaselineSnapshot: DiagnosticSnapshot = {
+      ...baselineSnapshot,
+      checkId: "fresh-baseline-456",
+      timestamp: Date.now(),
+    };
+    snapshotStore.saveSnapshot(freshBaselineSnapshot);
+
+    const applyRetry = await dispatchToolCall(
+      "apply_diagnostic_fix",
+      {
+        transactionId: preview2.transactionId,
+        confirm: true,
+        baselineCheckId: "fresh-baseline-456",
+      },
+      new AbortController().signal,
+      context,
+    );
+    expect(applyRetry.isError).toBeFalsy();
+    const retryData = JSON.parse((applyRetry.content[0] as { text: string }).text);
+    expect(retryData.status).toBe("success");
+    expect(retryData.delta).toBeDefined();
+    expect(retryData.delta.baselineCheckId).toBe("fresh-baseline-456");
+    expect(retryData.filesModified).toEqual([fileRel]);
+    expect(readFileSync(fileAbs, "utf-8")).toBe("const val = 20;\n");
+
+    // 3d. Omitted baselineCheckId applies without computing delta or claiming verification
+    const previewResult3 = await dispatchToolCall(
+      "preview_diagnostic_fix",
+      {
+        patches: [
+          {
+            file: fileRel,
+            originalContent: "const val = 20;\n",
+            patchedContent: "const val = 30;\n",
+          },
+        ],
+      },
+      new AbortController().signal,
+      context,
+    );
+    const preview3 = JSON.parse((previewResult3.content[0] as { text: string }).text);
+
+    const applyOmitted = await dispatchToolCall(
+      "apply_diagnostic_fix",
+      {
+        transactionId: preview3.transactionId,
+        confirm: true,
+      },
+      new AbortController().signal,
+      context,
+    );
+    expect(applyOmitted.isError).toBeFalsy();
+    const omittedData = JSON.parse((applyOmitted.content[0] as { text: string }).text);
+    expect(omittedData.status).toBe("success");
+    expect(omittedData.delta).toBeUndefined();
+    expect(omittedData.message).toContain("No baselineCheckId provided; baseline delta was not requested.");
+    expect(omittedData.filesModified).toEqual([fileRel]);
+    expect(readFileSync(fileAbs, "utf-8")).toBe("const val = 30;\n");
   });
 
   it("atomically replaces files via temp files and leaves no leftover .signalint-tmp-* files", async () => {

@@ -38,6 +38,12 @@ packages:
       expect(parsePnpmWorkspaceYaml("some_other_key: true\n")).toBeUndefined();
       expect(parsePnpmWorkspaceYaml("packages:\n# only comments\n")).toBeUndefined();
     });
+
+    it("parses inline flow-style array syntax", () => {
+      const yaml = "packages: ['apps/*', 'packages/*', 'shared']\n";
+      const globs = parsePnpmWorkspaceYaml(yaml);
+      expect(globs).toEqual(["apps/*", "packages/*", "shared"]);
+    });
   });
 
   describe("discoverWorkspacePackages", () => {

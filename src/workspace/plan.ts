@@ -1,7 +1,8 @@
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
-import { normalize, resolve } from "node:path";
+import { dirname, normalize, resolve } from "node:path";
 import type { MonorepoMode, WorkspaceGraph, WorkspacePackage, WorkspacePlan } from "./types.js";
+import { canonicalizePath } from "../projectPaths.js";
 import { isRecord } from "../util/index.js";
 
 export interface PlanOptions {
@@ -24,6 +25,12 @@ export function planWorkspaceChecks(
   }
 
   if (graph.hasCycles) {
+    if (mode === "strict") {
+      const cycleList = graph.cycleNodes?.join(", ") ?? "unknown";
+      throw new Error(
+        `Strict monorepo mode: dependency cycle detected between workspace packages (${cycleList}).`,
+      );
+    }
     return { targets: [], fallbackToRoot: true, fallbackReason: "dependency_cycle_detected" };
   }
 
@@ -141,19 +148,37 @@ export async function hasSolutionStyleTsconfig(
     if (!isRecord(parsed) || !Array.isArray(parsed.references) || parsed.references.length === 0) {
       return false;
     }
-    const refPaths = new Set(
-      parsed.references
-        .filter(isRecord)
-        .map((ref) => (typeof ref.path === "string" ? ref.path.replace(/\\/g, "/") : ""))
-        .filter((p) => p !== ""),
-    );
+    const refPaths = new Set<string>();
+    const canonicalRefs = new Set<string>();
+
+    for (const ref of parsed.references) {
+      if (isRecord(ref) && typeof ref.path === "string") {
+        const normRef = ref.path.replaceAll("\\", "/").replace(/\/tsconfig\.json$/, "");
+        refPaths.add(normRef);
+        refPaths.add(normRef.replace(/^\.\//, ""));
+        try {
+          const refAbs = resolve(cwd, ref.path);
+          const refCanon = canonicalizePath(
+            existsSync(refAbs) && !refAbs.endsWith(".json") ? refAbs : dirname(refAbs),
+          );
+          canonicalRefs.add(refCanon);
+          canonicalRefs.add(refCanon.toLowerCase());
+        } catch {
+          // ignore unresolvable ref paths
+        }
+      }
+    }
+
     for (const pkg of packages) {
       const rel = pkg.relativePath;
+      const pkgCanonical = canonicalizePath(pkg.absolutePath);
       const hasRef =
         refPaths.has(rel) ||
         refPaths.has(`./${rel}`) ||
         refPaths.has(`${rel}/tsconfig.json`) ||
-        refPaths.has(`./${rel}/tsconfig.json`);
+        refPaths.has(`./${rel}/tsconfig.json`) ||
+        canonicalRefs.has(pkgCanonical) ||
+        canonicalRefs.has(pkgCanonical.toLowerCase());
       if (!hasRef) {
         return false;
       }

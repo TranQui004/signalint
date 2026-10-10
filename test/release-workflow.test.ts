@@ -158,8 +158,8 @@ describe("release workflow definition", () => {
     expect(tagInputSection).not.toContain("default: 'v1.0.0'");
   });
 
-  it("pins all external GitHub Actions to immutable 40-character commit SHAs in ci.yml and release.yml", () => {
-    const workflows = [".github/workflows/ci.yml", ".github/workflows/release.yml"];
+  it("pins all external GitHub Actions to immutable 40-character commit SHAs in ci.yml, release.yml, and action.yml", () => {
+    const workflows = [".github/workflows/ci.yml", ".github/workflows/release.yml", "action.yml"];
     const shaPattern = /^[a-f0-9]{40}$/;
 
     for (const relPath of workflows) {
@@ -176,6 +176,10 @@ describe("release workflow definition", () => {
         expect(actionName).toMatch(/^[\w-]+\/[\w-]+$/);
         expect(commitSha).toMatch(shaPattern);
       }
+
+      expect(content).not.toMatch(/uses:\s+[^@\r\n]+@v\d+/);
+      expect(content).not.toMatch(/uses:\s+[^@\r\n]+@main\b/);
+      expect(content).not.toMatch(/uses:\s+[^@\r\n]+@master\b/);
     }
   });
 
@@ -236,6 +240,30 @@ describe("release workflow definition", () => {
     expect(postPublishSection).not.toContain("server.json");
     expect(postPublishSection).not.toContain(".tarball-inspect");
     expect(postPublishSection).not.toContain("npm pack");
+  });
+
+  it("documents release workflow operational order accurately in RELEASE.md", () => {
+    const releaseMdPath = resolve(process.cwd(), "RELEASE.md");
+    const content = readFileSync(releaseMdPath, "utf8");
+
+    const verifyMetadataIdx = content.indexOf("Verify release metadata");
+    const smokeTestIdx = content.indexOf("Smoke test verified tarball");
+    const publishNpmIdx = content.indexOf("Publish to npm");
+
+    expect(verifyMetadataIdx).toBeGreaterThan(-1);
+    expect(smokeTestIdx).toBeGreaterThan(-1);
+    expect(publishNpmIdx).toBeGreaterThan(-1);
+
+    // Pre-publish validations precede npm publish in documentation
+    expect(verifyMetadataIdx).toBeLessThan(publishNpmIdx);
+    expect(smokeTestIdx).toBeLessThan(publishNpmIdx);
+
+    // Explicit invariant statement
+    expect(content).toContain("All deterministic metadata and artifact checks run before `npm publish`");
+
+    // Absence of obsolete post-publish server.json verification or dry-run pack phrasing
+    expect(content).not.toMatch(/npm pack --dry-run/);
+    expect(content).not.toMatch(/Verifies server\.json matches package\.json,\s*then publishes/i);
   });
 
   it("runs smoke-tarball in ci.yml steps", () => {

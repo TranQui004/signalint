@@ -1,5 +1,5 @@
 import { existsSync, lstatSync, realpathSync } from "node:fs";
-import { isAbsolute, normalize, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, normalize, relative, resolve, sep } from "node:path";
 
 import { readCanonicalProjectRootSync } from "../projectPaths.js";
 
@@ -86,6 +86,27 @@ export function validateHookPath(rawPath: string, projectRoot: string): string {
       );
     }
     return normalizeRelativePath(realRel);
+  }
+
+  let existingAncestor = dirname(resolved);
+  while (!existsSync(existingAncestor) && existingAncestor !== dirname(existingAncestor)) {
+    existingAncestor = dirname(existingAncestor);
+  }
+
+  if (existsSync(existingAncestor)) {
+    let canonicalAncestor: string;
+    try {
+      canonicalAncestor = realpathSync.native ? realpathSync.native(existingAncestor) : realpathSync(existingAncestor);
+    } catch {
+      canonicalAncestor = realpathSync(existingAncestor);
+    }
+    const ancestorRel = relative(canonicalRoot, canonicalAncestor);
+    if (ancestorRel.startsWith("..") || isAbsolute(ancestorRel)) {
+      throw new HookPathError(
+        "symlink_escape",
+        `Hook path symlink escapes project root: ${path} -> ${canonicalAncestor}`,
+      );
+    }
   }
 
   const rel = relative(canonicalRoot, resolved);

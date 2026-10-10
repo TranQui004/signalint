@@ -570,6 +570,7 @@ export const applyDiagnosticFixOutputSchema = {
       type: "string" as const,
       enum: ["success", "rolled_back", "error"] as const,
     },
+    code: { type: "string" as const },
     filesModified: {
       type: "array" as const,
       items: { type: "string" as const },

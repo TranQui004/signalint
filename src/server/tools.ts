@@ -256,7 +256,7 @@ export function createTools(mode: McpPayloadMode = "both") {
     },
     {
       name: "apply_diagnostic_fix",
-      description: "Atomically applies a previously prepared diagnostic fix preview by transactionId. Requires explicit confirm: true. Detects file content drift before writing, automatically rolls back on any write failure, and triggers immediate verification to return a post-apply delta if baselineCheckId is provided.",
+      description: "Applies diagnostic modifications using a journaled, recoverable multi-file transaction with pre-write drift detection and automated rollback. Requires explicit confirm: true. Triggers immediate verification to return a post-apply delta if baselineCheckId is provided.",
       inputSchema: {
         type: "object" as const,
         properties: {

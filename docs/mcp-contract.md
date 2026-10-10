@@ -133,7 +133,7 @@ Signalint strictly differentiates JSON-RPC protocol violations from domain busin
 - **Output:** `{ transactionId: string, filesCount: number, summary: string, patchesPreview: Array<{ file, addedLines, removedLines, description? }> }`.
 
 #### 12. `apply_diagnostic_fix`
-- **Purpose:** Atomically writes a prepared transaction to disk with automatic rollback on failure and post-apply check.
+- **Purpose:** Applies diagnostic modifications using a journaled, recoverable multi-file transaction with pre-write drift detection and automated rollback.
 - **Annotations:** `readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: false`.
 - **Input:** `{ transactionId: string, confirm: boolean, baselineCheckId?: string }` (`confirm: true` is strictly required; optional `baselineCheckId` triggers delta computation).
 - **Output:** `{ transactionId: string, status: "success" | "rolled_back" | "error", filesModified: string[], postCheckId?: string, delta?: unknown, message?: string, error?: string }`.

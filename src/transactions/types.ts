@@ -5,6 +5,7 @@
 export interface FilePatch {
   file: string;
   originalContent: string;
+  originalHash?: string | undefined;
   patchedContent: string;
   description?: string | undefined;
 }
@@ -24,6 +25,7 @@ export type ApplyStatus = "success" | "rolled_back" | "error";
 export interface ApplyResult {
   transactionId: string;
   status: ApplyStatus;
+  code?: string | undefined;
   filesModified: string[];
   postCheckId?: string | undefined;
   delta?: unknown;

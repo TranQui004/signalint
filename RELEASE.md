@@ -25,20 +25,20 @@ git push origin vX.Y.Z
 
 ## 3. What the workflow does
 
-`.github/workflows/release.yml` then:
+`.github/workflows/release.yml` executes in strict sequential order:
 
-1. Runs the gate (`lint`, `typecheck`, `test`, `build`) on Windows, Linux and
-   macOS.
-2. Fails if the tag version does not match `package.json` `version`.
-3. Builds and runs `npm pack --dry-run` so the packed file list is visible in
-   the log.
-4. Runs `npm publish --provenance --access public` with the `NPM_TOKEN` secret
-   (skipped if already published on npm).
-5. Verifies `server.json` matches `package.json`, then publishes the listing to
-   the official MCP Registry with `mcp-publisher` (GitHub OIDC) with automatic
-   retry for npm propagation delay (skipped if already on the MCP Registry).
-6. Creates or updates the GitHub Release with title and notes grouped by
-   `type(scope):` commit prefixes.
+1. **Gate job:** Runs checks (`lint`, `typecheck`, `test`, `build`, and tarball smoke tests) on Windows, Linux, and macOS.
+2. **Verify release metadata:** (`node scripts/verify-release-metadata.mjs`) validates `package.json`, `server.json`, `server.json.packages[0]`, `action.yml`, and release tag consistency **strictly before** any publication.
+3. **Build project:** Compiles TypeScript sources (`pnpm build`).
+4. **Pack release tarball:** Generates npm package tarball (`npm pack --json`) and inspects unpacked contents (`dist/src/index.js`, permissions, manifest identity).
+5. **Smoke test verified tarball:** Executes end-to-end smoke verification (`node scripts/smoke-tarball.mjs <tarball>`) against the generated artifact.
+6. **Generate release notes:** Extracts commit messages grouped by `type(scope):`.
+7. **Check publication status:** Checks whether version is already published on npm.
+8. **Publish to npm:** Runs `npm publish "${tarball}" --provenance --access public` using repository secret `NPM_TOKEN` (skipped if already published).
+9. **Publish to MCP Registry:** Publishes listing to the official MCP Registry via `mcp-publisher` (GitHub OIDC) with automatic retry for npm propagation delay (skipped if already on the MCP Registry).
+10. **Create GitHub Release:** Creates GitHub Release with generated release notes.
+
+> All deterministic metadata and artifact checks run before `npm publish`. Steps after `npm publish` are strictly limited to external registry publication and GitHub Release creation.
 
 Re-running the workflow or triggering it via workflow dispatch after a partial failure
 is safe: published artifacts on npm and MCP Registry are idempotently detected.

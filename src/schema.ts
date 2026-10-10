@@ -132,9 +132,11 @@ export interface CompactCheckResponse {
 
 export interface EngineOutputLimitResponse {
   status: "error";
-  code: "engine_output_exceeded";
+  code: "engine_output_exceeded" | "output_limit_exceeded";
   engine: IssueEngine;
   message: string;
+  retryable?: boolean;
+  nextStep?: string;
 }
 
 export interface StaleReferenceResponse {
@@ -311,7 +313,7 @@ export function isEngineOutputLimitResponse(
   return (
     isRecord(value) &&
     value.status === "error" &&
-    value.code === "engine_output_exceeded" &&
+    (value.code === "engine_output_exceeded" || value.code === "output_limit_exceeded") &&
     isIssueEngine(value.engine) &&
     typeof value.message === "string"
   );

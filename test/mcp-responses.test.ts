@@ -66,9 +66,9 @@ describe("MCP response amendments", () => {
 
     const currentDetail = parseText(
       await callTool(client, "get_issue_detail", { clusterId, checkId: firstCheck.checkId }),
-    );
-    expect(Array.isArray(currentDetail)).toBe(true);
-    expect(Array.isArray(currentDetail) && currentDetail.every(isNormalizedIssue)).toBe(true);
+    ) as { issues: NormalizedIssue[] };
+    expect(Array.isArray(currentDetail.issues)).toBe(true);
+    expect(currentDetail.issues.every(isNormalizedIssue)).toBe(true);
 
     currentIssues = [];
     const secondCheck = parseText(
@@ -115,14 +115,23 @@ describe("MCP response amendments", () => {
     });
   });
 
-  it("logs attributed non-timeout engine failures to stderr before rethrowing", async () => {
+  it("logs attributed non-timeout engine failures to stderr and returns structured error result", async () => {
     const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     const stdout = vi.spyOn(process.stdout, "write").mockReturnValue(true);
     const client = await connectServer(() =>
       Promise.reject(new EngineExecutionError("oxlint", new Error("fixture failure"))),
     );
 
-    await expect(callTool(client, "check_project", { paths: ["."] })).rejects.toThrow();
+    const result = await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
+    expect(result.isError).toBe(true);
+    expect(result.structuredContent).toEqual(
+      expect.objectContaining({
+        status: "error",
+        code: "engine_execution_failed",
+        engine: "oxlint",
+        retryable: false,
+      }),
+    );
 
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("engine=oxlint"));
     expect(stderr).toHaveBeenCalledWith(expect.stringContaining("fixture failure"));
@@ -142,9 +151,11 @@ describe("MCP response amendments", () => {
     expect(isEngineOutputLimitResponse(response)).toBe(true);
     expect(response).toEqual({
       status: "error",
-      code: "engine_output_exceeded",
+      code: "output_limit_exceeded",
       engine: "biome",
       message: "biome output exceeded the 128 bytes limit",
+      retryable: false,
+      nextStep: expect.any(String),
     });
   });
 
@@ -278,9 +289,11 @@ describe("MCP response amendments", () => {
     expect(limitResult.isError).toBe(true);
     expect(limitResult.structuredContent).toEqual({
       status: "error",
-      code: "engine_output_exceeded",
+      code: "output_limit_exceeded",
       engine: "oxlint",
       message: "oxlint output exceeded the 256 bytes limit",
+      retryable: false,
+      nextStep: expect.any(String),
     });
 
     const errorClient = await connectServer(() => Promise.resolve([]));
@@ -347,17 +360,17 @@ describe("MCP response amendments", () => {
 
     const shortDetail = parseText(
       await callTool(client, "get_issue_detail", { issueId: shortId, checkId: checkResult.checkId }),
-    );
-    expect(Array.isArray(shortDetail)).toBe(true);
-    expect(shortDetail).toHaveLength(1);
-    expect((shortDetail as NormalizedIssue[])[0]?.issueId).toBe(fullId);
+    ) as { issues: NormalizedIssue[] };
+    expect(Array.isArray(shortDetail.issues)).toBe(true);
+    expect(shortDetail.issues).toHaveLength(1);
+    expect(shortDetail.issues[0]?.issueId).toBe(fullId);
 
     const fullDetail = parseText(
       await callTool(client, "get_issue_detail", { issueId: fullId, checkId: checkResult.checkId }),
-    );
-    expect(Array.isArray(fullDetail)).toBe(true);
-    expect(fullDetail).toHaveLength(1);
-    expect((fullDetail as NormalizedIssue[])[0]?.issueId).toBe(fullId);
+    ) as { issues: NormalizedIssue[] };
+    expect(Array.isArray(fullDetail.issues)).toBe(true);
+    expect(fullDetail.issues).toHaveLength(1);
+    expect(fullDetail.issues[0]?.issueId).toBe(fullId);
   });
 
   it("resolves two colliding 12-char prefix issues correctly without shadowing", async () => {
@@ -391,29 +404,29 @@ describe("MCP response amendments", () => {
 
     const detailA = parseText(
       await callTool(client, "get_issue_detail", { issueId: emittedIdA, checkId: checkResult.checkId }),
-    ) as NormalizedIssue[];
-    expect(detailA).toHaveLength(1);
-    expect(detailA[0]?.issueId).toBe(fullIdA);
-    expect(detailA[0]?.file).toBe("src/a.ts");
+    ) as { issues: NormalizedIssue[] };
+    expect(detailA.issues).toHaveLength(1);
+    expect(detailA.issues[0]?.issueId).toBe(fullIdA);
+    expect(detailA.issues[0]?.file).toBe("src/a.ts");
 
     const detailB = parseText(
       await callTool(client, "get_issue_detail", { issueId: emittedIdB, checkId: checkResult.checkId }),
-    ) as NormalizedIssue[];
-    expect(detailB).toHaveLength(1);
-    expect(detailB[0]?.issueId).toBe(fullIdB);
-    expect(detailB[0]?.file).toBe("src/b.ts");
+    ) as { issues: NormalizedIssue[] };
+    expect(detailB.issues).toHaveLength(1);
+    expect(detailB.issues[0]?.issueId).toBe(fullIdB);
+    expect(detailB.issues[0]?.file).toBe("src/b.ts");
 
     const detailFullA = parseText(
       await callTool(client, "get_issue_detail", { issueId: fullIdA, checkId: checkResult.checkId }),
-    ) as NormalizedIssue[];
-    expect(detailFullA).toHaveLength(1);
-    expect(detailFullA[0]?.issueId).toBe(fullIdA);
+    ) as { issues: NormalizedIssue[] };
+    expect(detailFullA.issues).toHaveLength(1);
+    expect(detailFullA.issues[0]?.issueId).toBe(fullIdA);
 
     const detailFullB = parseText(
       await callTool(client, "get_issue_detail", { issueId: fullIdB, checkId: checkResult.checkId }),
-    ) as NormalizedIssue[];
-    expect(detailFullB).toHaveLength(1);
-    expect(detailFullB[0]?.issueId).toBe(fullIdB);
+    ) as { issues: NormalizedIssue[] };
+    expect(detailFullB.issues).toHaveLength(1);
+    expect(detailFullB.issues[0]?.issueId).toBe(fullIdB);
   });
 });
 
@@ -455,7 +468,7 @@ describe("configurable MCP payload modes across tools", () => {
     });
     const detailText = getFirstText(detailRes.content);
     expect(detailText).not.toContain("\n");
-    expect(detailRes.structuredContent).toEqual({ issues: JSON.parse(detailText) });
+    expect(detailRes.structuredContent).toEqual(JSON.parse(detailText));
 
     // 5. get_loop_status
     const loopRes = await client.callTool({ name: "get_loop_status", arguments: {} });
@@ -533,17 +546,18 @@ describe("configurable MCP payload modes across tools", () => {
     const checkRes = await client.callTool({ name: "check_project", arguments: { paths: ["."] } });
     expect(checkRes.structuredContent).toBeDefined();
     expect(isCheckResponse(checkRes.structuredContent)).toBe(true);
-    const checkText = getFirstText(checkRes.content);
-    expect(checkText).not.toContain("\n");
-    expect(checkText).not.toContain("{");
-    expect(checkText).toBe("1 issue found.");
+    expect(JSON.parse(getFirstText(checkRes.content))).toEqual(checkRes.structuredContent);
+    const checkSummary = (checkRes.content as Array<{ text: string }>)[1]?.text;
+    expect(checkSummary).not.toContain("\n");
+    expect(checkSummary).toBe("1 issue found.");
 
     // 3. check_files
     const checkFilesRes = await client.callTool({ name: "check_files", arguments: { files: ["package.json"] } });
     expect(checkFilesRes.structuredContent).toBeDefined();
-    const filesText = getFirstText(checkFilesRes.content);
-    expect(filesText).not.toContain("\n");
-    expect(filesText).toBe("1 issue found.");
+    expect(JSON.parse(getFirstText(checkFilesRes.content))).toEqual(checkFilesRes.structuredContent);
+    const filesSummary = (checkFilesRes.content as Array<{ text: string }>)[1]?.text;
+    expect(filesSummary).not.toContain("\n");
+    expect(filesSummary).toBe("1 issue found.");
 
     // 4. get_issue_detail
     const structuredCheckId = (checkRes.structuredContent as CheckResponse).checkId;
@@ -552,18 +566,66 @@ describe("configurable MCP payload modes across tools", () => {
       arguments: { issueId: issue.issueId, checkId: structuredCheckId },
     });
     expect(detailRes.structuredContent).toBeDefined();
-    const detailText = getFirstText(detailRes.content);
-    expect(detailText).not.toContain("\n");
-    expect(detailText).not.toContain("{");
-    expect(detailText).toBe("Found 1 issue.");
+    expect(JSON.parse(getFirstText(detailRes.content))).toEqual(detailRes.structuredContent);
+    const detailSummary = (detailRes.content as Array<{ text: string }>)[1]?.text;
+    expect(detailSummary).not.toContain("\n");
+    expect(detailSummary).toBe("Found 1 issue.");
 
     // 5. get_loop_status
     const loopRes = await client.callTool({ name: "get_loop_status", arguments: {} });
     expect(loopRes.structuredContent).toBeDefined();
-    const loopText = getFirstText(loopRes.content);
-    expect(loopText).not.toContain("\n");
-    expect(loopText).not.toContain("{");
-    expect(loopText).toBe("No loops detected.");
+    expect(JSON.parse(getFirstText(loopRes.content))).toEqual(loopRes.structuredContent);
+    const loopSummary = (loopRes.content as Array<{ text: string }>)[1]?.text;
+    expect(loopSummary).not.toContain("\n");
+    expect(loopSummary).toBe("No loops detected.");
+  });
+
+  it("classifies engine timeout, output limit, and execution failures with sanitized messages", async () => {
+    vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    // 1. EngineTimeoutError
+    const timeoutClient = await connectServer(() =>
+      Promise.reject(new EngineTimeoutError("oxlint", 5000)),
+    );
+    const timeoutRes = await timeoutClient.callTool({
+      name: "check_project",
+      arguments: { paths: ["."] },
+    });
+    expect(timeoutRes.isError).toBe(true);
+    expect(timeoutRes.structuredContent).toEqual({
+      status: "error",
+      code: "engine_timeout",
+      engine: "oxlint",
+      message: "oxlint did not complete within 5s",
+      retryable: true,
+      nextStep: expect.any(String),
+    });
+
+    // 2. EngineExecutionError with stack trace and sensitive paths
+    const leakError = new Error(
+      "Command failed: /secret/bin/engine --flag=SECRET_API_KEY_1234\n    at internalRunner (/private/repo/runner.ts:42:15)",
+    );
+    const executionClient = await connectServer(() =>
+      Promise.reject(new EngineExecutionError("biome", leakError)),
+    );
+    const execRes = await executionClient.callTool({
+      name: "check_project",
+      arguments: { paths: ["."] },
+    });
+    expect(execRes.isError).toBe(true);
+    const structuredExec = execRes.structuredContent as Record<string, unknown>;
+    expect(structuredExec.status).toBe("error");
+    expect(structuredExec.code).toBe("engine_execution_failed");
+    expect(structuredExec.engine).toBe("biome");
+    expect(structuredExec.retryable).toBe(false);
+    expect(typeof structuredExec.message).toBe("string");
+
+    // Content sanitization: ensure secrets and stack traces do not leak into text or structuredContent
+    const visibleText = getFirstText(execRes.content);
+    expect(visibleText).not.toContain("/secret/bin");
+    expect(visibleText).not.toContain("SECRET_API_KEY_1234");
+    expect(visibleText).not.toContain("at internalRunner");
+    expect(visibleText).not.toContain("runner.ts");
   });
 
   it("formats human summaries correctly and handles all summary variants without newlines", () => {

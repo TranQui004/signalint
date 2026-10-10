@@ -10,6 +10,11 @@ full detail.
 > response `schemaVersion` from `1.2` to `1.3`, and adds ESLint as a fourth
 > diagnostic engine.
 
+## [1.2.0] - 2026-10-10
+
+- **Features:** 13 strictly typed MCP tools, Immutable SnapshotStore (`checkId`), verification delta computation (`compare_diagnostics`, `after_edit_check`), portable verify-after-change hook adapters (Claude Code, Cursor, Codex, VS Code), monorepo workspace planning (`pnpm-workspace.yaml`), incremental TypeScript `.tsbuildinfo` isolation, live LSP diagnostics ingestion (`ingest_diagnostics`, `get_live_diagnostics`), transactional fix previews with atomic rollback (`preview_diagnostic_fix`, `apply_diagnostic_fix`), and external language adapters (Ruff, Mypy, Clippy, GolangCI-Lint).
+- **Fixes & Hardening:** JSON-RPC protocol error codes (`-32602`), strict schema validation (`additionalProperties: false`), cross-platform path canonicalization, and parallel SQLite state isolation.
+
 ## 1.1.2 - 2026-10-08
 
 ### SQLite concurrency and Windows test stability

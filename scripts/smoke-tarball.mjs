@@ -1,8 +1,8 @@
 import { spawn, execSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { accessSync, constants, copyFileSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 async function main() {
   const rootDir = process.cwd();
@@ -10,25 +10,62 @@ async function main() {
   const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
   const expectedVersion = packageJson.version;
 
-  console.log(`[smoke-tarball] Verifying package version: ${expectedVersion}`);
+  // 1. Validate root package name is exactly 'signalint-mcp'
+  if (packageJson.name !== "signalint-mcp") {
+    throw new Error(`[smoke-tarball] Expected package name 'signalint-mcp', got '${packageJson.name}'`);
+  }
+  console.log(`[smoke-tarball] Verifying package '${packageJson.name}' version: ${expectedVersion}`);
+
+  // 2. Validate release tag matches package.json version if a release tag is provided
+  const releaseTag =
+    process.argv.slice(2).find((arg) => arg.startsWith("v")) ||
+    process.env.RELEASE_TAG ||
+    (process.env.GITHUB_REF_TYPE === "tag" ? process.env.GITHUB_REF_NAME : undefined) ||
+    process.env.INPUT_TAG;
+
+  if (releaseTag) {
+    const cleanTag = releaseTag.replace(/^v/, "");
+    if (cleanTag !== expectedVersion) {
+      throw new Error(
+        `[smoke-tarball] Version mismatch: package.json version '${expectedVersion}' does not match release tag '${releaseTag}'`,
+      );
+    }
+    console.log(`[smoke-tarball] Release tag matches package.json version: ${releaseTag}`);
+  } else {
+    console.log(`[smoke-tarball] No release tag supplied; proceeding with package.json version ${expectedVersion}`);
+  }
 
   // Create disposable temporary directory
   const tempDir = await mkdtemp(resolve(tmpdir(), "signalint-tarball-smoke-"));
   console.log(`[smoke-tarball] Created disposable temp directory: ${tempDir}`);
 
   try {
-    // 1. Pack tarball into temp directory
-    console.log("[smoke-tarball] Running npm pack...");
-    const packCmd = `npm pack --pack-destination "${tempDir}"`;
-    execSync(packCmd, { cwd: rootDir, stdio: "inherit" });
+    // 3. Obtain or pack tarball
+    const explicitTarballArg = process.argv.slice(2).find((arg) => arg.endsWith(".tgz"));
+    let tarballPath;
 
-    const files = readdirSync(tempDir);
-    const tarballName = files.find((f) => f.endsWith(".tgz"));
-    if (!tarballName) {
-      throw new Error(`[smoke-tarball] No .tgz tarball found in ${tempDir}`);
+    if (explicitTarballArg) {
+      const resolvedExplicit = resolve(rootDir, explicitTarballArg);
+      if (!existsSync(resolvedExplicit)) {
+        throw new Error(`[smoke-tarball] Specified tarball does not exist: ${resolvedExplicit}`);
+      }
+      console.log(`[smoke-tarball] Using existing tarball: ${resolvedExplicit}`);
+      const destPath = join(tempDir, basename(resolvedExplicit));
+      copyFileSync(resolvedExplicit, destPath);
+      tarballPath = destPath;
+    } else {
+      console.log("[smoke-tarball] Running npm pack...");
+      const packCmd = `npm pack --pack-destination "${tempDir}"`;
+      execSync(packCmd, { cwd: rootDir, stdio: "inherit" });
+
+      const files = readdirSync(tempDir);
+      const tarballName = files.find((f) => f.endsWith(".tgz"));
+      if (!tarballName) {
+        throw new Error(`[smoke-tarball] No .tgz tarball found in ${tempDir}`);
+      }
+      tarballPath = join(tempDir, tarballName);
+      console.log(`[smoke-tarball] Found generated tarball: ${tarballPath}`);
     }
-    const tarballPath = join(tempDir, tarballName);
-    console.log(`[smoke-tarball] Found generated tarball: ${tarballPath}`);
 
     // Create a minimal package.json in tempDir so npm install treats it as a local project
     writeFileSync(
@@ -37,19 +74,73 @@ async function main() {
       "utf8",
     );
 
-    // 2. Install tarball into temp directory
+    // 4. Install tarball into temp directory
     console.log("[smoke-tarball] Installing tarball in disposable directory...");
     execSync(`npm install --no-package-lock "${tarballPath}"`, {
       cwd: tempDir,
       stdio: "inherit",
     });
 
+    // Validate installed package identity
+    const installedPkgJsonPath = join(tempDir, "node_modules", "signalint-mcp", "package.json");
+    if (!existsSync(installedPkgJsonPath)) {
+      throw new Error(`[smoke-tarball] Installed package.json not found at ${installedPkgJsonPath}`);
+    }
+    const installedPkgJson = JSON.parse(readFileSync(installedPkgJsonPath, "utf8"));
+    if (installedPkgJson.name !== "signalint-mcp") {
+      throw new Error(`[smoke-tarball] Installed package name mismatch: expected 'signalint-mcp', got '${installedPkgJson.name}'`);
+    }
+    if (installedPkgJson.version !== expectedVersion) {
+      throw new Error(`[smoke-tarball] Installed package version mismatch: expected '${expectedVersion}', got '${installedPkgJson.version}'`);
+    }
+    console.log(`[smoke-tarball] Installed package identity verified: ${installedPkgJson.name}@${installedPkgJson.version}`);
+
     const isWindows = process.platform === "win32";
     const binDir = join(tempDir, "node_modules", ".bin");
     const signalintCmd = join(binDir, "signalint.cmd");
     const signalintSh = join(binDir, "signalint");
-    const cliEntrypoint = join(tempDir, "node_modules", "signalint-mcp", "dist", "src", "cli.js");
-    const mcpEntrypoint = join(tempDir, "node_modules", "signalint-mcp", "dist", "src", "index.js");
+    const cliCandidatePaths = [
+      join(tempDir, "node_modules", "signalint-mcp", "dist", "src", "cli.js"),
+      join(tempDir, "node_modules", "signalint-mcp", "dist", "cli.js"),
+    ];
+    const cliEntrypoint = cliCandidatePaths.find((p) => existsSync(p));
+    if (!cliEntrypoint) {
+      throw new Error(`[smoke-tarball] Executable bin entrypoint missing in installed package (checked dist/src/cli.js and dist/cli.js)`);
+    }
+
+    // Verify executable permissions
+    if (!isWindows) {
+      try {
+        accessSync(cliEntrypoint, constants.X_OK);
+      } catch {
+        const stat = statSync(cliEntrypoint);
+        if ((stat.mode & 0o111) === 0) {
+          throw new Error(`[smoke-tarball] Executable bin '${cliEntrypoint}' lacks executable permissions (mode: ${stat.mode.toString(8)})`);
+        }
+      }
+      if (existsSync(signalintSh)) {
+        try {
+          accessSync(signalintSh, constants.X_OK);
+        } catch {
+          const stat = statSync(signalintSh);
+          if ((stat.mode & 0o111) === 0) {
+            throw new Error(`[smoke-tarball] Bin wrapper '${signalintSh}' lacks executable permissions`);
+          }
+        }
+      }
+      console.log(`[smoke-tarball] Executable bin permissions verified for ${cliEntrypoint}`);
+    } else {
+      console.log(`[smoke-tarball] Executable bin verified: ${cliEntrypoint}`);
+    }
+
+    const mcpCandidatePaths = [
+      join(tempDir, "node_modules", "signalint-mcp", "dist", "src", "index.js"),
+      join(tempDir, "node_modules", "signalint-mcp", "dist", "index.js"),
+    ];
+    const mcpEntrypoint = mcpCandidatePaths.find((p) => existsSync(p));
+    if (!mcpEntrypoint) {
+      throw new Error(`[smoke-tarball] MCP entrypoint missing in installed package`);
+    }
 
     function runCli(commandArgs) {
       if (isWindows && existsSync(signalintCmd)) {
@@ -61,7 +152,7 @@ async function main() {
       return execSync(`node "${cliEntrypoint}" ${commandArgs}`, { cwd: tempDir, encoding: "utf8" });
     }
 
-    // 3. Run: signalint --version
+    // 5. Run: signalint --version
     console.log("[smoke-tarball] Checking signalint --version...");
     const versionOutput = runCli("--version").trim();
     if (versionOutput !== expectedVersion) {
@@ -71,7 +162,7 @@ async function main() {
     }
     console.log(`[smoke-tarball] --version verified: ${versionOutput}`);
 
-    // 4. Run: signalint doctor
+    // 6. Run: signalint doctor
     console.log("[smoke-tarball] Checking signalint doctor...");
     writeFileSync(join(tempDir, "signalint.config.json"), "{}\n", "utf8");
     const doctorOutput = runCli("doctor");
@@ -80,7 +171,7 @@ async function main() {
     }
     console.log("[smoke-tarball] doctor verified: PASSED (exited 0)");
 
-    // 5. Stdio smoke test
+    // 7. Stdio smoke test
     console.log("[smoke-tarball] Running Stdio MCP handshake & ping smoke test...");
     await runStdioSmokeTest(mcpEntrypoint, tempDir, expectedVersion);
     console.log("[smoke-tarball] Stdio MCP smoke test passed successfully!");

@@ -37,7 +37,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
         with:
           version: 11.9.0
 
@@ -62,6 +62,12 @@ jobs:
       - name: Build
         run: pnpm build
 
+      - name: Pack release tarball
+        run: pnpm pack --pack-destination .
+
+      - name: Run smoke verification against generated tarball
+        run: node scripts/smoke-tarball.mjs
+
   publish:
     name: Publish to npm
     needs: gate
@@ -77,7 +83,7 @@ jobs:
           fetch-depth: 0
 
       - name: Install pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@fe02b34f77f8bc703788d5817da081398fad5dd2 # v4.0.0
         with:
           version: 11.9.0
 
@@ -85,7 +91,6 @@ jobs:
         uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
         with:
           node-version: '22.x'
-          cache: pnpm
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
@@ -123,6 +128,11 @@ jobs:
             exit 1
           fi
           echo "Tarball unpacked and verified successfully."
+
+      - name: Smoke test verified tarball
+        run: node scripts/smoke-tarball.mjs "${{ steps.pack-tarball.outputs.tarball }}"
+        env:
+          RELEASE_TAG: ${{ env.RELEASE_TAG }}
 
       - name: Generate release notes from commit messages
         run: |
@@ -189,6 +199,7 @@ jobs:
         run: npm publish "${{ steps.pack-tarball.outputs.tarball }}" --provenance --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       - name: Verify server.json version matches package.json
         run: |

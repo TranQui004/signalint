@@ -64,9 +64,11 @@ export class EngineOutputLimitError extends Error {
     this.name = "EngineOutputLimitError";
     this.response = {
       status: "error",
-      code: "engine_output_exceeded",
+      code: "output_limit_exceeded",
       engine,
       message,
+      retryable: false,
+      nextStep: "Narrow the scope of checked files or increase maxOutputBytes in signalint.config.json.",
     };
   }
 }

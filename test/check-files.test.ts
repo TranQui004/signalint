@@ -109,12 +109,13 @@ describe("check_files scope filtering", () => {
     ) {
       throw new Error("Missing cluster detail text");
     }
-    const rawClusterIssues: unknown = JSON.parse(firstDetailContent.text);
+    const parsedDetail = JSON.parse(firstDetailContent.text) as { issues?: unknown[] } | unknown[];
+    const rawClusterIssues = Array.isArray(parsedDetail) ? parsedDetail : parsedDetail.issues;
     if (!Array.isArray(rawClusterIssues)) {
       throw new Error("Expected array of issues in cluster detail");
     }
     const clusterFiles = rawClusterIssues
-      .filter((item): item is { file: string } => typeof item === "object" && item !== null && typeof item.file === "string")
+      .filter((item): item is { file: string } => typeof item === "object" && item !== null && "file" in item && typeof item.file === "string")
       .map((i) => i.file)
       .sort();
     expect(clusterFiles).toEqual(["src/a.ts", "src/b.ts", "src/c.ts"]);

@@ -40,7 +40,13 @@ import { DiagnosticBuffer } from "../diagnostics/buffer.js";
 import { SnapshotStore } from "../diagnostics/snapshots.js";
 import { isRecord } from "../util/index.js";
 import { resolveSignalintVersion } from "../version.js";
-import { createInputRefusal } from "./errors.js";
+import {
+  EngineAbortError,
+  EngineExecutionError,
+  EngineOutputLimitError,
+  EngineTimeoutError,
+} from "../subprocess.js";
+import { createEngineFailureResult, createInputRefusal } from "./errors.js";
 import {
   handleAfterEditCheck,
   handleCheckFiles,
@@ -205,7 +211,7 @@ function registerToolHandlers(
         progressReporter,
       );
     } catch (error: unknown) {
-      if (extra.signal.aborted) {
+      if (extra.signal.aborted || error instanceof EngineAbortError) {
         throw error;
       }
       if (
@@ -214,6 +220,13 @@ function registerToolHandlers(
         error instanceof HookPathError
       ) {
         return createInputRefusal(error, context.cwd, context.payloadMode);
+      }
+      if (
+        error instanceof EngineTimeoutError ||
+        error instanceof EngineOutputLimitError ||
+        error instanceof EngineExecutionError
+      ) {
+        return createEngineFailureResult(error, "all", context.cwd, context.payloadMode);
       }
       throw error;
     } finally {

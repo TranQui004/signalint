@@ -225,18 +225,18 @@ describe("Concurrent Client Isolation", () => {
       name: "get_issue_detail",
       arguments: { issueId: "issue-A-1", checkId: content1.checkId },
     });
-    const parsedDetail1 = parseToolResult(detail1);
-    expect(Array.isArray(parsedDetail1)).toBe(true);
-    expect((parsedDetail1 as NormalizedIssue[])[0]?.issueId).toBe("issue-A-1");
+    const parsedDetail1 = parseToolResult(detail1) as { issues: NormalizedIssue[] };
+    expect(Array.isArray(parsedDetail1.issues)).toBe(true);
+    expect(parsedDetail1.issues[0]?.issueId).toBe("issue-A-1");
 
     // Client 2 retrieves its issue detail using checkId2
     const detail2 = await client2.callTool({
       name: "get_issue_detail",
       arguments: { issueId: "issue-B-1", checkId: content2.checkId },
     });
-    const parsedDetail2 = parseToolResult(detail2);
-    expect(Array.isArray(parsedDetail2)).toBe(true);
-    expect((parsedDetail2 as NormalizedIssue[])[0]?.issueId).toBe("issue-B-1");
+    const parsedDetail2 = parseToolResult(detail2) as { issues: NormalizedIssue[] };
+    expect(Array.isArray(parsedDetail2.issues)).toBe(true);
+    expect(parsedDetail2.issues[0]?.issueId).toBe("issue-B-1");
 
     // Client 1 requests detail using checkId2 but issueId belonging only to A -> returns deterministic stale response
     const crossDetail = await client1.callTool({

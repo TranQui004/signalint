@@ -96,6 +96,7 @@
     "@biomejs/biome": "2.5.15",
     "@types/node": "26.1.1",
     "@vitest/coverage-v8": "4.1.10",
+    "ajv": "^8.20.0",
     "oxlint": "1.86.0",
     "typescript": "7.0.2",
     "vitest": "4.1.10"

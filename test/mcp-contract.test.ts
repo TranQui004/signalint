@@ -5,6 +5,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import type { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
+import { Ajv } from "ajv";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createServer, dispatchToolCall } from "../src/server/createServer.js";
@@ -187,9 +188,11 @@ describe("MCP protocol contract and schema verification", () => {
 
     const errorVariant = {
       status: "error",
-      code: "engine_output_exceeded",
+      code: "output_limit_exceeded",
       engine: "tsc",
       message: "tsc exceeded limit",
+      retryable: false,
+      nextStep: "Narrow checked files",
     };
     assertMatchesSchemaProperties(errorVariant, checkOutputSchema);
 
@@ -445,7 +448,88 @@ describe("MCP protocol contract and schema verification", () => {
     expect(parsed.status).toBe("error");
     expect(parsed.code).toBe("invalid_arguments");
   });
+
+  it("compiles and validates all 13 declared tools input and output schemas with Ajv", () => {
+    const declaredTools = createTools("both");
+    expect(declaredTools).toHaveLength(13);
+    for (const tool of declaredTools) {
+      const validateInput = ajv.compile(tool.inputSchema);
+      expect(validateInput).toBeDefined();
+      expect(typeof validateInput).toBe("function");
+
+      if (tool.outputSchema !== undefined) {
+        const validateOutput = ajv.compile(tool.outputSchema);
+        expect(validateOutput).toBeDefined();
+        expect(typeof validateOutput).toBe("function");
+      }
+    }
+  });
+
+  it("strictly separates protocol-level InvalidParams errors (-32602) from tool business errors (isError: true)", async () => {
+    const server = createServer();
+    servers.push(server);
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await server.connect(serverTransport);
+    const client = new Client({ name: "protocol-vs-business-test", version: "1.0.0" });
+    clients.push(client);
+    await client.connect(clientTransport);
+
+    // 1. Protocol error: unadvertised tool name throws McpError -32602
+    await expect(
+      client.callTool({ name: "unadvertised_tool_xyz", arguments: {} }),
+    ).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(McpError);
+      const mcpError = error as McpError;
+      expect(mcpError.code).toBe(ErrorCode.InvalidParams);
+      expect(mcpError.message).toContain("Unknown tool: unadvertised_tool_xyz");
+      return true;
+    });
+
+    // 2. Protocol error: non-object argument payload throws McpError -32602
+    const dummyProvider = () =>
+      Promise.resolve({ issues: [], cache: { hits: 0, misses: 0 }, engines: {} });
+    await expect(
+      dispatchToolCall("ping", "not-an-object", new AbortController().signal, {
+        cwd: process.cwd(),
+        fileIssueProvider: dummyProvider,
+        projectIssueProvider: dummyProvider,
+        sessionMemory: new SessionMemory(),
+        payloadMode: "both",
+        snapshotStore: new SnapshotStore(),
+      }),
+    ).rejects.toSatisfy((error: unknown) => {
+      expect(error).toBeInstanceOf(McpError);
+      const mcpError = error as McpError;
+      expect(mcpError.code).toBe(ErrorCode.InvalidParams);
+      expect(mcpError.message).toContain("Malformed tool arguments");
+      return true;
+    });
+
+    // 3. Tool business error: missing required arguments returns isError: true
+    const missingArgResult = await client.callTool({
+      name: "get_issue_detail",
+      arguments: { clusterId: "c1" },
+    });
+    expect(missingArgResult.isError).toBe(true);
+    const missingContent = missingArgResult.content as Array<{ type: string; text: string }>;
+    const missingParsed = JSON.parse(missingContent[0]?.text ?? "{}");
+    expect(missingParsed.status).toBe("error");
+    expect(missingParsed.code).toBe("invalid_arguments");
+
+    // 4. Tool business error: path containment refusal returns isError: true
+    const pathRefusalResult = await client.callTool({
+      name: "check_files",
+      arguments: { files: ["../outside_project.ts"] },
+    });
+    expect(pathRefusalResult.isError).toBe(true);
+    const pathContent = pathRefusalResult.content as Array<{ type: string; text: string }>;
+    const pathParsed = JSON.parse(pathContent[0]?.text ?? "{}");
+    expect(pathParsed.status).toBe("error");
+    expect(pathParsed.code).toBe("path_outside_project");
+  });
 });
+
+const ajv = new Ajv({ strict: false, allErrors: true });
 
 function assertMatchesSchemaProperties(value: Record<string, unknown>, schema: Record<string, unknown>) {
   const allowedProps = schema.properties ? Object.keys(schema.properties as Record<string, unknown>) : [];
@@ -455,4 +539,10 @@ function assertMatchesSchemaProperties(value: Record<string, unknown>, schema: R
       `Property '${key}' was not declared in schema properties: ${allowedProps.join(", ")}`,
     ).toContain(key);
   }
+  const validate = ajv.compile(schema);
+  const valid = validate(value);
+  if (!valid) {
+    throw new Error(`Ajv schema validation failed:\n${JSON.stringify(validate.errors, null, 2)}`);
+  }
+  expect(valid).toBe(true);
 }

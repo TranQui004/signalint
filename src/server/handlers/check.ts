@@ -4,8 +4,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { clusterIssues } from "../../cluster/clusterEngine.js";
 import { computeDiagnosticDelta, type DiagnosticDelta } from "../../diagnostics/delta.js";
 import type { DiagnosticSnapshot } from "../../diagnostics/snapshots.js";
-import { ProjectPathError } from "../../projectPaths.js";
-import { EngineOutputLimitError } from "../../subprocess.js";
+import { EngineAbortError } from "../../subprocess.js";
 import {
   parseAfterEditCheckArguments,
   parseCheckFilesArguments,
@@ -18,7 +17,7 @@ import {
   type ToolHandlerContext,
 } from "../context.js";
 import { type McpPayloadMode, resolveMcpPayloadMode } from "../../config.js";
-import { createTextResult, logCheckFailure } from "../errors.js";
+import { createEngineFailureResult, createTextResult } from "../errors.js";
 
 export type ProgressReporter = (
   progress: number,
@@ -178,20 +177,9 @@ async function runCheck(
     const finalResponse = delta !== undefined ? { ...response, delta } : response;
     return createTextResult(finalResponse, payloadMode);
   } catch (error: unknown) {
-    if (signal.aborted) {
+    if (signal.aborted || error instanceof EngineAbortError) {
       throw error;
     }
-    if (error instanceof EngineOutputLimitError) {
-      logCheckFailure(error);
-      return { ...createTextResult(error.response, payloadMode), isError: true };
-    }
-    if (error instanceof ProjectPathError) {
-      return {
-        ...createTextResult({ status: "error", code: error.code, message: error.message, projectRoot }, payloadMode),
-        isError: true,
-      };
-    }
-    logCheckFailure(error);
-    throw error;
+    return createEngineFailureResult(error, "all", projectRoot, payloadMode);
   }
 }

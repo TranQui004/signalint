@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -440,5 +440,166 @@ describe("Transactional previews, safe apply, and rollback", () => {
     expect(unknownData.status).toBe("success");
     expect(unknownData.delta).toBeUndefined();
     expect(unknownData.message).toContain("Baseline check 'nonexistent-baseline' was not found");
+  });
+
+  it("atomically replaces files via temp files and leaves no leftover .signalint-tmp-* files", async () => {
+    const file1Rel = "src/atomic1.ts";
+    const file2Rel = "src/atomic2.ts";
+    const file1Abs = resolve(canonicalRoot, file1Rel);
+    const file2Abs = resolve(canonicalRoot, file2Rel);
+
+    writeFileSync(file1Abs, "initial 1\n", "utf-8");
+    writeFileSync(file2Abs, "initial 2\n", "utf-8");
+
+    const manager = new TransactionManager();
+    const preview = manager.prepareTransaction(
+      [
+        { file: file1Rel, originalContent: "initial 1\n", patchedContent: "patched 1\n" },
+        { file: file2Rel, originalContent: "initial 2\n", patchedContent: "patched 2\n" },
+      ],
+      { projectRoot: canonicalRoot },
+    );
+
+    const result = await manager.applyTransaction(preview.transactionId, {
+      projectRoot: canonicalRoot,
+      confirm: true,
+    });
+
+    expect(result.status).toBe("success");
+    expect(result.filesModified).toEqual([file1Rel, file2Rel]);
+    expect(readFileSync(file1Abs, "utf-8")).toBe("patched 1\n");
+    expect(readFileSync(file2Abs, "utf-8")).toBe("patched 2\n");
+
+    // Verify zero leftover .signalint-tmp-* files in src directory
+    const srcFiles = readdirSync(resolve(canonicalRoot, "src"));
+    const tmpFiles = srcFiles.filter((f) => f.includes(".signalint-tmp-"));
+    expect(tmpFiles).toHaveLength(0);
+  });
+
+  it("rejects application with file_drift_detected and preserves external modifications", async () => {
+    const fileRel = "src/drift_test.ts";
+    const fileAbs = resolve(canonicalRoot, fileRel);
+    writeFileSync(fileAbs, "clean original content", "utf-8");
+
+    const manager = new TransactionManager();
+    const preview = manager.prepareTransaction(
+      [{ file: fileRel, originalContent: "clean original content", patchedContent: "should not apply" }],
+      { projectRoot: canonicalRoot },
+    );
+
+    // Modify file on disk externally before apply
+    writeFileSync(fileAbs, "external modification that drifts", "utf-8");
+
+    const result = await manager.applyTransaction(preview.transactionId, {
+      projectRoot: canonicalRoot,
+      confirm: true,
+    });
+
+    expect(result.status).toBe("error");
+    expect(result.code).toBe("file_drift_detected");
+    expect(result.message).toContain("has been modified on disk since the preview was generated");
+    // Ensure external modification was not overwritten
+    expect(readFileSync(fileAbs, "utf-8")).toBe("external modification that drifts");
+  });
+
+  it("rolls back all previously written files when the 3rd file write fails in multi-file execution", async () => {
+    const file1Rel = "src/multi1.ts";
+    const file2Rel = "src/multi2.ts";
+    const file3Rel = "src/multi3.ts";
+    const file1Abs = resolve(canonicalRoot, file1Rel);
+    const file2Abs = resolve(canonicalRoot, file2Rel);
+    const file3Abs = resolve(canonicalRoot, file3Rel);
+
+    writeFileSync(file1Abs, "original multi 1", "utf-8");
+    writeFileSync(file2Abs, "original multi 2", "utf-8");
+    writeFileSync(file3Abs, "original multi 3", "utf-8");
+
+    const manager = new TransactionManager();
+    const preview = manager.prepareTransaction(
+      [
+        { file: file1Rel, originalContent: "original multi 1", patchedContent: "modified 1" },
+        { file: file2Rel, originalContent: "original multi 2", patchedContent: "modified 2" },
+        { file: file3Rel, originalContent: "original multi 3", patchedContent: "modified 3" },
+      ],
+      { projectRoot: canonicalRoot },
+    );
+
+    let file1Written = false;
+    let file2Written = false;
+
+    const result = await manager.applyTransaction(preview.transactionId, {
+      projectRoot: canonicalRoot,
+      confirm: true,
+      writeFile: (path, content) => {
+        if (path.includes("multi3.ts")) {
+          throw new Error("Simulated disk error on file 3");
+        }
+        if (path.includes("multi1.ts")) {
+          file1Written = true;
+        }
+        if (path.includes("multi2.ts")) {
+          file2Written = true;
+        }
+        writeFileSync(path, content, "utf-8");
+      },
+    });
+
+    expect(file1Written).toBe(true);
+    expect(file2Written).toBe(true);
+    expect(result.status).toBe("rolled_back");
+    expect(result.code).toBe("transaction_aborted_and_rolled_back");
+    expect(result.error).toContain("Simulated disk error on file 3");
+
+    // Both file 1 and file 2 must be restored to their original states
+    expect(readFileSync(file1Abs, "utf-8")).toBe("original multi 1");
+    expect(readFileSync(file2Abs, "utf-8")).toBe("original multi 2");
+    expect(readFileSync(file3Abs, "utf-8")).toBe("original multi 3");
+
+    // Zero leftover temp files
+    const srcFiles = readdirSync(resolve(canonicalRoot, "src"));
+    const tmpFiles = srcFiles.filter((f) => f.includes(".signalint-tmp-"));
+    expect(tmpFiles).toHaveLength(0);
+  });
+
+  it("rejects transaction application if a destination path escapes the project root via symlink", async () => {
+    const outsideDir = canonicalizePath(mkdtempSync(join(tmpdir(), "signalint-outside-")));
+    const stagedDir = resolve(canonicalRoot, "src", "staged_dir");
+    mkdirSync(stagedDir, { recursive: true });
+
+    const manager = new TransactionManager();
+    const preview = manager.prepareTransaction(
+      [{ file: "src/staged_dir/file.ts", originalContent: "", patchedContent: "malicious payload" }],
+      { projectRoot: canonicalRoot },
+    );
+
+    // Replace staged_dir with symlink/junction pointing outside project root
+    rmSync(stagedDir, { recursive: true, force: true });
+    let symlinkCreated = false;
+    try {
+      symlinkSync(outsideDir, stagedDir, process.platform === "win32" ? "junction" : "dir");
+      symlinkCreated = true;
+    } catch {
+      // Windows privilege fallback
+    }
+
+    if (symlinkCreated) {
+      try {
+        const result = await manager.applyTransaction(preview.transactionId, {
+          projectRoot: canonicalRoot,
+          confirm: true,
+        });
+
+        expect(result.status).toBe("error");
+        expect(result.code).toBe("path_outside_project");
+        expect(result.filesModified).toHaveLength(0);
+      } finally {
+        try {
+          rmSync(stagedDir, { recursive: true, force: true });
+          rmSync(outsideDir, { recursive: true, force: true });
+        } catch {
+          // cleanup
+        }
+      }
+    }
   });
 });

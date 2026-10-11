@@ -111,11 +111,11 @@ describe("release metadata verification script", () => {
   it("verifies current workspace release metadata consistently", () => {
     const result = verifyReleaseMetadata({
       rootDir: process.cwd(),
-      env: { RELEASE_TAG: "v1.2.0" },
+      env: { RELEASE_TAG: "v1.2.1" },
     });
     expect(result.packageName).toBe("signalint-mcp");
-    expect(result.packageVersion).toBe("1.2.0");
-    expect(result.validatedTag).toBe("v1.2.0");
+    expect(result.packageVersion).toBe("1.2.1");
+    expect(result.validatedTag).toBe("v1.2.1");
   });
 
   it("fails closed when RELEASE_TAG mismatches package.json version", () => {

@@ -10,6 +10,34 @@ full detail.
 > response `schemaVersion` from `1.2` to `1.3`, and adds ESLint as a fourth
 > diagnostic engine.
 
+## [1.2.1] - 2026-10-11
+
+### Security & Concurrency Hardening
+- **Immutable snapshot identity:** Required explicit `checkId` in `get_issue_detail` to eliminate cross-client race conditions and state leakage during concurrent checks.
+- **Stateless handler context:** Removed stateful `latestIssues` and `latestCheckId` coupling from `ToolHandlerContext`.
+- **Deep immutability:** Enforced deep cloning and recursive freezing (`structuredClone`, `deepFreeze`) in `SnapshotStore`.
+
+### Wire Contract & Error Handling
+- **Unified wire serialization:** Unified `structured` mode responses so `content[0].text` reliably delivers minified JSON identical to `JSON.stringify(structuredContent)` alongside an optional human summary block.
+- **Sanitized error classification:** Standardized engine and provider failures to structured payloads `{ status: "error", code, engine, message, retryable, nextStep }` with `isError: true`, sanitized of runner paths and environment variables.
+- **Ajv runtime validation:** Added strict Ajv schema compilation and validation across all 13 MCP tools.
+
+### Workspace Discovery & Monorepo Graph
+- **Pure-JS YAML parser:** Standardized on `yaml@2.9.1` for `pnpm-workspace.yaml`, eliminating regex parsing edge cases.
+- **Glob exclusion negations:** Added full support for glob negation exclusion patterns (`!**/test/**`, `!fixtures/**`) in workspace packages.
+- **Dependency differentiation:** Strictly differentiated local workspace protocol dependencies (`workspace:*`, `workspace:^`) from external npm registry packages, avoiding phantom graph cycles.
+- **Cross-platform path canonicalization:** Canonicalized package directories and project references to resolve Windows 8.3 short-name aliases (`RUNNER~1`).
+
+### Transaction Safety & Apply Semantics
+- **Journaled multi-file transactions:** Refined the file modification model to journaled, recoverable multi-file transactions using per-file adjacent temporary-file replacements (`${target}.signalint-tmp-*`) and atomic rename replacements.
+- **Drift detection & rollback:** Added pre-write SHA-256 drift validation and automated reverse journal rollback on partial write failure.
+- **Explicit baseline refusal:** Refused file modification when a supplied `baselineCheckId` is unknown (`baseline_check_unknown`) or expired (`baseline_snapshot_expired`), preserving the staged transaction preview intact for retry.
+
+### Supply-Chain & Release Pipeline
+- **Immutable action pinning:** Pinned all GitHub Actions across workflows and `action.yml` to immutable 40-character commit SHAs.
+- **Pre-publish verification gates:** Added `scripts/verify-release-metadata.mjs` and enforced that all metadata validations and tarball smoke tests execute strictly before `npm publish`.
+- **Audit advisory remediation:** Upgraded `vitest` and `@vitest/mocker` to `4.1.11` to resolve dev-dependency audit advisories.
+
 ## [1.2.0] - 2026-10-10
 
 - **Features:** 13 strictly typed MCP tools, Immutable SnapshotStore (`checkId`), verification delta computation (`compare_diagnostics`, `after_edit_check`), portable verify-after-change hook adapters (Claude Code, Cursor, Codex, VS Code), monorepo workspace planning (`pnpm-workspace.yaml`), incremental TypeScript `.tsbuildinfo` isolation, live LSP diagnostics ingestion (`ingest_diagnostics`, `get_live_diagnostics`), transactional fix previews with atomic rollback (`preview_diagnostic_fix`, `apply_diagnostic_fix`), and external language adapters (Ruff, Mypy, Clippy, GolangCI-Lint).
